@@ -1,0 +1,470 @@
+from __future__ import annotations
+
+import hashlib
+import secrets
+from pathlib import Path
+
+import bcrypt
+from sqlalchemy import inspect, text
+from sqlalchemy.orm import Session
+
+from ..config import KINDS, Settings
+from .models import (
+    AdminUser,
+    AlertConfig,
+    ApiKey,
+    AuthSettings,
+    Base,
+    ServiceGrant,
+    SmtpConfig,
+    Team,
+    make_engine,
+    make_session_factory,
+)
+
+engine = None
+SessionLocal = None
+
+
+def hash_api_key(raw: str) -> str:
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def generate_api_key() -> str:
+    return f"gw_{secrets.token_urlsafe(32)}"
+
+
+def key_display_prefix(raw: str) -> str:
+    """Safe UI prefix: gw_xxxx…xxxx (never middle of secret)."""
+    if raw.startswith("gw_") and len(raw) > 12:
+        return f"{raw[:7]}…{raw[-4:]}"
+    digest = hash_api_key(raw)[:8]
+    return f"key_{digest}"
+
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+
+
+def _ensure_columns(eng) -> None:
+    """SQLite lightweight migrations for new columns."""
+    specs = {
+        "admin_users": [
+            ("is_platform_admin", "BOOLEAN DEFAULT 0"),
+            ("email", "VARCHAR(255)"),
+            ("must_change_password", "BOOLEAN DEFAULT 0"),
+        ],
+        "teams": [
+            ("daily_quota", "INTEGER"),
+            ("monthly_quota", "INTEGER"),
+        ],
+        "usage_events": [
+            ("tokens_in", "INTEGER"),
+            ("tokens_out", "INTEGER"),
+            ("audio_seconds", "FLOAT"),
+            ("response_chars", "INTEGER"),
+            ("is_demo", "BOOLEAN DEFAULT 0"),
+        ],
+        "usage_daily": [
+            ("tokens_in", "INTEGER DEFAULT 0"),
+            ("tokens_out", "INTEGER DEFAULT 0"),
+            ("audio_seconds", "FLOAT DEFAULT 0"),
+            ("response_chars", "INTEGER DEFAULT 0"),
+            ("latency_sum_ms", "FLOAT DEFAULT 0"),
+            ("latency_count", "INTEGER DEFAULT 0"),
+        ],
+        "api_keys": [
+            ("daily_quota", "INTEGER"),
+            ("owner_user_id", "INTEGER"),
+        ],
+        "auth_settings": [
+            ("teams_enabled", "BOOLEAN DEFAULT 0"),
+            ("allow_self_registration", "BOOLEAN DEFAULT 0"),
+            ("require_email", "BOOLEAN DEFAULT 1"),
+            ("default_team_id", "INTEGER"),
+            ("anonymize_client_ip", "BOOLEAN DEFAULT 1"),
+            ("retention_days", "INTEGER DEFAULT 30"),
+            ("auto_vl_routing", "BOOLEAN DEFAULT 0"),
+        ],
+        "audit_logs": [
+            ("prev_hash", "VARCHAR(64) DEFAULT ''"),
+            ("entry_hash", "VARCHAR(64) DEFAULT ''"),
+        ],
+        "backend_config": [
+            ("chat", "VARCHAR(255) DEFAULT ''"),
+            ("chat2", "VARCHAR(255) DEFAULT ''"),
+        ],
+        "admin_users": [
+            ("timezone", "VARCHAR(64)"),
+        ],
+        "backend_sources": [
+            ("route_models", "TEXT DEFAULT ''"),
+            ("isolated", "BOOLEAN DEFAULT 0"),
+            ("api_style", "VARCHAR(32) DEFAULT 'auto'"),
+        ],
+        "service_grants": [
+            ("user_id", "INTEGER"),
+        ],
+        "model_allowlists": [
+            ("user_id", "INTEGER"),
+        ],
+        "catalog_models": [
+            ("tags", "VARCHAR(512) DEFAULT ''"),
+            ("short_note", "VARCHAR(512) DEFAULT ''"),
+            ("docs_url", "VARCHAR(512) DEFAULT ''"),
+            ("upstream_status", "VARCHAR(32) DEFAULT ''"),
+            ("ctx_size", "INTEGER"),
+            ("n_ctx", "INTEGER"),
+            ("n_ctx_train", "INTEGER"),
+            ("n_embd", "INTEGER"),
+            ("n_params", "INTEGER"),
+            ("model_size", "INTEGER"),
+            ("modalities_in", "VARCHAR(128) DEFAULT ''"),
+            ("modalities_out", "VARCHAR(128) DEFAULT ''"),
+            ("upstream_meta_at", "DATETIME"),
+        ],
+    }
+    insp = inspect(eng)
+    with eng.begin() as conn:
+        for table, cols in specs.items():
+            if table not in insp.get_table_names():
+                continue
+            existing = {c["name"] for c in insp.get_columns(table)}
+            for name, ddl in cols:
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+
+        # Rename logical services: llm/ollama → chat
+        tables = set(inspect(eng).get_table_names())
+        if "backend_config" in tables:
+            cols = {c["name"] for c in inspect(eng).get_columns("backend_config")}
+            if "chat" in cols:
+                if "llm" in cols:
+                    conn.execute(
+                        text(
+                            "UPDATE backend_config SET chat = llm "
+                            "WHERE (chat IS NULL OR chat = '') AND llm IS NOT NULL AND llm != ''"
+                        )
+                    )
+                if "ollama" in cols:
+                    conn.execute(
+                        text(
+                            "UPDATE backend_config SET chat = ollama "
+                            "WHERE (chat IS NULL OR chat = '') AND ollama IS NOT NULL AND ollama != ''"
+                        )
+                    )
+        _migrate_service_name_to_chat(conn, tables)
+
+
+def _migrate_service_name_to_chat(conn, tables: set[str]) -> None:
+    """Fold llm/ollama into chat without UNIQUE collisions."""
+    if "service_grants" in tables:
+        rows = conn.execute(
+            text(
+                "SELECT id, api_key_id, team_id, service FROM service_grants "
+                "WHERE service IN ('llm', 'ollama', 'chat')"
+            )
+        ).fetchall()
+        # Prefer keeping an existing chat row; else keep one llm/ollama row to rename
+        keep: set[int] = set()
+        seen_key: set[int] = set()
+        seen_team: set[int] = set()
+        # Pass 1: mark chat rows as keepers
+        for rid, key_id, team_id, svc in rows:
+            if svc != "chat":
+                continue
+            keep.add(rid)
+            if key_id is not None:
+                seen_key.add(key_id)
+            if team_id is not None:
+                seen_team.add(team_id)
+        # Pass 2: one legacy row per key/team if no chat yet (prefer llm over ollama)
+        for prefer in ("llm", "ollama"):
+            for rid, key_id, team_id, svc in rows:
+                if svc != prefer or rid in keep:
+                    continue
+                if key_id is not None:
+                    if key_id in seen_key:
+                        continue
+                    seen_key.add(key_id)
+                    keep.add(rid)
+                elif team_id is not None:
+                    if team_id in seen_team:
+                        continue
+                    seen_team.add(team_id)
+                    keep.add(rid)
+        drop_ids = [rid for rid, _, _, svc in rows if svc in ("llm", "ollama") and rid not in keep]
+        for rid in drop_ids:
+            conn.execute(text("DELETE FROM service_grants WHERE id = :id"), {"id": rid})
+        conn.execute(
+            text("UPDATE service_grants SET service = 'chat' WHERE service IN ('llm', 'ollama')")
+        )
+
+    if "model_allowlists" in tables:
+        rows = conn.execute(
+            text(
+                "SELECT id, api_key_id, team_id, service, model_name FROM model_allowlists "
+                "WHERE service IN ('llm', 'ollama', 'chat')"
+            )
+        ).fetchall()
+        keep = set()
+        seen: set[tuple] = set()
+        for rid, key_id, team_id, svc, model in rows:
+            if svc != "chat":
+                continue
+            keep.add(rid)
+            seen.add((key_id, team_id, model))
+        for prefer in ("llm", "ollama"):
+            for rid, key_id, team_id, svc, model in rows:
+                if svc != prefer or rid in keep:
+                    continue
+                sig = (key_id, team_id, model)
+                if sig in seen:
+                    continue
+                seen.add(sig)
+                keep.add(rid)
+        for rid, _, _, svc, _ in rows:
+            if svc in ("llm", "ollama") and rid not in keep:
+                conn.execute(text("DELETE FROM model_allowlists WHERE id = :id"), {"id": rid})
+        conn.execute(
+            text("UPDATE model_allowlists SET service = 'chat' WHERE service IN ('llm', 'ollama')")
+        )
+
+    if "model_limits" in tables:
+        rows = conn.execute(
+            text(
+                "SELECT id, api_key_id, team_id, service, model_name FROM model_limits "
+                "WHERE service IN ('llm', 'ollama', 'chat')"
+            )
+        ).fetchall()
+        keep = set()
+        seen: set[tuple] = set()
+        for rid, key_id, team_id, svc, model in rows:
+            if svc != "chat":
+                continue
+            keep.add(rid)
+            seen.add((key_id, team_id, model))
+        for prefer in ("llm", "ollama"):
+            for rid, key_id, team_id, svc, model in rows:
+                if svc != prefer or rid in keep:
+                    continue
+                sig = (key_id, team_id, model)
+                if sig in seen:
+                    continue
+                seen.add(sig)
+                keep.add(rid)
+        for rid, _, _, svc, _ in rows:
+            if svc in ("llm", "ollama") and rid not in keep:
+                conn.execute(text("DELETE FROM model_limits WHERE id = :id"), {"id": rid})
+        conn.execute(
+            text("UPDATE model_limits SET service = 'chat' WHERE service IN ('llm', 'ollama')")
+        )
+
+    if "usage_events" in tables:
+        conn.execute(
+            text("UPDATE usage_events SET service = 'chat' WHERE service IN ('llm', 'ollama')")
+        )
+
+    if "usage_daily" in tables:
+        rows = conn.execute(
+            text(
+                "SELECT id, day, api_key_id, team_id, service, model FROM usage_daily "
+                "WHERE service IN ('llm', 'ollama', 'chat')"
+            )
+        ).fetchall()
+        keep = set()
+        seen: set[tuple] = set()
+        for rid, day, key_id, team_id, svc, model in rows:
+            if svc != "chat":
+                continue
+            keep.add(rid)
+            seen.add((day, key_id, team_id, model))
+        for prefer in ("llm", "ollama"):
+            for rid, day, key_id, team_id, svc, model in rows:
+                if svc != prefer or rid in keep:
+                    continue
+                sig = (day, key_id, team_id, model)
+                if sig in seen:
+                    continue
+                seen.add(sig)
+                keep.add(rid)
+        for rid, _, _, _, svc, _ in rows:
+            if svc in ("llm", "ollama") and rid not in keep:
+                conn.execute(text("DELETE FROM usage_daily WHERE id = :id"), {"id": rid})
+        conn.execute(
+            text("UPDATE usage_daily SET service = 'chat' WHERE service IN ('llm', 'ollama')")
+        )
+
+
+def _ensure_audit_immutable(eng) -> None:
+    """Block UPDATE/DELETE on audit_logs (append-only)."""
+    with eng.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TRIGGER IF NOT EXISTS audit_logs_no_update
+                BEFORE UPDATE ON audit_logs
+                BEGIN
+                  SELECT RAISE(ABORT, 'audit_logs is immutable');
+                END;
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TRIGGER IF NOT EXISTS audit_logs_no_delete
+                BEFORE DELETE ON audit_logs
+                BEGIN
+                  SELECT RAISE(ABORT, 'audit_logs is immutable');
+                END;
+                """
+            )
+        )
+
+
+def init_db(settings: Settings) -> None:
+    global engine, SessionLocal
+    data_dir = Path(settings.data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "gateway.db"
+    engine = make_engine(str(db_path))
+    SessionLocal = make_session_factory(engine)
+    Base.metadata.create_all(bind=engine)
+    _ensure_columns(engine)
+    _ensure_audit_immutable(engine)
+
+    with SessionLocal() as db:
+        bootstrap_admin(db, settings)
+        migrate_legacy_keys(db, settings)
+        if db.query(AlertConfig).first() is None:
+            db.add(AlertConfig(enabled=False, webhook_url=""))
+        if db.query(SmtpConfig).first() is None:
+            db.add(SmtpConfig(enabled=False))
+        if db.query(AuthSettings).first() is None:
+            db.add(
+                AuthSettings(
+                    allow_self_registration=False,
+                    require_email=True,
+                    teams_enabled=False,
+                    default_team_id=None,
+                    anonymize_client_ip=True,
+                    retention_days=30,
+                    auto_vl_routing=False,
+                )
+            )
+        from .backends import seed_backends_from_env
+        from ..privacy import purge_old_usage
+        from ..admin.accounts import get_auth_settings
+
+        seed_backends_from_env(db, settings)
+        auth = get_auth_settings(db)
+        if auth.teams_enabled:
+            _ensure_default_team_source_grants(db)
+        else:
+            prune_orphan_default_team(db)
+        purged = purge_old_usage(db, auth.retention_days or 0)
+        if purged:
+            print(f"Purged {purged} usage events older than {auth.retention_days} days", flush=True)
+        db.commit()
+
+
+def get_db():
+    assert SessionLocal is not None
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def bootstrap_admin(db: Session, settings: Settings) -> None:
+    user = db.query(AdminUser).filter(AdminUser.username == settings.admin_bootstrap_user).first()
+    if user is None:
+        db.add(
+            AdminUser(
+                username=settings.admin_bootstrap_user,
+                password_hash=hash_password(settings.admin_bootstrap_password),
+                is_active=True,
+                is_platform_admin=True,
+            )
+        )
+    else:
+        user.is_platform_admin = True
+
+
+def _ensure_key(
+    db: Session,
+    *,
+    label: str,
+    raw_key: str,
+    services: list[str],
+) -> None:
+    key_hash = hash_api_key(raw_key)
+    existing = db.query(ApiKey).filter(ApiKey.key_hash == key_hash).first()
+    if existing:
+        existing.key_prefix = key_display_prefix(raw_key)
+        return
+    api_key = ApiKey(
+        label=label,
+        key_hash=key_hash,
+        key_prefix=key_display_prefix(raw_key),
+        is_active=True,
+        priority=0,
+    )
+    db.add(api_key)
+    db.flush()
+    for service in services:
+        db.add(ServiceGrant(api_key_id=api_key.id, service=service))
+
+
+def migrate_legacy_keys(db: Session, settings: Settings) -> None:
+    mapping = [
+        ("migrated-chat", settings.llm_api_key or settings.ollama_api_key, ["chat"]),
+        ("migrated-embed", settings.embed_api_key, ["embed"]),
+        ("migrated-stt", settings.stt_api_key, ["stt"]),
+        ("migrated-tts", settings.tts_api_key, ["tts"]),
+    ]
+    # Prefer separate migrated keys when both legacy keys exist
+    if settings.llm_api_key and settings.ollama_api_key and settings.llm_api_key != settings.ollama_api_key:
+        mapping = [
+            ("migrated-chat", settings.llm_api_key, ["chat"]),
+            ("migrated-chat-ollama", settings.ollama_api_key, ["chat"]),
+            ("migrated-embed", settings.embed_api_key, ["embed"]),
+            ("migrated-stt", settings.stt_api_key, ["stt"]),
+            ("migrated-tts", settings.tts_api_key, ["tts"]),
+        ]
+    for label, raw, services in mapping:
+        if raw:
+            _ensure_key(db, label=label, raw_key=raw, services=services)
+
+
+def prune_orphan_default_team(db: Session) -> None:
+    """Remove leftover 'default' team when teams feature is off and unused."""
+    from ..admin.accounts import get_auth_settings
+
+    auth = get_auth_settings(db)
+    if auth.teams_enabled:
+        return
+    team = db.query(Team).filter(Team.name == "default").first()
+    if team is None:
+        return
+    if db.query(ApiKey).filter(ApiKey.team_id == team.id).first():
+        return
+    db.delete(team)
+
+
+def _ensure_default_team_source_grants(db: Session) -> None:
+    from .backends import source_names
+
+    team = db.query(Team).filter(Team.name == "default").first()
+    if team is None:
+        return
+    existing = {g.service for g in team.service_grants}
+    for name in source_names(db):
+        if name not in existing:
+            db.add(ServiceGrant(team_id=team.id, service=name))

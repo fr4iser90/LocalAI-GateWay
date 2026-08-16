@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Usage · Gateway Admin{% endblock %}
+{% block content %}
+<div class="row" style="justify-content:space-between;align-items:center">
+  <h1 style="margin:0">Usage</h1>
+  <a class="btn" href="/usage/export.csv?service={{ filters.service }}&team_id={{ filters.team_id }}&key_id={{ filters.key_id }}&result={{ filters.result }}">Export CSV</a>
+</div>
+
+<div class="panel" style="margin-top:1rem">
+  <form method="get" action="/usage" class="row">
+    <div class="field">
+      <label>Service</label>
+      <select name="service">
+        <option value="">all</option>
+        {% for s in services %}
+        <option value="{{ s }}" {% if filters.service == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if teams_enabled %}
+    <div class="field">
+      <label>Team</label>
+      <select name="team_id">
+        <option value="">all</option>
+        {% for t in teams %}
+        <option value="{{ t.id }}" {% if filters.team_id|string == t.id|string %}selected{% endif %}>{{ t.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <div class="field">
+      <label>Key</label>
+      <select name="key_id">
+        <option value="">all</option>
+        {% for k in keys %}
+        <option value="{{ k.id }}" {% if filters.key_id|string == k.id|string %}selected{% endif %}>{{ k.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label>Result</label>
+      <select name="result">
+        <option value="">all</option>
+        <option value="ok" {% if filters.result == 'ok' %}selected{% endif %}>ok</option>
+        <option value="deny" {% if filters.result == 'deny' %}selected{% endif %}>deny</option>
+        <option value="rate_limit" {% if filters.result == 'rate_limit' %}selected{% endif %}>rate_limit</option>
+      </select>
+    </div>
+    <div class="field" style="flex:0">
+      <label>&nbsp;</label>
+      <input class="primary" type="submit" value="Filter">
+    </div>
+  </form>
+</div>
+
+<div class="panel">
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th>
+        {% if teams_enabled %}<th>Team</th>{% endif %}
+        <th>Key</th>
+        <th>Service</th>
+        <th>Path</th>
+        <th>Model</th>
+        <th>IP</th>
+        <th>Tokens</th>
+        <th>Audio/TTS</th>
+        <th>ms</th>
+        <th>Result</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for e in events %}
+      <tr>
+        <td class="mono">{{ e.created_at }}</td>
+        {% if teams_enabled %}<td>{{ e.team_name or '—' }}</td>{% endif %}
+        <td>{{ e.key_label or '—' }}{% if e.is_demo %} <span class="badge">demo</span>{% endif %}</td>
+        <td><span class="badge">{{ e.service }}</span></td>
+        <td class="mono">{{ e.method }} {{ e.path }}</td>
+        <td class="mono">{{ e.model or '—' }}</td>
+        <td class="mono">{{ e.client_ip }}</td>
+        <td class="mono">{% if e.tokens_in or e.tokens_out %}{{ e.tokens_in or 0 }}→{{ e.tokens_out or 0 }}{% else %}—{% endif %}</td>
+        <td class="mono">{% if e.audio_seconds %}{{ '%.1f'|format(e.audio_seconds) }}s{% elif e.response_chars %}{{ e.response_chars }}c{% else %}—{% endif %}</td>
+        <td class="mono">{% if e.duration_ms %}{{ '%.0f'|format(e.duration_ms) }}{% else %}—{% endif %}</td>
+        <td>
+          {% if e.result == 'ok' %}<span class="badge ok">ok</span>
+          {% elif e.result == 'rate_limit' %}<span class="badge rate">rate</span>
+          {% else %}<span class="badge deny">{{ e.result }}</span>{% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="muted">No events.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

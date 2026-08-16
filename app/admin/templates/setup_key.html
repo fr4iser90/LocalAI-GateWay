@@ -1,0 +1,83 @@
+{% extends "setup_base.html" %}
+{% block wizard_body %}
+{% if created_key %}
+<div class="panel">
+  <div class="flash">API key created — copy it now. It won’t be shown again.</div>
+  <p class="mono" style="font-size:1.05rem;word-break:break-all;user-select:all">{{ created_key }}</p>
+  {% if created_summary %}
+  <p style="margin:0.75rem 0 0">
+    This key may use: <strong>{{ created_summary }}</strong>
+    {% if created_models_n %}
+    · {{ created_models_n }} model(s) allowlisted
+    {% else %}
+    · all ON models for those sources
+    {% endif %}
+  </p>
+  {% endif %}
+  <p class="muted" style="font-size:0.85rem;margin-top:0.75rem">
+    Example:
+    <span class="mono">curl -H "X-Api-Key: …" http://localhost:{{ gateway_port }}/v1/models</span>
+  </p>
+  <div class="actions" style="margin-top:1rem">
+    <a class="btn primary" href="/setup/done">Finish setup →</a>
+  </div>
+</div>
+{% else %}
+<div class="panel panel--fill">
+  <form method="post" action="/setup/key" class="wizard-form wizard-form--fill">
+    <div class="wizard-top">
+      <p class="muted" style="margin:0 0 0.75rem">
+        Pick sources for this key. Optionally restrict models (unchecked = all ON).
+      </p>
+      <div class="row" style="align-items:end;margin-bottom:0.65rem">
+        <div class="field" style="max-width:16rem;flex:0 1 16rem;min-width:10rem">
+          <label>Label</label>
+          <input type="text" name="label" value="main" required>
+        </div>
+      </div>
+
+      <div class="field" style="margin-bottom:0.65rem">
+        <label>Sources (required)</label>
+        <div class="source-chips">
+          {% for s in sources %}
+          <label class="source-chip">
+            <input type="checkbox" name="services" value="{{ s.name }}" checked>
+            <span class="source-chip-name mono">{{ s.name }}</span>
+            <span class="source-chip-meta">{{ s.kind }} · {{ s.address }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="field" style="margin-bottom:0.65rem;flex:0 0 auto">
+      <label class="muted" style="font-weight:600">Optional · Vision routing</label>
+      <div class="checkboxes" style="margin:0.35rem 0 0.25rem">
+        <label>
+          <input type="checkbox" name="auto_vl_routing" data-vl-couple {% if auto_vl_routing %}checked{% endif %}>
+          Auto-route image chat → VL model
+        </label>
+      </div>
+      <p class="muted" style="margin:0;font-size:0.8rem">
+        When on, text + <span class="mono">-VL</span> siblings merge into one row below
+        (one check = both allowed). Image requests rewrite to the VL sibling.
+      </p>
+    </div>
+
+    {% if catalog_groups %}
+    <div class="field wizard-grow">
+      <label>Models (optional) <span class="muted" style="font-weight:400">— nothing checked = all ON</span></label>
+      {% with catalog_groups=catalog_groups, catalog_vl_groups=catalog_vl_groups, selected=selected_models|default([]), input_name='models', picker_id='setup-key', hint='' %}
+      {% include "partials/model_picker.html" %}
+      {% endwith %}
+    </div>
+    {% endif %}
+
+    <div class="actions wizard-actions wizard-actions--sticky">
+      <a class="btn" href="/setup/models">← Models</a>
+      <button class="primary" type="submit">Create API key</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

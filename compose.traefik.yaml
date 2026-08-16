@@ -1,0 +1,83 @@
+# OPTIONAL Traefik example (external Docker network "proxy").
+# Default install: compose.yaml (no reverse proxy).
+# Set PUBLIC_HOST in .env to the API hostname Traefik should serve.
+#
+# Usage:  docker compose -f compose.traefik.yaml up -d --build
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-proxy-net: &proxy-net
+  networks:
+    - proxy
+
+services:
+  auth-gateway:
+    <<: [*restart, *proxy-net]
+    build: .
+    container_name: llm-auth-gateway
+    depends_on:
+      - temp-guard
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      ADMIN_BOOTSTRAP_USER: ${ADMIN_BOOTSTRAP_USER:-admin}
+      PORT: "8080"
+    volumes:
+      - auth-gateway-data:/data
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.gateway-admin.rule=Host(`gateway.${DOMAIN}`)
+      - traefik.http.routers.gateway-admin.entrypoints=websecure
+      - traefik.http.routers.gateway-admin.tls=true
+      - traefik.http.routers.gateway-admin.tls.certresolver=http_resolver
+      - traefik.http.services.gateway-admin.loadbalancer.server.port=8080
+      - traefik.http.routers.gateway-admin-http.rule=Host(`gateway.${DOMAIN}`)
+      - traefik.http.routers.gateway-admin-http.entrypoints=web
+      - traefik.http.routers.gateway-admin-http.middlewares=gateway-https-redirect
+      - traefik.http.middlewares.gateway-https-redirect.redirectscheme.scheme=https
+
+  llm-gateway:
+    <<: [*restart, *proxy-net]
+    image: nginx:alpine
+    container_name: llm-gateway
+    depends_on:
+      - temp-guard
+      - auth-gateway
+    env_file: .env
+    volumes:
+      - ./nginx.conf:/etc/nginx/templates/nginx.conf.template:ro
+      - ./scripts/nginx-entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.llm-gateway.rule=Host(`${PUBLIC_HOST}`)
+      - traefik.http.routers.llm-gateway.entrypoints=websecure
+      - traefik.http.routers.llm-gateway.tls=true
+      - traefik.http.routers.llm-gateway.tls.certresolver=http_resolver
+      - traefik.http.services.llm-gateway.loadbalancer.server.port=80
+      - traefik.http.routers.llm-gateway-http.rule=Host(`${PUBLIC_HOST}`)
+      - traefik.http.routers.llm-gateway-http.entrypoints=web
+      - traefik.http.routers.llm-gateway-http.middlewares=gateway-https-redirect
+
+  temp-guard:
+    <<: [*restart, *proxy-net]
+    image: python:3.13-alpine
+    container_name: llm-temp-guard
+    environment:
+      TEMP_MAX_C: ${TEMP_MAX_C:-30}
+      TEMP_SENSOR_TYPE: ${TEMP_SENSOR_TYPE:-x86_pkg_temp}
+      TEMP_THERMAL_ROOT: /host/sys/class/thermal
+    volumes:
+      - ./services/temp-guard/main.py:/app/temp-guard.py:ro
+      - /sys:/host/sys:ro
+    command: ["python", "/app/temp-guard.py"]
+
+volumes:
+  auth-gateway-data:
+
+networks:
+  proxy:
+    external: true

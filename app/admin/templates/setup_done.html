@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Setup complete · Gateway Admin{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div>
+    <p class="eyebrow">Ready</p>
+    <h1>Setup complete</h1>
+    <p class="lede">Your gateway can serve traffic. Next steps are optional.</p>
+  </div>
+</header>
+
+<div class="panel">
+  <ul class="setup-source-list">
+    <li>✓ Backends configured</li>
+    <li>✓ Model catalog synced</li>
+    <li>✓ API key created (with chosen sources)</li>
+  </ul>
+  <p class="muted" style="margin:1rem 0 0">
+    Later: more keys under <a href="/keys">API Keys</a>,
+    invite friends via <a href="/users">Users → Edit grant</a>,
+    or tweak <a href="/models">Models</a> / <a href="/services">Services</a>.
+  </p>
+  <div class="actions" style="margin-top:1.25rem">
+    <a class="btn primary" href="/">Go to dashboard</a>
+    <a class="btn" href="/keys">Manage keys</a>
+  </div>
+</div>
+{% endblock %}

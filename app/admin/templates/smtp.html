@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}SMTP · Gateway Admin{% endblock %}
+{% block content %}
+<h1>SMTP / Email</h1>
+<p class="muted">Used for password reset and admin invite/reset mails. Status:
+  {% if ready %}<span class="badge ok">ready</span>{% else %}<span class="badge deny">not ready</span>{% endif %}
+</p>
+{% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
+{% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
+
+<div class="panel">
+  <form method="post" action="/smtp">
+    <div class="checkboxes" style="margin-bottom:1rem">
+      <label><input type="checkbox" name="enabled" {% if cfg and cfg.enabled %}checked{% endif %}> Enable SMTP</label>
+      <label><input type="checkbox" name="use_tls" {% if not cfg or cfg.use_tls %}checked{% endif %}> STARTTLS</label>
+      <label><input type="checkbox" name="use_ssl" {% if cfg and cfg.use_ssl %}checked{% endif %}> SSL (e.g. port 465)</label>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Host</label>
+        <input type="text" name="host" value="{{ cfg.host if cfg else '' }}" placeholder="smtp.example.com">
+      </div>
+      <div class="field" style="max-width:120px">
+        <label>Port</label>
+        <input type="number" name="port" value="{{ cfg.port if cfg else 587 }}">
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>SMTP username</label>
+        <input type="text" name="username" value="{{ cfg.username if cfg else '' }}" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>SMTP password {% if cfg and cfg.password %}<span class="muted">(leave blank to keep)</span>{% endif %}</label>
+        <input type="password" name="password" value="" autocomplete="new-password" placeholder="••••••••">
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>From email</label>
+        <input type="email" name="from_email" value="{{ cfg.from_email if cfg else '' }}">
+      </div>
+      <div class="field">
+        <label>From name</label>
+        <input type="text" name="from_name" value="{{ cfg.from_name if cfg else 'LLM Gateway' }}">
+      </div>
+    </div>
+    <div class="field" style="margin-bottom:1rem">
+      <label>Public base URL (for reset links)</label>
+      <input type="url" name="public_base_url" value="{{ cfg.public_base_url if cfg else '' }}" placeholder="http://127.0.0.1:9080 or https://gateway.example.com">
+      <p class="muted" style="font-size:0.8rem;margin:0.35rem 0 0">Must be reachable by users clicking the email link.</p>
+    </div>
+    <input class="primary" type="submit" value="Save SMTP">
+  </form>
+  <p class="muted" style="font-size:0.85rem;margin-top:0.5rem">SMTP password is stored encrypted at rest (Fernet, keyed from SESSION_SECRET). Re-enter password after changing SESSION_SECRET.</p>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Send test email</h2>
+  <form method="post" action="/smtp/test" class="row">
+    <div class="field">
+      <label>To</label>
+      <input type="email" name="to_email" value="{{ user.email or '' }}" placeholder="you@example.com">
+    </div>
+    <div class="field" style="flex:0">
+      <label>&nbsp;</label>
+      <button type="submit">Send test</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

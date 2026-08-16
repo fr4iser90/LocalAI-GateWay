@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Forgot password · Gateway{% endblock %}
+{% block body %}
+<div class="login-wrap">
+  <div class="login-card">
+    <h1>Forgot password</h1>
+    <p class="sub">We’ll email a reset link if SMTP is configured and the account has an email.</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    {% if ok %}<div class="flash">{{ ok }}</div>{% endif %}
+    {% if not smtp_ok %}
+    <div class="error">SMTP is not ready. Ask an admin to configure it under SMTP.</div>
+    {% endif %}
+    <form method="post" action="/forgot">
+      <div class="field" style="margin-bottom:1rem">
+        <label for="login">Username or email</label>
+        <input id="login" name="login" type="text" required autofocus>
+      </div>
+      <input class="primary" type="submit" value="Send reset link" style="width:100%" {% if not smtp_ok %}disabled{% endif %}>
+    </form>
+    <p style="margin-top:1rem"><a href="/login">Back to login</a></p>
+  </div>
+</div>
+{% endblock %}

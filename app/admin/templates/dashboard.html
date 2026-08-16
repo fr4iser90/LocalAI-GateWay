@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · Gateway Admin{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div>
+    <p class="eyebrow">Operations</p>
+    <h1>Dashboard</h1>
+    <p class="lede">Gateway traffic, limits, and model load at a glance.</p>
+  </div>
+  <div class="page-actions">
+    {% if demo_tools %}
+    <form method="post" action="/demo/seed">
+      <button class="btn btn-sm" type="submit">Seed demo data</button>
+    </form>
+    <form method="post" action="/demo/clear" onsubmit="return confirm('Remove all demo usage?')">
+      <button class="btn btn-sm btn-danger" type="submit">Clear demo</button>
+    </form>
+    {% endif %}
+  </div>
+</header>
+
+{% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
+{% if demo_count %}<div class="banner-info">Showing <strong>{{ '{:,}'.format(demo_count) }}</strong> demo events in the 7-day window — tagged in Usage as <span class="badge">demo</span>.</div>{% endif %}
+
+<section class="panel setup-panel {% if setup.complete %}setup-done{% endif %}" id="setup">
+  <div class="panel-head" style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap">
+    <div>
+      <h2 style="margin:0">Setup{% if not setup.complete %} checklist{% endif %}</h2>
+      <p class="panel-sub" style="margin:0.35rem 0 0">
+        {% if setup.complete %}
+        All set — {{ setup.done_n }}/{{ setup.total_n }}. Sources come from the UI (or optional <span class="mono">*_SOURCE</span> in <span class="mono">.env</span>).
+        {% else %}
+        Fresh install? Follow the <a href="/setup">setup wizard</a>
+        ({{ setup.done_n }}/{{ setup.total_n }} checklist items).
+        {% endif %}
+      </p>
+    </div>
+  </div>
+  <ol class="setup-steps">
+    {% for step in setup.steps %}
+    <li class="setup-step {% if step.done %}is-done{% else %}is-todo{% endif %}">
+      <div class="setup-step-main">
+        <span class="setup-mark">{% if step.done %}✓{% else %}{{ loop.index }}{% endif %}</span>
+        <div>
+          <strong>{{ step.title }}</strong>
+          <p class="muted" style="margin:0.2rem 0 0;font-size:0.85rem">{{ step.detail }}</p>
+        </div>
+      </div>
+      {% if not step.done %}
+      <a class="btn btn-sm primary" href="{{ step.href }}">{{ step.cta }}</a>
+      {% else %}
+      <a class="btn btn-sm" href="{{ step.href }}">Open</a>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+
+<section class="metric-section">
+  <h2 class="section-title">Requests</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="label">Successful · 24h</div>
+      <div class="value">{{ '{:,}'.format(total_day) }}</div>
+      <div class="hint">OK responses</div>
+    </div>
+    <div class="card">
+      <div class="label">Successful · 7d</div>
+      <div class="value">{{ '{:,}'.format(total_week) }}</div>
+      <div class="hint">OK responses</div>
+    </div>
+    <div class="card card-warn">
+      <div class="label">Denied · 24h</div>
+      <div class="value">{{ '{:,}'.format(denies) }}</div>
+      <div class="hint">Auth / quota / allowlist</div>
+    </div>
+    <div class="card card-warn">
+      <div class="label">Rate limited · 24h</div>
+      <div class="value">{{ '{:,}'.format(rate_limits) }}</div>
+      <div class="hint">HTTP 429</div>
+    </div>
+    <div class="card">
+      <div class="label">Active keys</div>
+      <div class="value">{{ '{:,}'.format(active_keys) }}</div>
+      <div class="hint">Enabled API keys</div>
+    </div>
+    {% if teams_enabled %}
+    <div class="card">
+      <div class="label">Teams</div>
+      <div class="value">{{ '{:,}'.format(teams_count) }}</div>
+      <div class="hint">Access groups</div>
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+<section class="metric-section">
+  <h2 class="section-title">LLM / STT / TTS · 24h</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="label">Tokens in</div>
+      <div class="value">{{ '{:,}'.format(tokens_in) }}</div>
+      <div class="hint">Prompt / embed estimate</div>
+    </div>
+    <div class="card">
+      <div class="label">Tokens out</div>
+      <div class="value">{{ '{:,}'.format(tokens_out) }}</div>
+      <div class="hint">Completion (demo / future)</div>
+    </div>
+    <div class="card">
+      <div class="label">STT audio</div>
+      <div class="value">{{ audio_seconds }}<span class="unit">s</span></div>
+      <div class="hint">Seconds transcribed</div>
+    </div>
+    <div class="card">
+      <div class="label">TTS chars</div>
+      <div class="value">{{ '{:,}'.format(response_chars) }}</div>
+      <div class="hint">Characters spoken</div>
+    </div>
+    <div class="card">
+      <div class="label">Latency p50</div>
+      <div class="value">{% if latency_p50 %}{{ '%.0f'|format(latency_p50) }}<span class="unit">ms</span>{% else %}—{% endif %}</div>
+      <div class="hint">Median auth check</div>
+    </div>
+    <div class="card">
+      <div class="label">Latency p95</div>
+      <div class="value">{% if latency_p95 %}{{ '%.0f'|format(latency_p95) }}<span class="unit">ms</span>{% else %}—{% endif %}</div>
+      <div class="hint">95th percentile</div>
+    </div>
+  </div>
+</section>
+
+<section class="panel panel-chart">
+  <div class="panel-head">
+    <div>
+      <h2>Traffic · last 7 days</h2>
+      <p class="panel-sub">Stacked requests per day ({{ display_timezone }}). Daily total above each bar; OK · deny · rate-limit below.</p>
+    </div>
+  </div>
+  {{ chart_daily | safe }}
+</section>
+
+<div class="chart-grid">
+  <section class="panel panel-chart">
+    <div class="panel-head">
+      <h2>By service · 24h</h2>
+      <p class="panel-sub">Successful requests only</p>
+    </div>
+    {{ chart_service | safe }}
+  </section>
+  <section class="panel panel-chart">
+    <div class="panel-head">
+      <h2>Top models · 24h</h2>
+      <p class="panel-sub">Successful requests only</p>
+    </div>
+    {{ chart_model | safe }}
+  </section>
+</div>
+
+<section class="panel panel-chart">
+  <div class="panel-head">
+    <h2>Top keys · 24h</h2>
+    <p class="panel-sub">Successful requests by key label</p>
+  </div>
+  {{ chart_keys | safe }}
+</section>
+
+<p class="footnote">
+  Live traffic estimates prompt tokens from request body size (chars÷4). Completion tokens and exact STT duration need response-side logging.
+  Auth latency is gateway check time, not full model generation.
+</p>
+{% endblock %}

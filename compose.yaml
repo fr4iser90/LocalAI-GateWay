@@ -1,0 +1,62 @@
+# Local — published ports, no reverse proxy required.
+# Usage:  docker compose up -d --build
+# Admin:  http://localhost:9080
+# API:    http://localhost:9081/v1/chat/completions  (+ X-Api-Key)
+#
+# Optional Traefik example:  docker compose -f compose.traefik.yaml up -d --build
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  auth-gateway:
+    <<: *restart
+    build: .
+    container_name: llm-auth-gateway
+    depends_on:
+      - temp-guard
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      ADMIN_BOOTSTRAP_USER: ${ADMIN_BOOTSTRAP_USER:-admin}
+      TEMP_GUARD_DISABLED: "true"
+      GATEWAY_PORT: ${GATEWAY_PORT:-9081}
+      WEB_PORT: ${WEB_PORT:-9080}
+      PORT: "8080"
+    ports:
+      - "${WEB_PORT:-9080}:8080"
+    volumes:
+      - auth-gateway-data:/data
+
+  llm-gateway:
+    <<: *restart
+    image: nginx:alpine
+    container_name: llm-gateway
+    depends_on:
+      - temp-guard
+      - auth-gateway
+    env_file: .env
+    ports:
+      - "${GATEWAY_PORT:-9081}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/templates/nginx.conf.template:ro
+      - ./scripts/nginx-entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+
+  temp-guard:
+    <<: *restart
+    image: python:3.13-alpine
+    container_name: llm-temp-guard
+    command:
+      - python
+      - -c
+      - |
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        class H(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(204); self.end_headers()
+            def log_message(self, *a): pass
+        HTTPServer(("0.0.0.0", 8080), H).serve_forever()
+
+volumes:
+  auth-gateway-data:

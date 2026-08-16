@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}API Keys · Gateway Admin{% endblock %}
+{% block content %}
+<div class="row" style="justify-content:space-between;align-items:center">
+  <h1 style="margin:0">API Keys</h1>
+  <a class="btn btn-primary" href="/keys/new">New key</a>
+</div>
+
+{% if flash_key %}
+<div class="flash warn">
+  Copy this key now — it will not be shown again:<br>
+  <strong>{{ flash_key }}</strong>
+</div>
+{% endif %}
+
+<div class="panel" style="margin-top:1rem">
+  <table>
+    <thead>
+      <tr>
+        <th>Label</th>
+        <th>Prefix</th>
+        {% if teams_enabled %}<th>Team</th>{% endif %}
+        <th>Services</th>
+        <th>Limits</th>
+        <th>Priority</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for k in keys %}
+      <tr>
+        <td>{{ k.label }}</td>
+        <td class="mono">{{ k.key_prefix }}</td>
+        {% if teams_enabled %}<td>{{ k.team.name if k.team else '—' }}</td>{% endif %}
+        <td>
+          {% for g in k.service_grants %}
+            <span class="badge">{{ g.service }}</span>
+          {% else %}
+            <span class="muted">{% if teams_enabled %}team defaults{% else %}none{% endif %}</span>
+          {% endfor %}
+        </td>
+        <td class="mono">
+          rpm={{ k.rpm_limit if k.rpm_limit is not none else '∅' }}
+          / conc={{ k.concurrency_limit if k.concurrency_limit is not none else '∅' }}
+        </td>
+        <td>{{ k.priority if k.priority is not none else '∅' }}</td>
+        <td>
+          {% if k.is_active %}<span class="badge ok">active</span>
+          {% else %}<span class="badge off">revoked</span>{% endif %}
+        </td>
+        <td class="actions">
+          <a class="btn btn-sm" href="/keys/{{ k.id }}">Edit</a>
+          <form method="post" action="/keys/{{ k.id }}/rotate">
+            <button class="btn-sm" type="submit">Rotate</button>
+          </form>
+          {% if k.is_active %}
+          <form method="post" action="/keys/{{ k.id }}/revoke">
+            <button class="btn-sm btn-danger" type="submit">Revoke</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="muted">No keys yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

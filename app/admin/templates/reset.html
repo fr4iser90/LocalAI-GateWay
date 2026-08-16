@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Reset password · Gateway{% endblock %}
+{% block body %}
+<div class="login-wrap">
+  <div class="login-card">
+    <h1>Set new password</h1>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post" action="/reset">
+      <input type="hidden" name="token" value="{{ token }}">
+      <div class="field" style="margin-bottom:0.75rem">
+        <label>New password</label>
+        <input type="password" name="password" required minlength="8" autocomplete="new-password">
+      </div>
+      <div class="field" style="margin-bottom:1rem">
+        <label>Confirm password</label>
+        <input type="password" name="password2" required minlength="8" autocomplete="new-password">
+      </div>
+      <input class="primary" type="submit" value="Update password" style="width:100%">
+    </form>
+  </div>
+</div>
+{% endblock %}

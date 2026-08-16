@@ -1,0 +1,49 @@
+{% extends "setup_base.html" %}
+{% block wizard_body %}
+<div class="panel">
+  <p class="muted" style="margin-top:0">
+    Add at least one upstream (usually <span class="mono">chat</span>).
+    Path mapping is Auto (chat/embed → OpenAI, STT → whisper.cpp, TTS → Piper).
+  </p>
+
+  {% if wizard.sources %}
+  <h2 style="margin:0 0 0.5rem;font-size:1rem">Configured</h2>
+  <ul class="setup-source-list">
+    {% for s in wizard.sources %}
+    <li><span class="badge">{{ s.name }}</span> · {{ s.kind }} · <span class="mono">{{ s.address }}</span></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <h2 style="margin:1.25rem 0 0.5rem;font-size:1rem">{% if wizard.sources %}Add another{% else %}Add source{% endif %}</h2>
+  <form method="post" action="/setup/sources" class="wizard-form wizard-source-form">
+    <input type="hidden" name="api_style" value="auto">
+    <div class="wizard-grid">
+      <div class="field">
+        <label for="src-name">Name</label>
+        <input id="src-name" class="mono" type="text" name="name" required placeholder="chat"
+               pattern="[a-z][a-z0-9_-]{0,31}" value="{{ preset_name or 'chat' }}">
+      </div>
+      <div class="field">
+        <label for="src-kind">Kind</label>
+        <select id="src-kind" name="kind">
+          {% for k in kinds %}
+          <option value="{{ k }}" {% if k == (preset_kind or 'chat') %}selected{% endif %}>{{ k }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="src-addr">Address</label>
+        <input id="src-addr" class="mono" type="text" name="address" required
+               placeholder="192.168.178.25:11535" value="{{ preset_address or '' }}">
+      </div>
+    </div>
+    <div class="actions wizard-actions">
+      <button class="primary" type="submit">Save source</button>
+      {% if wizard.has_sources %}
+      <a class="btn primary" href="/setup/models">Continue to models →</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+{% endblock %}

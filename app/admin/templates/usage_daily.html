@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Usage daily · Gateway{% endblock %}
+{% block content %}
+<h1>Usage aggregation</h1>
+<p class="muted">Daily rollups by team / key / service / model.</p>
+<div class="panel">
+  <table>
+    <thead><tr><th>Day</th><th>Team</th><th>Key</th><th>Service</th><th>Model</th><th>OK</th><th>Deny</th><th>429</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td class="mono">{{ r.day }}</td>
+        <td>{{ r.team_name or '—' }}</td>
+        <td>{{ r.key_label or '—' }}</td>
+        <td>{{ r.service }}</td>
+        <td class="mono">{{ r.model or '—' }}</td>
+        <td>{{ r.ok_count }}</td>
+        <td>{{ r.deny_count }}</td>
+        <td>{{ r.rate_limit_count }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="muted">No aggregates yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

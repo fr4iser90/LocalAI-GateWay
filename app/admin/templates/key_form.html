@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if key else 'New' }} Key · Gateway Admin{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div>
+    <p class="eyebrow">API access</p>
+    <h1>{{ 'Edit key' if key else 'New API key' }}</h1>
+  </div>
+</header>
+
+<div class="panel setup-hint">
+  <p style="margin:0"><strong>Your access grant</strong> — {{ grant_summary }}</p>
+  <p class="muted" style="margin:0.35rem 0 0;font-size:0.85rem">
+    Keys can only use sources/models from this grant.
+    {% if teams_enabled %}
+    Admin sets grants on <a href="/teams">Teams</a>.
+    {% else %}
+    Admin sets grants under <a href="/users">Users → Grant</a>.
+    {% endif %}
+  </p>
+</div>
+
+{% if grant_empty %}
+<div class="error">
+  No sources in your grant yet — ask an admin to grant access before this key can call the API.
+</div>
+{% endif %}
+
+<div class="panel">
+  <form method="post" action="{{ '/keys/' ~ key.id if key else '/keys/new' }}">
+    <div class="row">
+      <div class="field">
+        <label>Label</label>
+        <input type="text" name="label" value="{{ key.label if key else '' }}" required>
+      </div>
+      {% if teams_enabled %}
+      <div class="field">
+        <label>Team</label>
+        <select name="team_id" required>
+          <option value="">— select team —</option>
+          {% for t in teams %}
+          <option value="{{ t.id }}" {% if key and key.team_id == t.id %}selected{% elif not key and teams|length == 1 %}selected{% endif %}>{{ t.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% elif is_admin and owners is defined and owners %}
+      <div class="field">
+        <label>Owner</label>
+        <select name="owner_user_id">
+          {% for u in owners %}
+          <option value="{{ u.id }}" {% if key and key.owner_user_id == u.id %}selected{% elif not key and u.id == user.id %}selected{% endif %}>{{ u.username }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="field" style="margin-bottom:1.15rem">
+      <label>Sources for this key</label>
+      {% if services %}
+      <div class="source-chips">
+        {% for s in services %}
+        <label class="source-chip">
+          <input type="checkbox" name="services" value="{{ s }}" {% if s in selected_services %}checked{% endif %}>
+          <span class="source-chip-name mono">{{ s }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <p class="muted" style="margin:0.45rem 0 0;font-size:0.8rem">None checked = use <strong>all sources from your grant</strong>.</p>
+      {% else %}
+      <p class="muted">No sources available under your grant.</p>
+      {% endif %}
+    </div>
+
+    <div class="field" style="margin-bottom:1.15rem">
+      <label>Further restrict models (optional)</label>
+      {% with catalog_groups=catalog_groups, selected=selected_models, input_name='models', picker_id='key-models', hint='None checked = all models allowed by your grant (chat/embed). STT/TTS need only a source grant.' %}
+      {% include "partials/model_picker.html" %}
+      {% endwith %}
+    </div>
+
+    <div class="field" style="margin-bottom:1.15rem">
+      <label>Favorites (pin to top of <span class="mono">/v1/models</span>)</label>
+      {% with catalog_groups=catalog_groups, selected=selected_favorites, input_name='favorites', picker_id='key-favs', hint='UX only — does not grant access.' %}
+      {% include "partials/model_picker.html" %}
+      {% endwith %}
+    </div>
+
+    <div class="field" style="margin-bottom:1rem">
+      <label>Per-model limits (<span class="mono">source:model:rpm:concurrency:daily</span>)</label>
+      <textarea name="model_limits" placeholder="chat:llama3.2:30:2:500">{{ model_limits_text }}</textarea>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>RPM limit</label>
+        <input type="number" name="rpm_limit" min="0" value="{{ key.rpm_limit if key and key.rpm_limit is not none else '' }}" placeholder="inherit / unlimited">
+      </div>
+      <div class="field">
+        <label>Concurrency</label>
+        <input type="number" name="concurrency_limit" min="0" value="{{ key.concurrency_limit if key and key.concurrency_limit is not none else '' }}" placeholder="inherit / unlimited">
+      </div>
+      <div class="field">
+        <label>Daily quota (hard)</label>
+        <input type="number" name="daily_quota" min="0" value="{{ key.daily_quota if key and key.daily_quota is not none else '' }}" placeholder="inherit / unlimited">
+      </div>
+      <div class="field">
+        <label>Priority</label>
+        <input type="number" name="priority" value="{{ key.priority if key and key.priority is not none else '' }}" placeholder="inherit / 0">
+      </div>
+    </div>
+
+    {% if key %}
+    <div class="field" style="margin-bottom:1rem">
+      <label><input type="checkbox" name="is_active" {% if key.is_active %}checked{% endif %}> Active</label>
+    </div>
+    {% endif %}
+
+    <div class="actions">
+      <input class="primary" type="submit" value="Save">
+      <a class="btn" href="/keys">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

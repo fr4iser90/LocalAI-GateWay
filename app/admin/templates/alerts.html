@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Alerts · Gateway Admin{% endblock %}
+{% block content %}
+<h1>Webhook alerts</h1>
+<div class="panel">
+  <form method="post" action="/alerts">
+    <div class="field" style="margin-bottom:1rem">
+      <label>Webhook URL (Slack/Discord/generic JSON POST)</label>
+      <input type="text" name="webhook_url" value="{{ cfg.webhook_url if cfg else '' }}" placeholder="https://hooks.example/…">
+    </div>
+    <div class="checkboxes" style="margin-bottom:1rem">
+      <label><input type="checkbox" name="enabled" {% if cfg and cfg.enabled %}checked{% endif %}> Enabled</label>
+      <label><input type="checkbox" name="alert_on_quota" {% if not cfg or cfg.alert_on_quota %}checked{% endif %}> Quota warnings</label>
+      <label><input type="checkbox" name="alert_on_rate_limit" {% if cfg and cfg.alert_on_rate_limit %}checked{% endif %}> Rate-limit events</label>
+    </div>
+    <div class="field" style="margin-bottom:1rem;max-width:200px">
+      <label>Quota warn %</label>
+      <input type="number" name="quota_warn_pct" min="1" max="100" value="{{ cfg.quota_warn_pct if cfg else 80 }}">
+    </div>
+    <div class="actions">
+      <input class="primary" type="submit" value="Save">
+    </div>
+  </form>
+  <form method="post" action="/alerts/test" style="margin-top:1rem">
+    <button type="submit">Send test webhook</button>
+  </form>
+</div>
+{% endblock %}

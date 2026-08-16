@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Users · Gateway Admin{% endblock %}
+{% block content %}
+<h1>Users</h1>
+<p class="muted">
+  Setup order: <a href="/services">Services</a> → <a href="/models">Models</a> →
+  {% if teams_enabled %}<a href="/teams">Team grants</a>{% else %}<strong>User grants</strong>{% endif %}
+  → users create <a href="/keys">API keys</a>.
+</p>
+{% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
+{% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
+{% if teams_enabled %}
+<div class="banner-info">Teams mode is on — access grants live on <a href="/teams">Teams</a> (add users as members). Per-user grants are disabled.</div>
+{% endif %}
+{% if not smtp_ok %}<p class="muted">SMTP not ready — password-reset emails won’t send until you configure <a href="/smtp">SMTP</a>.</p>{% endif %}
+
+<div class="panel">
+  <h2 style="margin-top:0">Create user</h2>
+  <form method="post" action="/users/new">
+    <div class="row">
+      <div class="field">
+        <label>Username</label>
+        <input type="text" name="username" required>
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input type="email" name="email" placeholder="optional but needed for reset">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" name="password" required minlength="8">
+      </div>
+    </div>
+    <div class="checkboxes" style="margin-bottom:1rem">
+      <label><input type="checkbox" name="is_platform_admin"> Platform admin</label>
+      <label><input type="checkbox" name="must_change_password" checked> Must change password on first login</label>
+    </div>
+    <input class="primary" type="submit" value="Add user">
+  </form>
+</div>
+
+<div class="panel">
+  <table>
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Email</th>
+        <th>Role</th>
+        <th>Grant</th>
+        <th>Status</th>
+        <th>Manage</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for u in users %}
+      <tr>
+        <td>
+          <strong>{{ u.username }}</strong>
+          {% if u.must_change_password %}<span class="badge rate">must change pw</span>{% endif %}
+        </td>
+        <td class="mono">{{ u.email or '—' }}</td>
+        <td>{% if u.is_platform_admin %}<span class="badge">admin</span>{% else %}user{% endif %}</td>
+        <td class="muted" style="font-size:0.85rem">
+          {% if teams_enabled %}
+          via team
+          {% else %}
+          {{ grant_labels.get(u.id, '—') }}
+          {% if not u.is_platform_admin %}
+          · <a href="/users/{{ u.id }}/grant">Edit grant</a>
+          {% endif %}
+          {% endif %}
+        </td>
+        <td>{% if u.is_active %}<span class="badge ok">active</span>{% else %}<span class="badge off">disabled</span>{% endif %}</td>
+        <td>
+          <details>
+            <summary class="btn-sm" style="cursor:pointer">Edit</summary>
+            <form method="post" action="/users/{{ u.id }}/update" style="margin-top:0.75rem">
+              <div class="field" style="margin-bottom:0.5rem">
+                <label>Email</label>
+                <input type="email" name="email" value="{{ u.email or '' }}">
+              </div>
+              <div class="field" style="margin-bottom:0.5rem">
+                <label>Set new password (optional)</label>
+                <input type="password" name="new_password" minlength="8" autocomplete="new-password">
+              </div>
+              <div class="checkboxes" style="margin-bottom:0.5rem">
+                {% if u.id != user.id %}
+                <label><input type="checkbox" name="is_platform_admin" {% if u.is_platform_admin %}checked{% endif %}> Platform admin</label>
+                {% endif %}
+                <label><input type="checkbox" name="must_change_password" {% if u.must_change_password %}checked{% endif %}> Must change password</label>
+              </div>
+              <button class="btn-sm primary" type="submit">Save</button>
+            </form>
+            <div class="actions" style="margin-top:0.5rem">
+              {% if u.id != user.id %}
+              <form method="post" action="/users/{{ u.id }}/toggle">
+                <button class="btn-sm" type="submit">{{ 'Disable' if u.is_active else 'Enable' }}</button>
+              </form>
+              {% endif %}
+              <form method="post" action="/users/{{ u.id }}/send-reset">
+                <button class="btn-sm" type="submit" {% if not u.email or not smtp_ok %}disabled{% endif %}>Send reset email</button>
+              </form>
+            </div>
+          </details>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

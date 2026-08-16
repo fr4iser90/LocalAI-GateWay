@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Teams · Gateway Admin{% endblock %}
+{% block content %}
+<div class="row" style="justify-content:space-between;align-items:center">
+  <h1 style="margin:0">Teams</h1>
+  {% if is_admin %}<a class="btn btn-primary" href="/teams/new">New team</a>{% endif %}
+</div>
+
+<div class="panel" style="margin-top:1rem">
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Members</th>
+        <th>Services</th>
+        <th>RPM / Conc</th>
+        <th>Priority</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for t in teams %}
+      <tr>
+        <td>
+          <strong>{{ t.name }}</strong>
+          {% if t.description %}<div class="muted" style="font-size:0.8rem">{{ t.description }}</div>{% endif %}
+        </td>
+        <td>{{ t.members|length }}</td>
+        <td>
+          {% for g in t.service_grants %}<span class="badge">{{ g.service }}</span>{% endfor %}
+        </td>
+        <td class="mono">{{ t.rpm_limit if t.rpm_limit is not none else '∅' }} / {{ t.concurrency_limit if t.concurrency_limit is not none else '∅' }}</td>
+        <td>{{ t.priority }}</td>
+        <td class="actions">
+          <a class="btn btn-sm" href="/teams/{{ t.id }}">{% if is_admin %}Edit{% else %}View{% endif %}</a>
+          {% if is_admin %}
+          <form method="post" action="/teams/{{ t.id }}/delete" onsubmit="return confirm('Delete team?')">
+            <button class="btn-sm btn-danger" type="submit">Delete</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">No teams yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

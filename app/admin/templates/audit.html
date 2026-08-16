@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Audit · Gateway Admin{% endblock %}
+{% block content %}
+<h1>Audit log</h1>
+<p class="muted">Append-only (DB triggers block UPDATE/DELETE). Hash chain for tamper detection.</p>
+{% if chain_ok %}
+<div class="flash">Chain OK — {{ chain_msg }}</div>
+{% else %}
+<div class="error">Chain FAIL — {{ chain_msg }}</div>
+{% endif %}
+<div class="panel">
+  <table>
+    <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Entity</th><th>Detail</th><th>Hash</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td class="mono">{{ r.created_at }}</td>
+        <td>{{ r.actor_username or '—' }}</td>
+        <td><span class="badge">{{ r.action }}</span></td>
+        <td class="mono">{{ r.entity_type }} {{ r.entity_id }}</td>
+        <td>{{ r.detail }}</td>
+        <td class="mono" style="font-size:0.7rem">{{ (r.entry_hash or '')[:12] }}{% if r.entry_hash %}…{% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">No audit events yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

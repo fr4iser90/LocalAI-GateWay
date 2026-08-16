@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Settings · Gateway Admin{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<p class="muted">Runtime config, registration, and optional teams.</p>
+{% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
+{% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
+
+{% if user.is_platform_admin and auth %}
+<div class="panel">
+  <h2 style="margin-top:0">Users &amp; registration</h2>
+  <form method="post" action="/settings/auth">
+    <div class="checkboxes" style="margin-bottom:1rem">
+      <label><input type="checkbox" name="allow_self_registration" {% if auth.allow_self_registration %}checked{% endif %}> Allow self-registration</label>
+      <label><input type="checkbox" name="require_email" {% if auth.require_email %}checked{% endif %}> Require email on register</label>
+    </div>
+
+    <h3 style="margin:1.25rem 0 0.5rem;font-size:1rem">Privacy</h3>
+    <div class="checkboxes" style="margin-bottom:1rem">
+      <label><input type="checkbox" name="anonymize_client_ip" {% if auth.anonymize_client_ip %}checked{% endif %}> Anonymize client IPs in usage logs</label>
+    </div>
+    <div class="field" style="margin-bottom:1rem;max-width:200px">
+      <label>Usage retention (days, 0 = keep forever)</label>
+      <input type="number" name="retention_days" min="0" max="3650" value="{{ auth.retention_days }}">
+    </div>
+
+    <h3 style="margin:1.25rem 0 0.5rem;font-size:1rem">Teams (optional)</h3>
+    <p class="muted" style="margin-top:0">Off by default. Users only see their own keys. Turn on only if people should share a key pool.</p>
+    <div class="checkboxes" style="margin-bottom:1rem">
+      <label><input type="checkbox" name="teams_enabled" id="teams_enabled" {% if auth.teams_enabled %}checked{% endif %}> Enable teams</label>
+    </div>
+    <div class="field" style="margin-bottom:1rem;max-width:320px" id="default_team_wrap">
+      <label>Default team for new registrations</label>
+      <select name="default_team_id" {% if not auth.teams_enabled %}disabled{% endif %}>
+        <option value="">— none —</option>
+        {% for t in teams %}
+        <option value="{{ t.id }}" {% if auth.default_team_id == t.id %}selected{% endif %}>{{ t.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <h3 style="margin:1.25rem 0 0.5rem;font-size:1rem">Routing (optional)</h3>
+    <p class="muted" style="margin-top:0">
+      When enabled, chat JSON with image content parts is rewritten to a vision / <span class="mono">-VL</span>
+      sibling on the same source (catalog tag or id match). No match → request unchanged.
+    </p>
+    <div class="checkboxes" style="margin-bottom:1rem">
+      <label><input type="checkbox" name="auto_vl_routing" {% if auth.auto_vl_routing %}checked{% endif %}> Auto-route image chat → VL model</label>
+    </div>
+    <button class="primary" type="submit">Save</button>
+  </form>
+</div>
+<script>
+(function () {
+  var cb = document.getElementById('teams_enabled');
+  var sel = document.querySelector('select[name="default_team_id"]');
+  if (!cb || !sel) return;
+  function sync() { sel.disabled = !cb.checked; }
+  cb.addEventListener('change', sync);
+  sync();
+})();
+</script>
+{% endif %}
+
+<div class="panel">
+  <h2 style="margin-top:0">Admin</h2>
+  <table>
+    <tr><th>Domain</th><td class="mono">{{ settings.domain }}</td></tr>
+    <tr><th>Public API host</th><td class="mono">{{ settings.public_host or '(local gateway port / any Host)' }}</td></tr>
+    <tr><th>Bootstrap user</th><td class="mono">{{ settings.admin_bootstrap_user }}</td></tr>
+    <tr><th>Session max age</th><td>{{ session_max_age }} s</td></tr>
+    <tr><th>Data dir</th><td class="mono">{{ settings.data_dir }}</td></tr>
+  </table>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Local access (this compose)</h2>
+  <table>
+    <tr><th>Admin UI</th><td class="mono"><a href="{{ admin_url }}">{{ admin_url }}</a></td></tr>
+    <tr><th>API gateway</th><td class="mono">{{ gateway_url }}</td></tr>
+  </table>
+  <p class="muted" style="margin:0.75rem 0 0;font-size:0.85rem">
+    Path selects the service. Example:
+    <span class="mono">curl -H "X-Api-Key: …" {{ gateway_url }}/v1/chat/completions -d '…'</span>
+  </p>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">API routes</h2>
+  <p class="muted" style="margin-top:0">
+    One base URL + API key. Configure upstreams under <a href="/services">Services</a>.
+    Reverse proxy optional — point one hostname at the API gateway.
+  </p>
+  <table>
+    <thead><tr><th>Source</th><th>Path</th><th>Address</th></tr></thead>
+    <tbody>
+    {% for src, route in backend_rows %}
+      <tr>
+        <td><span class="badge">{{ src.name }}</span>{% if src.is_default %} · {{ src.kind }} default{% endif %}</td>
+        <td class="mono" style="font-size:0.85rem">{{ route }}</td>
+        <td class="mono">{{ src.address if src.address else '— (disabled)' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Temp guard</h2>
+  <table>
+    <tr><th>Disabled</th><td class="mono">{{ 'yes' if temp_guard_disabled else 'no' }}</td></tr>
+    <tr><th>Max °C</th><td class="mono">{{ temp_max_c }}</td></tr>
+    <tr><th>URL</th><td class="mono">{{ settings.temp_guard_url }}</td></tr>
+  </table>
+</div>
+
+<p class="muted">Secrets (API keys, session secret, bootstrap password) are not shown here.</p>
+{% endblock %}

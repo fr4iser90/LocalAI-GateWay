@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}My account · Gateway{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div>
+    <p class="eyebrow">Your workspace</p>
+    <h1>My account</h1>
+    <p class="lede">{% if teams_enabled %}Scoped to your team memberships.{% else %}Only your keys and usage — other users stay invisible.{% endif %}{% if is_admin %} You are also platform admin.{% endif %}</p>
+  </div>
+</header>
+
+<section class="metric-section">
+  <h2 class="section-title">Last 24 hours</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="label">Successful</div>
+      <div class="value">{{ '{:,}'.format(ok) }}</div>
+      <div class="hint">OK requests</div>
+    </div>
+    <div class="card card-warn">
+      <div class="label">Denied</div>
+      <div class="value">{{ '{:,}'.format(deny) }}</div>
+      <div class="hint">Auth / limits</div>
+    </div>
+    <div class="card card-warn">
+      <div class="label">Rate limited</div>
+      <div class="value">{{ '{:,}'.format(rate) }}</div>
+      <div class="hint">HTTP 429</div>
+    </div>
+    <div class="card">
+      <div class="label">Tokens in</div>
+      <div class="value">{{ '{:,}'.format(tokens_in) }}</div>
+      <div class="hint">Estimate</div>
+    </div>
+    <div class="card">
+      <div class="label">Tokens out</div>
+      <div class="value">{{ '{:,}'.format(tokens_out) }}</div>
+      <div class="hint">Completion</div>
+    </div>
+    <div class="card">
+      <div class="label">STT audio</div>
+      <div class="value">{{ audio_seconds }}<span class="unit">s</span></div>
+      <div class="hint">Seconds</div>
+    </div>
+    <div class="card">
+      <div class="label">Latency p50</div>
+      <div class="value">{% if latency_p50 %}{{ '%.0f'|format(latency_p50) }}<span class="unit">ms</span>{% else %}—{% endif %}</div>
+      <div class="hint">Median</div>
+    </div>
+    <div class="card">
+      <div class="label">Latency p95</div>
+      <div class="value">{% if latency_p95 %}{{ '%.0f'|format(latency_p95) }}<span class="unit">ms</span>{% else %}—{% endif %}</div>
+      <div class="hint">Tail</div>
+    </div>
+  </div>
+</section>
+
+<section class="panel panel-chart">
+  <div class="panel-head">
+    <div>
+      <h2>Traffic · last 7 days</h2>
+      <p class="panel-sub">Your requests per day ({{ display_timezone }}). Daily total above each bar; OK · deny · rate-limit below.</p>
+    </div>
+  </div>
+  {{ chart_daily | safe }}
+</section>
+
+<section class="panel panel-chart">
+  <div class="panel-head">
+    <h2>By service · 24h</h2>
+    <p class="panel-sub">Successful requests only</p>
+  </div>
+  {{ chart_service | safe }}
+</section>
+
+{% if teams_enabled %}
+<section class="panel">
+  <div class="panel-head"><h2>Your teams</h2></div>
+  {% if teams %}
+  <ul class="clean-list">
+    {% for t in teams %}
+    <li><a href="/teams/{{ t.id }}">{{ t.name }}</a>
+      {% if t.daily_quota %} · daily {{ t.daily_quota }}{% endif %}
+      {% if t.monthly_quota %} · monthly {{ t.monthly_quota }}{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">You are not in a team yet. Ask an admin to add you.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Today (aggregated)</h2>
+  </div>
+  {% if daily_rows %}
+  <div class="table-wrap">
+  <table>
+    <thead><tr>{% if teams_enabled %}<th>Team</th>{% endif %}<th>Key</th><th>Service</th><th>Model</th><th>OK</th><th>Tokens in</th><th>Audio s</th></tr></thead>
+    <tbody>
+    {% for r in daily_rows %}
+      <tr>
+        {% if teams_enabled %}<td>{{ r.team_name or '—' }}</td>{% endif %}
+        <td>{{ r.key_label or '—' }}</td>
+        <td>{{ r.service }}</td>
+        <td class="mono">{{ r.model or '—' }}</td>
+        <td class="num">{{ r.ok_count }}</td>
+        <td class="num">{{ r.tokens_in or 0 }}</td>
+        <td class="num">{{ '%.1f'|format(r.audio_seconds or 0) }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">No usage today.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <div class="panel-head row-between">
+    <h2>Your keys</h2>
+    <a class="btn btn-primary btn-sm" href="/keys/new">New key</a>
+  </div>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Label</th><th>Prefix</th>{% if teams_enabled %}<th>Team</th>{% endif %}<th>Status</th></tr></thead>
+    <tbody>
+    {% for k in keys %}
+      <tr>
+        <td><a href="/keys/{{ k.id }}">{{ k.label }}</a></td>
+        <td class="mono">{{ k.key_prefix }}</td>
+        {% if teams_enabled %}<td>{{ k.team.name if k.team else '—' }}</td>{% endif %}
+        <td>{% if k.is_active %}<span class="badge ok">active</span>{% else %}<span class="badge off">off</span>{% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="muted">No keys yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+{% if keys %}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Favorites</h2>
+    <p class="panel-sub">Pinned models appear first in <span class="mono">GET /v1/models</span> (VS Code etc.). Does not change permissions.</p>
+  </div>
+  {% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
+  <form method="get" action="/me" class="row" style="margin-bottom:1rem">
+    <div class="field">
+      <label>Key</label>
+      <select name="fav_key" onchange="this.form.submit()">
+        {% for k in keys %}
+        <option value="{{ k.id }}" {% if fav_key and fav_key.id == k.id %}selected{% endif %}>{{ k.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </form>
+  {% if fav_key %}
+  <form method="post" action="/me/favorites">
+    <input type="hidden" name="key_id" value="{{ fav_key.id }}">
+    {% if catalog_groups %}
+    {% with catalog_groups=catalog_groups, selected=selected_favorites, input_name='favorites', picker_id='me-favs', hint='' %}
+    {% include "partials/model_picker.html" %}
+    {% endwith %}
+    {% else %}
+    <p class="muted">No catalog models yet — ask an admin to sync under Models.</p>
+    {% endif %}
+    <div class="actions" style="margin-top:1rem">
+      <input class="primary" type="submit" value="Save favorites">
+    </div>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+
+<p class="footnote"><a href="/privacy">Privacy &amp; data controls</a></p>
+{% endblock %}

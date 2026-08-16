@@ -1,0 +1,24 @@
+{# Expects CatalogModel-like `m` with tags, short_note, docs_url, model_id, source meta #}
+<span class="model-meta">
+  <span class="mono">{{ m.model_id }}</span>
+  {% if m.ctx_size or m.n_embd or m.n_ctx_train %}
+  <span class="muted model-note mono" style="font-size:0.75rem">
+    {%- if m.ctx_size %}ctx {{ m.ctx_size }}{% endif -%}
+    {%- if m.n_ctx_train %}{% if m.ctx_size %} · {% endif %}train {{ m.n_ctx_train }}{% endif -%}
+    {%- if m.n_embd %}{% if m.ctx_size or m.n_ctx_train %} · {% endif %}dim {{ m.n_embd }}{% endif -%}
+  </span>
+  {% endif %}
+  {% if m.tags %}
+  <span class="tag-row">
+    {% for t in m.tags.split(',') if t.strip() %}
+    <span class="badge tag">{{ t.strip() }}</span>
+    {% endfor %}
+  </span>
+  {% endif %}
+  {% if m.short_note %}
+  <span class="muted model-note">{{ m.short_note }}</span>
+  {% endif %}
+  {% if m.docs_url %}
+  <a class="docs-link" href="{{ m.docs_url }}" target="_blank" rel="noopener noreferrer">docs</a>
+  {% endif %}
+</span>

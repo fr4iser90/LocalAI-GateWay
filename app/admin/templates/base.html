@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("gw_theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
+        document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    })();
+  </script>
+  <title>{% block title %}Gateway Admin{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;650&display=swap" rel="stylesheet">
+</head>
+<body{% if user is defined and user %} data-tz="{{ display_tz|default('UTC') }}"{% endif %}>
+{% if user is defined and user %}
+<div class="layout">
+  <aside class="sidebar">
+    <p class="brand">LLM <span>Gateway</span></p>
+    <nav class="nav">
+      {% if user.is_platform_admin %}
+      <a href="/" class="{{ 'active' if nav == 'dashboard' else '' }}">Dashboard</a>
+      <a href="/setup" class="{{ 'active' if nav == 'setup' else '' }}">Setup</a>
+      {% endif %}
+      <a href="/me" class="{{ 'active' if nav == 'me' else '' }}">My account</a>
+      <a href="/account" class="{{ 'active' if nav == 'account' else '' }}">Account</a>
+      <a href="/privacy" class="{{ 'active' if nav == 'privacy' else '' }}">Privacy</a>
+      <a href="/keys" class="{{ 'active' if nav == 'keys' else '' }}">API Keys</a>
+      {% if teams_enabled %}
+      <a href="/teams" class="{{ 'active' if nav == 'teams' else '' }}">Teams</a>
+      {% endif %}
+      {% if user.is_platform_admin %}
+      <a href="/users" class="{{ 'active' if nav == 'users' else '' }}">Users / Grants</a>
+      {% endif %}
+      <a href="/usage" class="{{ 'active' if nav == 'usage' else '' }}">Usage</a>
+      <a href="/usage/daily" class="{{ 'active' if nav == 'usage-daily' else '' }}">Daily rollup</a>
+      {% if user.is_platform_admin %}
+      <a href="/smtp" class="{{ 'active' if nav == 'smtp' else '' }}">SMTP</a>
+      <a href="/audit" class="{{ 'active' if nav == 'audit' else '' }}">Audit</a>
+      <a href="/alerts" class="{{ 'active' if nav == 'alerts' else '' }}">Alerts</a>
+      <a href="/services" class="{{ 'active' if nav == 'services' else '' }}">Services</a>
+      <a href="/models" class="{{ 'active' if nav == 'models' else '' }}">Models</a>
+      <a href="/settings" class="{{ 'active' if nav == 'settings' else '' }}">Settings</a>
+      {% endif %}
+    </nav>
+    <div class="sidebar-foot">
+      <button type="button" class="btn btn-sm theme-toggle" data-theme-toggle>Light</button>
+      <div>{{ user.username }}{% if user.is_platform_admin %} · admin{% endif %}</div>
+      <form method="post" action="/logout" style="margin-top:0.5rem">
+        <button class="btn-sm" type="submit">Logout</button>
+      </form>
+    </div>
+  </aside>
+  <main class="content{% block content_class %}{% endblock %}">
+    {% block content %}{% endblock %}
+  </main>
+</div>
+<script src="/static/theme.js"></script>
+<script src="/static/picker.js"></script>
+<script>
+(function () {
+  var tz;
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return; }
+  if (!tz) return;
+  var server = document.body.getAttribute('data-tz') || '';
+  var prev = '';
+  document.cookie.split(';').forEach(function (c) {
+    c = c.trim();
+    if (c.indexOf('gw_tz=') === 0) prev = decodeURIComponent(c.slice(6));
+  });
+  document.cookie = 'gw_tz=' + encodeURIComponent(tz) + ';path=/;max-age=31536000;SameSite=Lax';
+  if (prev !== tz || server !== tz) {
+    fetch('/account/timezone/auto', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+      body: JSON.stringify({timezone: tz}),
+      credentials: 'same-origin'
+    }).catch(function () {});
+  }
+  if (server !== tz && !sessionStorage.getItem('gw_tz_boot')) {
+    sessionStorage.setItem('gw_tz_boot', '1');
+    location.reload();
+  }
+})();
+</script>
+{% else %}
+  {% block body %}{% endblock %}
+  <script src="/static/theme.js"></script>
+{% endif %}
+</body>
+</html>

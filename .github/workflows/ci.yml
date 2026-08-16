@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install deps
+        run: pip install -r requirements-dev.txt
+      - name: Unit tests
+        run: pytest -q -m "not integration"
+        env:
+          SESSION_SECRET: ci-session-secret
+          ADMIN_BOOTSTRAP_PASSWORD: ci-admin
+          DOMAIN: example.test
+          TEMP_GUARD_DISABLED: "true"

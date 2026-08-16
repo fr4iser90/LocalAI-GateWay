@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Models · Gateway Admin{% endblock %}
+{% block content %}
+<h1>Model catalog</h1>
+<p class="muted">
+  Synced from sources. <strong>ctx_size</strong> comes from upstream
+  <span class="mono">--ctx-size</span> (always when listed).
+  <strong>n_ctx / n_embd / n_params</strong> come from upstream <span class="mono">meta</span>
+  only while a model is loaded — we keep the <strong>last known</strong> values after unload
+  (never invent). Tags/notes/docs are admin-owned; sync does not overwrite non-empty tags.
+  <strong>STT/TTS</strong> usually expose no numeric meta.
+</p>
+{% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
+{% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
+
+<div class="panel" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center">
+  <form method="post" action="/models/sync">
+    <button class="primary" type="submit">Sync from sources</button>
+  </form>
+  <input type="search" id="model-catalog-filter" placeholder="Filter table…" style="min-width:14rem;flex:1;max-width:24rem" autocomplete="off">
+  <span class="muted tag-row" style="font-size:0.85rem">
+    Suggested:{% for t in tag_suggestions %} <span class="badge tag">{{ t }}</span>{% endfor %}
+  </span>
+</div>
+
+{% if groups %}
+<form method="post" action="/models/save">
+  {% for kind, kind_rows in groups %}
+  <div class="panel">
+    <div class="panel-head">
+      <h2 style="margin:0;text-transform:uppercase;letter-spacing:0.04em;font-size:0.95rem">{{ kind }}</h2>
+      <p class="panel-sub" style="margin:0.25rem 0 0">{{ kind_rows|length }} model{{ 's' if kind_rows|length != 1 else '' }}</p>
+    </div>
+    <div class="table-wrap">
+    <table class="catalog-table">
+      <thead>
+        <tr>
+          <th>On</th>
+          <th>Model</th>
+          <th>Source meta</th>
+          <th>Tags</th>
+          <th>Note</th>
+          <th>Docs URL</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for m in kind_rows %}
+        <tr>
+          <td>
+            <input type="checkbox" name="enabled" value="{{ m.id }}" {% if m.enabled %}checked{% endif %}>
+          </td>
+          <td>
+            <div class="mono">{{ m.model_id }}</div>
+            <div class="muted" style="font-size:0.75rem;margin-top:0.2rem">
+              <span class="badge">{{ m.source_name }}</span>
+              {% if m.upstream_status %}
+                · {% if m.upstream_status == 'loaded' %}<span class="badge ok">loaded</span>
+                {% elif m.upstream_status == 'unloaded' %}<span class="badge off">unloaded</span>
+                {% else %}<span class="badge">{{ m.upstream_status }}</span>{% endif %}
+              {% endif %}
+              · {{ m.last_seen_at or 'never seen' }}
+            </div>
+          </td>
+          <td class="muted" style="font-size:0.8rem;white-space:nowrap">
+            {% if m.ctx_size or m.n_ctx or m.n_ctx_train or m.n_embd or m.n_params or m.model_size %}
+              {% if m.ctx_size %}<div><span class="mono">ctx_size</span> {{ m.ctx_size }}</div>{% endif %}
+              {% if m.n_ctx %}<div><span class="mono">n_ctx</span> {{ m.n_ctx }}{% if m.upstream_meta_at %} <span title="last known from meta">(last)</span>{% endif %}</div>{% endif %}
+              {% if m.n_ctx_train %}<div><span class="mono">n_ctx_train</span> {{ m.n_ctx_train }}</div>{% endif %}
+              {% if m.n_embd %}<div><span class="mono">n_embd</span> {{ m.n_embd }}</div>{% endif %}
+              {% if m.n_params %}<div><span class="mono">n_params</span> {{ format_param_count(m.n_params) }}</div>{% endif %}
+              {% if m.model_size %}<div><span class="mono">size</span> {{ format_bytes(m.model_size) }}</div>{% endif %}
+              {% if m.modalities_in or m.modalities_out %}
+              <div>{{ m.modalities_in or '?' }} → {{ m.modalities_out or '?' }}</div>
+              {% endif %}
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <input type="text" name="tags_{{ m.id }}" value="{{ m.tags }}" placeholder="tools,code,fast" style="min-width:9rem">
+          </td>
+          <td>
+            <input type="text" name="note_{{ m.id }}" value="{{ m.short_note }}" placeholder="Good for coding" style="min-width:11rem">
+          </td>
+          <td>
+            <input type="url" name="docs_{{ m.id }}" value="{{ m.docs_url }}" placeholder="{{ suggest_docs_url(m.model_id) or 'https://huggingface.co/…' }}" style="min-width:12rem">
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  {% endfor %}
+  <button class="primary" type="submit">Save</button>
+</form>
+{% else %}
+<div class="panel">
+  <p class="muted">No models yet — configure Services, then Sync.</p>
+</div>
+{% endif %}
+<script>
+(function () {
+  var input = document.getElementById('model-catalog-filter');
+  if (!input) return;
+  input.addEventListener('input', function () {
+    var q = (input.value || '').trim().toLowerCase();
+    document.querySelectorAll('.catalog-table tbody tr').forEach(function (tr) {
+      var text = (tr.textContent || '').toLowerCase();
+      tr.style.display = !q || text.indexOf(q) !== -1 ? '' : 'none';
+    });
+  });
+})();
+</script>
+{% endblock %}
