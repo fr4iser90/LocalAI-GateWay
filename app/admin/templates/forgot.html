@@ -11,13 +11,13 @@
     <div class="error">SMTP is not ready. Ask an admin to configure it under SMTP.</div>
     {% endif %}
     <form method="post" action="/forgot">
-      <div class="field" style="margin-bottom:1rem">
+      <div class="field field-gap-md">
         <label for="login">Username or email</label>
         <input id="login" name="login" type="text" required autofocus>
       </div>
-      <input class="primary" type="submit" value="Send reset link" style="width:100%" {% if not smtp_ok %}disabled{% endif %}>
+      <input class="primary" type="submit" value="Send reset link" class="w-full" {% if not smtp_ok %}disabled{% endif %}>
     </form>
-    <p style="margin-top:1rem"><a href="/login">Back to login</a></p>
+    <p class="auth-foot"><a href="/login">Back to login</a></p>
   </div>
 </div>
 {% endblock %}

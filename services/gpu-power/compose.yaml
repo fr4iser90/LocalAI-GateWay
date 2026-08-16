@@ -1,0 +1,21 @@
+# Standalone GPU power probe — run on the GPU host (not on the gateway box).
+#
+#   docker compose up -d --build
+#   curl http://127.0.0.1:9105/power
+#
+# On the gateway server .env:
+#   GPU_POWER_URL=http://JARVIS_LAN_IP:9105/power
+# Settings → Usage pool → Watt weight > 0
+
+services:
+  gpu-power:
+    restart: unless-stopped
+    build: .
+    container_name: llm-gpu-power
+    environment:
+      PORT: "8080"
+      SYS_ROOT: /host/sys
+    volumes:
+      - /sys:/host/sys:ro
+    ports:
+      - "${GPU_POWER_PORT:-9105}:8080"

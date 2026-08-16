@@ -112,17 +112,20 @@ def usage_stats(
     tokens_in = tokens_out = 0
     audio_seconds = 0.0
     response_chars = 0
+    watt_hours = 0.0
+    pool_cost = 0.0
     latencies: list[float] = []
+    watts_samples: list[float] = []
 
     # Complete 7 calendar days ending today in display timezone
     today = utcnow().astimezone(zone).date()
-    daily_map: dict[str, dict[str, int]] = {}
+    daily_map: dict[str, dict[str, float | int]] = {}
     day_labels: list[tuple[str, str]] = []  # (key, display)
     for i in range(6, -1, -1):
         d = today - timedelta(days=i)
         key = d.isoformat()
         day_labels.append((key, d.strftime("%a %d")))
-        daily_map[key] = {"ok": 0, "deny": 0, "rate_limit": 0}
+        daily_map[key] = {"ok": 0, "deny": 0, "rate_limit": 0, "wh": 0.0}
 
     for e in events:
         if e.result == "ok":
@@ -134,6 +137,10 @@ def usage_stats(
             tokens_out += e.tokens_out or 0
             audio_seconds += e.audio_seconds or 0.0
             response_chars += e.response_chars or 0
+            watt_hours += float(getattr(e, "watt_hours", None) or 0)
+            pool_cost += float(getattr(e, "pool_cost", None) or 0)
+            if getattr(e, "watts", None) is not None:
+                watts_samples.append(float(e.watts))
         if e.duration_ms is not None:
             latencies.append(float(e.duration_ms))
         if e.created_at:
@@ -142,25 +149,29 @@ def usage_stats(
                 created = created.replace(tzinfo=timezone.utc)
             dkey = created.astimezone(zone).date().isoformat()
             if dkey in daily_map:
-                bucket = e.result if e.result in daily_map[dkey] else "deny"
+                bucket = e.result if e.result in ("ok", "deny", "rate_limit") else "deny"
                 if bucket == "rate_limit":
-                    daily_map[dkey]["rate_limit"] += 1
+                    daily_map[dkey]["rate_limit"] = int(daily_map[dkey]["rate_limit"]) + 1
                 elif bucket == "ok":
-                    daily_map[dkey]["ok"] += 1
+                    daily_map[dkey]["ok"] = int(daily_map[dkey]["ok"]) + 1
+                    daily_map[dkey]["wh"] = float(daily_map[dkey]["wh"]) + float(
+                        getattr(e, "watt_hours", None) or 0
+                    )
                 else:
-                    daily_map[dkey]["deny"] += 1
+                    daily_map[dkey]["deny"] = int(daily_map[dkey]["deny"]) + 1
 
     latencies.sort()
     daily_series = [
         {
             "day": key,
             "label": label,
-            "ok": daily_map[key]["ok"],
-            "deny": daily_map[key]["deny"],
-            "rate_limit": daily_map[key]["rate_limit"],
-            "total": daily_map[key]["ok"]
-            + daily_map[key]["deny"]
-            + daily_map[key]["rate_limit"],
+            "ok": int(daily_map[key]["ok"]),
+            "deny": int(daily_map[key]["deny"]),
+            "rate_limit": int(daily_map[key]["rate_limit"]),
+            "watt_hours": round(float(daily_map[key]["wh"]), 4),
+            "total": int(daily_map[key]["ok"])
+            + int(daily_map[key]["deny"])
+            + int(daily_map[key]["rate_limit"]),
         }
         for key, label in day_labels
     ]
@@ -177,6 +188,9 @@ def usage_stats(
         "tokens_out": tokens_out,
         "audio_seconds": round(audio_seconds, 1),
         "response_chars": response_chars,
+        "watt_hours": round(watt_hours, 4),
+        "pool_cost": round(pool_cost, 2),
+        "watts_avg": (sum(watts_samples) / len(watts_samples)) if watts_samples else None,
         "latency_p50": _percentile(latencies, 0.5),
         "latency_p95": _percentile(latencies, 0.95),
         "latency_avg": (sum(latencies) / len(latencies)) if latencies else None,
@@ -222,22 +236,32 @@ def bar_chart_svg(
 
 
 def daily_traffic_chart_svg(
-    series: list[dict], *, width: int = 720, tz_label: str = "UTC"
+    series: list[dict], *, width: int = 640, tz_label: str = "UTC"
 ) -> str:
     """
     7-day column chart: OK / deny / rate_limit stacked.
-    Always shows all 7 days with labels and Y-axis.
+    Compact when empty; always labeled when there is traffic.
     """
     if not series:
         return '<div class="chart-empty">No data in this window.</div>'
 
-    left, right, top, bottom = 48, 16, 52, 52
+    total_all = sum(int(s.get("total") or 0) for s in series)
+    if total_all <= 0:
+        tz_safe = escape(tz_label or "UTC")
+        return (
+            '<div class="chart-empty chart-empty--soft">'
+            f"<strong>No traffic yet</strong>"
+            f"<span>Last 7 days ({tz_safe}) — bars appear after the first OK / deny / 429.</span>"
+            "</div>"
+        )
+
+    left, right, top, bottom = 40, 12, 40, 44
     plot_w = width - left - right
-    plot_h = 200
+    plot_h = 120
     height = top + plot_h + bottom
     n = len(series)
-    gap = 10
-    bar_w = max(18, (plot_w - gap * (n + 1)) // n)
+    gap = 8
+    bar_w = max(16, (plot_w - gap * (n + 1)) // n)
     max_v = max((s["total"] for s in series), default=0) or 1
 
     def y_scale(v: float) -> float:

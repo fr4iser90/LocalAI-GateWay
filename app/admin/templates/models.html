@@ -1,24 +1,32 @@
 {% extends "base.html" %}
 {% block title %}Models · Gateway Admin{% endblock %}
 {% block content %}
-<h1>Model catalog</h1>
-<p class="muted">
-  Synced from sources. <strong>ctx_size</strong> comes from upstream
-  <span class="mono">--ctx-size</span> (always when listed).
-  <strong>n_ctx / n_embd / n_params</strong> come from upstream <span class="mono">meta</span>
-  only while a model is loaded — we keep the <strong>last known</strong> values after unload
-  (never invent). Tags/notes/docs are admin-owned; sync does not overwrite non-empty tags.
-  <strong>STT/TTS</strong> usually expose no numeric meta.
-</p>
+<header class="page-head page-head--compact">
+  <div>
+    <p class="eyebrow">Backends</p>
+    <h1>Models</h1>
+    <p class="lede">Catalog synced from sources. Enable/disable, tags, and weights for the pool.</p>
+  </div>
+</header>
+<details class="panel panel-details">
+  <summary class="muted">How meta fields work</summary>
+  <p class="muted hint-after">
+    <strong>ctx_size</strong> comes from upstream <span class="mono">--ctx-size</span> when listed.
+    <strong>n_ctx / n_embd / n_params</strong> from upstream <span class="mono">meta</span> while loaded —
+    last known values kept after unload (never invented). Tags/notes/docs are admin-owned; sync does not overwrite non-empty tags.
+    STT/TTS usually expose no numeric meta.
+  </p>
+</details>
 {% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
 {% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
 
-<div class="panel" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center">
+<div class="panel panel-toolbar">
   <form method="post" action="/models/sync">
     <button class="primary" type="submit">Sync from sources</button>
   </form>
-  <input type="search" id="model-catalog-filter" placeholder="Filter table…" style="min-width:14rem;flex:1;max-width:24rem" autocomplete="off">
-  <span class="muted tag-row" style="font-size:0.85rem">
+  <label class="sr-only" for="model-catalog-filter">Filter models</label>
+  <input type="search" id="model-catalog-filter" class="catalog-filter" placeholder="Filter table…" autocomplete="off">
+  <span class="muted tag-row text-sm">
     Suggested:{% for t in tag_suggestions %} <span class="badge tag">{{ t }}</span>{% endfor %}
   </span>
 </div>
@@ -28,8 +36,10 @@
   {% for kind, kind_rows in groups %}
   <div class="panel">
     <div class="panel-head">
-      <h2 style="margin:0;text-transform:uppercase;letter-spacing:0.04em;font-size:0.95rem">{{ kind }}</h2>
-      <p class="panel-sub" style="margin:0.25rem 0 0">{{ kind_rows|length }} model{{ 's' if kind_rows|length != 1 else '' }}</p>
+      <div class="panel-head-text">
+        <h2 class="kind-title">{{ kind }}</h2>
+        <p class="panel-sub panel-sub--tight">{{ kind_rows|length }} model{{ 's' if kind_rows|length != 1 else '' }}</p>
+      </div>
     </div>
     <div class="table-wrap">
     <table class="catalog-table">
@@ -39,6 +49,7 @@
           <th>Model</th>
           <th>Source meta</th>
           <th>Tags</th>
+          <th>Weight</th>
           <th>Note</th>
           <th>Docs URL</th>
         </tr>
@@ -47,11 +58,12 @@
       {% for m in kind_rows %}
         <tr>
           <td>
-            <input type="checkbox" name="enabled" value="{{ m.id }}" {% if m.enabled %}checked{% endif %}>
+            <label class="sr-only" for="en-{{ m.id }}">Enable {{ m.model_id }}</label>
+            <input id="en-{{ m.id }}" type="checkbox" name="enabled" value="{{ m.id }}" {% if m.enabled %}checked{% endif %}>
           </td>
           <td>
             <div class="mono">{{ m.model_id }}</div>
-            <div class="muted" style="font-size:0.75rem;margin-top:0.2rem">
+            <div class="muted hint-micro">
               <span class="badge">{{ m.source_name }}</span>
               {% if m.upstream_status %}
                 · {% if m.upstream_status == 'loaded' %}<span class="badge ok">loaded</span>
@@ -61,7 +73,7 @@
               · {{ m.last_seen_at or 'never seen' }}
             </div>
           </td>
-          <td class="muted" style="font-size:0.8rem;white-space:nowrap">
+          <td class="muted meta-cell">
             {% if m.ctx_size or m.n_ctx or m.n_ctx_train or m.n_embd or m.n_params or m.model_size %}
               {% if m.ctx_size %}<div><span class="mono">ctx_size</span> {{ m.ctx_size }}</div>{% endif %}
               {% if m.n_ctx %}<div><span class="mono">n_ctx</span> {{ m.n_ctx }}{% if m.upstream_meta_at %} <span title="last known from meta">(last)</span>{% endif %}</div>{% endif %}
@@ -77,13 +89,20 @@
             {% endif %}
           </td>
           <td>
-            <input type="text" name="tags_{{ m.id }}" value="{{ m.tags }}" placeholder="tools,code,fast" style="min-width:9rem">
+            <label class="sr-only" for="tags-{{ m.id }}">Tags for {{ m.model_id }}</label>
+            <input id="tags-{{ m.id }}" class="input-tags" type="text" name="tags_{{ m.id }}" value="{{ m.tags }}" placeholder="tools,code,fast">
           </td>
           <td>
-            <input type="text" name="note_{{ m.id }}" value="{{ m.short_note }}" placeholder="Good for coding" style="min-width:11rem">
+            <label class="sr-only" for="weight-{{ m.id }}">Weight for {{ m.model_id }}</label>
+            <input id="weight-{{ m.id }}" class="input-weight" type="number" name="weight_{{ m.id }}" value="{{ m.usage_weight if m.usage_weight is not none else 1 }}" min="0.01" step="0.1" title="Usage pool multiplier">
           </td>
           <td>
-            <input type="url" name="docs_{{ m.id }}" value="{{ m.docs_url }}" placeholder="{{ suggest_docs_url(m.model_id) or 'https://huggingface.co/…' }}" style="min-width:12rem">
+            <label class="sr-only" for="note-{{ m.id }}">Note for {{ m.model_id }}</label>
+            <input id="note-{{ m.id }}" class="input-note" type="text" name="note_{{ m.id }}" value="{{ m.short_note }}" placeholder="Good for coding">
+          </td>
+          <td>
+            <label class="sr-only" for="docs-{{ m.id }}">Docs URL for {{ m.model_id }}</label>
+            <input id="docs-{{ m.id }}" class="input-docs" type="url" name="docs_{{ m.id }}" value="{{ m.docs_url }}" placeholder="{{ suggest_docs_url(m.model_id) or 'https://huggingface.co/…' }}">
           </td>
         </tr>
       {% endfor %}
@@ -96,7 +115,14 @@
 </form>
 {% else %}
 <div class="panel">
-  <p class="muted">No models yet — configure Services, then Sync.</p>
+  <div class="empty-state">
+    <p class="empty-state-title">No models yet</p>
+    <p class="empty-state-text">Configure Services first, then sync the catalog from upstreams.</p>
+    <a class="btn" href="/services">Open Services</a>
+    <form method="post" action="/models/sync" class="inline-form">
+      <button class="primary" type="submit">Sync from sources</button>
+    </form>
+  </div>
 </div>
 {% endif %}
 <script>
@@ -107,7 +133,7 @@
     var q = (input.value || '').trim().toLowerCase();
     document.querySelectorAll('.catalog-table tbody tr').forEach(function (tr) {
       var text = (tr.textContent || '').toLowerCase();
-      tr.style.display = !q || text.indexOf(q) !== -1 ? '' : 'none';
+      tr.hidden = !(!q || text.indexOf(q) !== -1);
     });
   });
 })();

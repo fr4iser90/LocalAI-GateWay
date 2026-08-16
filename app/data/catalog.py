@@ -132,6 +132,7 @@ def update_catalog_meta(
     tags: str | None = None,
     short_note: str | None = None,
     docs_url: str | None = None,
+    usage_weight: float | None = None,
 ) -> CatalogModel | None:
     row = db.get(CatalogModel, catalog_id)
     if row is None:
@@ -145,6 +146,8 @@ def update_catalog_meta(
         if url and not (url.startswith("https://") or url.startswith("http://")):
             url = ""
         row.docs_url = url
+    if usage_weight is not None:
+        row.usage_weight = max(0.01, float(usage_weight))
     return row
 
 

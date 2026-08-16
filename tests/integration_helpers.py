@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -52,7 +53,47 @@ def require_source(name: str) -> str:
 
 
 def base_url(hostport: str) -> str:
+    if hostport.startswith("http://") or hostport.startswith("https://"):
+        return hostport.rstrip("/")
     return f"http://{hostport}"
+
+
+def gateway_base() -> str:
+    """Gateway URL (INTEGRATION_GATEWAY or http://127.0.0.1:GATEWAY_PORT)."""
+    load_dotenv_file()
+    explicit = (os.getenv("INTEGRATION_GATEWAY") or "").strip()
+    if explicit:
+        return base_url(explicit)
+    port = (os.getenv("GATEWAY_PORT") or "9081").strip()
+    return f"http://127.0.0.1:{port}"
+
+
+def gateway_api_key() -> str | None:
+    load_dotenv_file()
+    return (os.getenv("INTEGRATION_API_KEY") or "").strip() or None
+
+
+def gpu_power_url() -> str:
+    load_dotenv_file()
+    return (os.getenv("GPU_POWER_URL") or "").strip()
+
+
+def sample_gpu_watts(url: str | None = None) -> dict | None:
+    """One live reading from gpu-power sidecar."""
+    u = (url if url is not None else gpu_power_url()).strip()
+    if not u:
+        return None
+    try:
+        with httpx.Client(timeout=1.5) as client:
+            resp = client.get(u)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        if not isinstance(data, dict) or not data.get("ok"):
+            return None
+        return data
+    except Exception:
+        return None
 
 
 def integration_output_dir() -> Path:
@@ -67,7 +108,6 @@ def integration_output_dir() -> Path:
     try:
         latest.symlink_to(run_dir.name, target_is_directory=True)
     except OSError:
-        # Windows / restricted FS — write a pointer file instead
         (OUTPUT_DIR / "latest.txt").write_text(str(run_dir), encoding="utf-8")
     return run_dir
 
@@ -90,9 +130,60 @@ def save_json(run_dir: Path, name: str, payload: object) -> Path:
     return path
 
 
-def first_model_id(client: httpx.Client, hostport: str) -> str | None:
+class PowerProbe:
+    """Sample GPU watts around a call; estimate Wh from wall time × mean W."""
+
+    def __init__(self, label: str):
+        self.label = label
+        self.samples: list[float] = []
+        self.t0 = 0.0
+        self.t1 = 0.0
+        self.probe_url = gpu_power_url()
+
+    def _snap(self) -> None:
+        data = sample_gpu_watts(self.probe_url)
+        if data and data.get("watts") is not None:
+            self.samples.append(float(data["watts"]))
+
+    def __enter__(self) -> "PowerProbe":
+        self.t0 = time.perf_counter()
+        self._snap()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._snap()
+        self.t1 = time.perf_counter()
+
+    def report(self, **extra) -> dict:
+        duration_s = max(0.0, self.t1 - self.t0)
+        avg = (sum(self.samples) / len(self.samples)) if self.samples else None
+        wh = None
+        if avg is not None and duration_s > 0:
+            wh = round((avg * duration_s) / 3600.0, 6)
+        return {
+            "label": self.label,
+            "probe": self.probe_url or None,
+            "duration_ms": round(duration_s * 1000.0, 1),
+            "watts_samples": [round(w, 2) for w in self.samples],
+            "watts_avg": round(avg, 2) if avg is not None else None,
+            "watt_hours_est": wh,
+            "note": (
+                "Wh ≈ mean(samples) × wall_seconds / 3600 from sidecar during this test. "
+                "Chat via gateway also stores metered Wh on UsageEvent."
+                if self.probe_url
+                else "GPU_POWER_URL not set — no watt samples."
+            ),
+            **extra,
+        }
+
+
+def first_model_id(client: httpx.Client, hostport: str, headers: dict | None = None) -> str | None:
     try:
-        resp = client.get(f"{base_url(hostport)}/v1/models", timeout=10.0)
+        resp = client.get(
+            f"{base_url(hostport)}/v1/models",
+            timeout=10.0,
+            headers=headers or {},
+        )
         if resp.status_code != 200:
             return None
         data = resp.json()
@@ -104,10 +195,10 @@ def first_model_id(client: httpx.Client, hostport: str) -> str | None:
     return None
 
 
-def tts_voice(client: httpx.Client, hostport: str) -> str:
+def tts_voice(client: httpx.Client, hostport: str, headers: dict | None = None) -> str:
     """Discover Piper-style voice from GET /."""
     try:
-        resp = client.get(f"{base_url(hostport)}/", timeout=10.0)
+        resp = client.get(f"{base_url(hostport)}/", timeout=10.0, headers=headers or {})
         if resp.status_code == 200:
             data = resp.json()
             voices = data.get("voices") or []
@@ -118,9 +209,15 @@ def tts_voice(client: httpx.Client, hostport: str) -> str:
     return os.getenv("TTS_VOICE", "de_DE-thorsten-high").strip()
 
 
-def synthesize_speech(client: httpx.Client, hostport: str, text: str) -> tuple[bytes, str]:
+def synthesize_speech(
+    client: httpx.Client,
+    hostport: str,
+    text: str,
+    headers: dict | None = None,
+) -> tuple[bytes, str]:
     """POST TTS — try OpenAI path then piper /audio/speech. Returns (audio, path_used)."""
-    voice = tts_voice(client, hostport)
+    hdrs = headers or {}
+    voice = tts_voice(client, hostport, headers=hdrs)
     payloads = [
         {"input": text, "voice": voice, "response_format": "wav"},
         {"input": text, "voice": voice},
@@ -130,7 +227,12 @@ def synthesize_speech(client: httpx.Client, hostport: str, text: str) -> tuple[b
     last = None
     for path in paths:
         for payload in payloads:
-            resp = client.post(f"{base_url(hostport)}{path}", json=payload, timeout=120.0)
+            resp = client.post(
+                f"{base_url(hostport)}{path}",
+                json=payload,
+                timeout=120.0,
+                headers=hdrs,
+            )
             last = resp
             if resp.status_code < 300 and len(resp.content) > 64:
                 return resp.content, path
@@ -139,9 +241,14 @@ def synthesize_speech(client: httpx.Client, hostport: str, text: str) -> tuple[b
 
 
 def transcribe_audio(
-    client: httpx.Client, hostport: str, audio: bytes, filename: str = "speech.wav"
+    client: httpx.Client,
+    hostport: str,
+    audio: bytes,
+    filename: str = "speech.wav",
+    headers: dict | None = None,
 ) -> tuple[str, str, object]:
     """POST STT. Returns (text, path_used, raw_payload_or_text)."""
+    hdrs = dict(headers or {})
     files = {"file": (filename, audio, "audio/wav")}
     attempts = [
         ("/v1/audio/transcriptions", {"model": "whisper-1", "response_format": "json"}),
@@ -156,6 +263,7 @@ def transcribe_audio(
             data=data,
             files=files,
             timeout=180.0,
+            headers=hdrs,
         )
         last = resp
         if resp.status_code >= 300:

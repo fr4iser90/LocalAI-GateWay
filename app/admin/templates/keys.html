@@ -1,10 +1,16 @@
 {% extends "base.html" %}
 {% block title %}API Keys · Gateway Admin{% endblock %}
 {% block content %}
-<div class="row" style="justify-content:space-between;align-items:center">
-  <h1 style="margin:0">API Keys</h1>
-  <a class="btn btn-primary" href="/keys/new">New key</a>
-</div>
+<header class="page-head page-head--compact">
+  <div>
+    <p class="eyebrow">You</p>
+    <h1>API Keys</h1>
+    <p class="lede">Keys for clients. The full secret is shown only once at creation.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn primary" href="/keys/new">New key</a>
+  </div>
+</header>
 
 {% if flash_key %}
 <div class="flash warn">
@@ -13,7 +19,7 @@
 </div>
 {% endif %}
 
-<div class="panel" style="margin-top:1rem">
+<div class="panel">
   <table>
     <thead>
       <tr>
@@ -62,7 +68,13 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="8" class="muted">No keys yet.</td></tr>
+      <tr><td colspan="8">
+        <div class="empty-state">
+          <p class="empty-state-title">No API keys yet</p>
+          <p class="empty-state-text">Create a key for OpenAI-compatible clients (VS Code, curl, apps).</p>
+          <a class="btn primary" href="/keys/new">New key</a>
+        </div>
+      </td></tr>
     {% endfor %}
     </tbody>
   </table>

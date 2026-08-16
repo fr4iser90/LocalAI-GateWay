@@ -36,6 +36,17 @@ def make_templates() -> Jinja2Templates:
                 )
             except Exception:
                 context["display_tz"] = "UTC"
+        if "setup_incomplete" not in context:
+            context["setup_incomplete"] = bool(
+                getattr(request.state, "setup_incomplete", False)
+            )
+        if "pw_policy" not in context:
+            try:
+                from ..password_policy import policy_for_template
+
+                context["pw_policy"] = policy_for_template()
+            except Exception:
+                context["pw_policy"] = {"min_len": 8, "max_len": 72}
         return original(
             request, name, context, status_code=status_code, **kwargs
         )

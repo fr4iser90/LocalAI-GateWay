@@ -30,6 +30,11 @@ class ServiceStatus:
     slots_idle: int | None = None
     models: list[str] = field(default_factory=list)
     probes_ok: list[str] = field(default_factory=list)
+    gpu_power: str = "off"  # ok | unreachable | off
+    gpu_watts: float | None = None
+    gpu_power_url: str = ""
+    # Best-effort fingerprint from probe paths / headers /models (≠ api_style dialect)
+    engine: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -77,6 +82,79 @@ def _parse_slots(data: Any) -> tuple[int, int, int] | None:
     return total, busy, total - busy
 
 
+def _headers_hint(resp: httpx.Response | None) -> str:
+    if resp is None:
+        return ""
+    bits: list[str] = []
+    for key, val in resp.headers.items():
+        kl = key.lower()
+        if kl in {
+            "server",
+            "x-powered-by",
+            "x-localai-version",
+            "x-request-id",
+            "openai-processing-ms",
+            "openai-version",
+            "x-stainless-lang",
+        } or any(s in kl for s in ("vllm", "localai", "lmstudio", "tei", "openai")):
+            bits.append(f"{kl}:{val}")
+    return " ".join(bits).lower()
+
+
+def _models_hint(data: Any) -> str:
+    if not isinstance(data, dict):
+        return ""
+    parts: list[str] = []
+    for key in ("object", "owned_by", "id", "root", "model", "model_id"):
+        if key in data and data[key] is not None:
+            parts.append(f"{key}:{data[key]}")
+    for row in data.get("data") or []:
+        if not isinstance(row, dict):
+            continue
+        for key in ("id", "owned_by", "root", "object"):
+            if key in row and row[key] is not None:
+                parts.append(f"{key}:{row[key]}")
+    return " ".join(str(p) for p in parts).lower()
+
+
+def fingerprint_engine(
+    *,
+    kind: str,
+    probes_ok: list[str],
+    slots_total: int | None,
+    header_hints: str = "",
+    body_hints: str = "",
+) -> str:
+    """Resolve a short engine label for the Services UI.
+
+    Order: strong path signals → header/body tokens → soft kind guesses.
+    """
+    hints = f"{header_hints} {body_hints}".lower()
+    paths = set(probes_ok)
+
+    if slots_total is not None or "/slots" in paths:
+        return "llama.cpp"
+    if "/api/ps" in paths or "/api/tags" in paths:
+        return "ollama"
+    if "/info" in paths or "text-embeddings-inference" in hints or "tei-" in hints:
+        return "tei"
+    if "vllm" in hints:
+        return "vllm"
+    if "localai" in hints or "x-localai" in hints:
+        return "localai"
+    if "lmstudio" in hints or "lm.studio" in hints or "lm-studio" in hints:
+        return "lmstudio"
+    if kind == "stt":
+        if "faster-whisper" in hints or "faster_whisper" in hints:
+            return "faster-whisper"
+        return "whisper.cpp?"
+    if kind == "tts":
+        return "piper" if "piper" in hints else "piper?"
+    if "/v1/models" in paths or "/v1/embeddings" in paths:
+        return "openai-api"
+    return ""
+
+
 def probe_source(src: BackendSource) -> ServiceStatus:
     service = src.name
     kind = src.kind
@@ -91,16 +169,45 @@ def probe_source(src: BackendSource) -> ServiceStatus:
     status = ServiceStatus(
         service=service, backend=backend, kind=kind, state="down", detail="unreachable"
     )
+    header_hints = ""
+    body_hints = ""
 
     try:
         with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
             health_paths = ["/health", "/v1/health"]
             if kind == "chat":
                 health_paths = ["/health", "/v1/health", "/api/tags"]
+            if kind == "embed":
+                # TEI: probe /info first (strong fingerprint); then /health
+                health_paths = ["/info", "/health", "/v1/health"]
 
             for path in health_paths:
                 resp = _get(client, base + path)
                 if resp is None:
+                    continue
+                header_hints += " " + _headers_hint(resp)
+                # /info is TEI-only. Never treat a 404/HTML /info as generic health —
+                # that used to mark state=unknown and fingerprint as tei.
+                if path == "/info":
+                    if resp.status_code == 200:
+                        try:
+                            info = resp.json()
+                            if isinstance(info, dict) and (
+                                info.get("model_id")
+                                or info.get("model_sha")
+                                or "model_id" in info
+                            ):
+                                body_hints += " " + _models_hint(info)
+                                mid = info.get("model_id") or info.get("model_sha")
+                                if mid and not status.models:
+                                    status.models = [str(mid)]
+                                status.probes_ok.append("/info")
+                                status.state = "ok"
+                                status.detail = "tei /info"
+                                body_hints += " text-embeddings-inference"
+                                break
+                        except Exception:
+                            pass
                     continue
                 parsed = _health_state(resp)
                 if parsed is None:
@@ -115,6 +222,7 @@ def probe_source(src: BackendSource) -> ServiceStatus:
             if status.state == "down":
                 resp = _get(client, base + "/")
                 if resp is not None:
+                    header_hints += " " + _headers_hint(resp)
                     status.state = "unknown"
                     status.detail = f"reachable (HTTP {resp.status_code})"
                     status.probes_ok.append("/")
@@ -122,6 +230,7 @@ def probe_source(src: BackendSource) -> ServiceStatus:
             if kind in ("chat", "embed") and status.state != "down":
                 resp = _get(client, base + "/slots")
                 if resp is not None and resp.status_code == 200:
+                    header_hints += " " + _headers_hint(resp)
                     try:
                         data = resp.json()
                     except Exception:
@@ -142,6 +251,7 @@ def probe_source(src: BackendSource) -> ServiceStatus:
             if kind == "chat" and status.state != "down" and not status.models:
                 resp = _get(client, base + "/api/ps")
                 if resp is not None and resp.status_code == 200:
+                    header_hints += " " + _headers_hint(resp)
                     try:
                         data = resp.json()
                         models = []
@@ -158,6 +268,7 @@ def probe_source(src: BackendSource) -> ServiceStatus:
                 if not status.models:
                     tags = _get(client, base + "/api/tags")
                     if tags is not None and tags.status_code == 200:
+                        header_hints += " " + _headers_hint(tags)
                         try:
                             data = tags.json()
                             status.models = [
@@ -169,12 +280,18 @@ def probe_source(src: BackendSource) -> ServiceStatus:
                         except Exception:
                             pass
 
-            if kind in MODEL_CHECK_KINDS | {"stt"} and status.state not in ("down", "unset"):
+            # OpenAI /v1/models — also used for vLLM / LocalAI / LM Studio hints
+            if kind in MODEL_CHECK_KINDS | {"stt", "tts"} and status.state not in (
+                "down",
+                "unset",
+            ):
                 if "/v1/models" not in status.probes_ok:
                     resp = _get(client, base + "/v1/models")
                     if resp is not None and resp.status_code == 200:
+                        header_hints += " " + _headers_hint(resp)
                         try:
                             data = resp.json()
+                            body_hints += " " + _models_hint(data)
                             ids = [
                                 str(m.get("id"))
                                 for m in (data.get("data") or [])
@@ -183,17 +300,50 @@ def probe_source(src: BackendSource) -> ServiceStatus:
                             if ids and not status.models:
                                 status.models = ids[:12]
                             status.probes_ok.append("/v1/models")
+                            # Reachable OpenAI catalog beats a prior non-200 /health
+                            if status.state == "unknown":
+                                status.state = "ok"
+                                status.detail = "ok"
                         except Exception:
                             pass
+
+            # vLLM often exposes /version
+            if kind in ("chat", "embed") and status.state not in ("down", "unset"):
+                ver = _get(client, base + "/version")
+                if ver is not None and ver.status_code == 200:
+                    header_hints += " " + _headers_hint(ver)
+                    try:
+                        text = ver.text.lower()
+                        body_hints += " " + text[:200]
+                        if "vllm" in text:
+                            status.probes_ok.append("/version")
+                    except Exception:
+                        pass
 
             if status.state == "loading":
                 _loading_since.setdefault(key, time.time())
             else:
                 _loading_since.pop(key, None)
 
+            status.engine = fingerprint_engine(
+                kind=kind,
+                probes_ok=status.probes_ok,
+                slots_total=status.slots_total,
+                header_hints=header_hints,
+                body_hints=body_hints,
+            )
+
     except Exception as exc:  # noqa: BLE001
         status.state = "down"
         status.detail = str(exc)[:120]
+
+    from ..usage_pool import check_probe, probe_url_for_source
+
+    probe = probe_url_for_source(src)
+    status.gpu_power_url = probe
+    st, watts, _ = check_probe(probe)
+    status.gpu_power = st
+    status.gpu_watts = watts
 
     return status
 

@@ -1,13 +1,14 @@
 {% extends "setup_base.html" %}
 {% block wizard_body %}
 <div class="panel">
-  <p class="muted" style="margin-top:0">
+  <p class="muted mt-0">
     Add at least one upstream (usually <span class="mono">chat</span>).
     Path mapping is Auto (chat/embed → OpenAI, STT → whisper.cpp, TTS → Piper).
+    GPU Wh is automatic later: sidecar on that host at <span class="mono">:9105</span> — no extra setup step.
   </p>
 
   {% if wizard.sources %}
-  <h2 style="margin:0 0 0.5rem;font-size:1rem">Configured</h2>
+  <h2 class="section-label">Configured</h2>
   <ul class="setup-source-list">
     {% for s in wizard.sources %}
     <li><span class="badge">{{ s.name }}</span> · {{ s.kind }} · <span class="mono">{{ s.address }}</span></li>
@@ -15,7 +16,7 @@
   </ul>
   {% endif %}
 
-  <h2 style="margin:1.25rem 0 0.5rem;font-size:1rem">{% if wizard.sources %}Add another{% else %}Add source{% endif %}</h2>
+  <h2 class="section-label">{% if wizard.sources %}Add another{% else %}Add source{% endif %}</h2>
   <form method="post" action="/setup/sources" class="wizard-form wizard-source-form">
     <input type="hidden" name="api_style" value="auto">
     <div class="wizard-grid">

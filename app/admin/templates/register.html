@@ -4,30 +4,34 @@
 <div class="login-wrap">
   <div class="login-card">
     <h1>Create account</h1>
-    <p class="sub">{% if enabled %}Sign up for LLM Gateway access.{% else %}Registration is closed.{% endif %}</p>
+    <p class="sub">{% if enabled %}Sign up for LocalAI Gateway access.{% else %}Registration is closed.{% endif %}</p>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     {% if enabled %}
-    <form method="post" action="/register">
-      <div class="field" style="margin-bottom:0.75rem">
+    <form method="post" action="/register" data-pw-form>
+      <div class="field field-gap">
         <label for="username">Username</label>
         <input id="username" name="username" type="text" required autofocus autocomplete="username" minlength="3">
       </div>
-      <div class="field" style="margin-bottom:0.75rem">
+      <div class="field field-gap">
         <label for="email">Email{% if require_email %} *{% endif %}</label>
         <input id="email" name="email" type="email" autocomplete="email" {% if require_email %}required{% endif %}>
       </div>
-      <div class="field" style="margin-bottom:0.75rem">
+      <div class="field field-gap">
         <label for="password">Password</label>
-        <input id="password" name="password" type="password" required autocomplete="new-password" minlength="8">
+        <input id="password" name="password" type="password" data-pw-new required autocomplete="new-password"
+               minlength="{{ pw_policy.min_len }}" maxlength="{{ pw_policy.max_len }}">
       </div>
-      <div class="field" style="margin-bottom:1rem">
+      <div class="field field-gap">
         <label for="password2">Confirm password</label>
-        <input id="password2" name="password2" type="password" required autocomplete="new-password" minlength="8">
+        <input id="password2" name="password2" type="password" data-pw-confirm required autocomplete="new-password"
+               minlength="{{ pw_policy.min_len }}" maxlength="{{ pw_policy.max_len }}">
       </div>
-      <input class="primary" type="submit" value="Register" style="width:100%">
+      {% include "_pw_rules.html" %}
+      <input class="primary w-full btn-after" type="submit" value="Register" data-pw-submit>
     </form>
     {% endif %}
-    <p style="margin-top:1rem;font-size:0.9rem"><a href="/login">Back to login</a></p>
+    <p class="auth-foot"><a href="/login">Back to login</a></p>
   </div>
 </div>
+<script src="/static/pw-strength.js"></script>
 {% endblock %}

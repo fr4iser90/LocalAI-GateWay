@@ -59,6 +59,20 @@ def _settings(request: Request) -> Settings:
     return request.app.state.settings
 
 
+def _gpu_power_enabled(request: Request, db: Session | None = None) -> bool:
+    """Energy UI when env set, or any source would auto/explicit-probe."""
+    if (_settings(request).gpu_power_url or "").strip():
+        return True
+    if db is not None:
+        from ..data.models import BackendSource
+        from ..usage_pool import probe_url_for_source
+
+        for src in db.query(BackendSource).all():
+            if probe_url_for_source(src):
+                return True
+    return False
+
+
 def _parse_services(form_list: list[str] | None, allowed: set[str] | list[str]) -> list[str]:
     allowed_set = set(allowed)
     if not form_list:
@@ -547,6 +561,7 @@ def setup_key_page(
 ):
     import os
 
+    from ..config import public_api_base
     from ..data.grants import AccessCeiling, catalog_groups_for_ceiling
     from ..vision_route import group_models_vl_pairs
     from .accounts import get_auth_settings
@@ -566,6 +581,7 @@ def setup_key_page(
     catalog_vl_groups = [
         (src, group_models_vl_pairs(models)) for src, models in catalog_groups
     ]
+    gw_port = os.getenv("GATEWAY_PORT", "9081")
     return templates.TemplateResponse(
         request,
         "setup_key.html",
@@ -583,7 +599,8 @@ def setup_key_page(
             "catalog_groups": catalog_groups,
             "catalog_vl_groups": catalog_vl_groups,
             "auto_vl_routing": bool(auth.auto_vl_routing),
-            "gateway_port": os.getenv("GATEWAY_PORT", "9081"),
+            "gateway_port": gw_port,
+            "api_base": public_api_base(gateway_port=gw_port),
             "flash_ok": request.session.pop("flash_ok", None),
             "flash_err": request.session.pop("flash_err", None),
             "is_admin": True,
@@ -726,6 +743,10 @@ def dashboard(
             "tokens_out": day["tokens_out"],
             "audio_seconds": day["audio_seconds"],
             "response_chars": day["response_chars"],
+            "watt_hours_day": day["watt_hours"],
+            "watt_hours_week": week["watt_hours"],
+            "pool_cost_day": day["pool_cost"],
+            "watts_avg": day["watts_avg"],
             "latency_p50": day["latency_p50"],
             "latency_p95": day["latency_p95"],
             "latency_avg": day["latency_avg"],
@@ -744,6 +765,7 @@ def dashboard(
             "nav": "dashboard",
             "is_admin": True,
             "setup": setup,
+            "gpu_power_enabled": _gpu_power_enabled(request, db),
         },
     )
 
@@ -817,6 +839,12 @@ def me_page(
             "tokens_in": day["tokens_in"],
             "tokens_out": day["tokens_out"],
             "audio_seconds": int(day["audio_seconds"] or 0),
+            "watt_hours": day["watt_hours"],
+            "watt_hours_week": week["watt_hours"],
+            "pool_cost": day["pool_cost"],
+            "watts_avg": day["watts_avg"],
+            "pool_limit": user.pool_limit,
+            "pool_used": float(user.pool_used or 0),
             "latency_p50": day["latency_p50"],
             "latency_p95": day["latency_p95"],
             "chart_daily": daily_traffic_chart_svg(week["daily_series"], tz_label=tz_label),
@@ -832,6 +860,7 @@ def me_page(
             "nav": "me",
             "is_admin": user.is_platform_admin,
             "teams_enabled": teams_on,
+            "gpu_power_enabled": _gpu_power_enabled(request, db),
         },
     )
 
@@ -986,6 +1015,7 @@ async def keys_create(
     user: Annotated[AdminUser, Depends(require_user)],
 ):
     from ..data.grants import clamp_models, clamp_services
+    from .accounts import assert_can_create_key
 
     teams_on = _teams_on(db)
     form = await request.form()
@@ -1005,6 +1035,12 @@ async def keys_create(
         else:
             owner_user_id = user.id
         team_id = None
+
+    owner = db.get(AdminUser, owner_user_id) if owner_user_id else None
+    blocked = assert_can_create_key(db, owner)
+    if blocked:
+        request.session["flash_err"] = blocked
+        return RedirectResponse("/keys/new", status_code=303)
 
     ceil = _resolve_ceiling(
         db,
@@ -1589,13 +1625,38 @@ async def users_grant_save(
     models = [(s, m) for s, m in models if s in services]
     sync_user_grants(db, target, services)
     sync_user_models(db, target, models)
+
+    def _opt_int(raw: str) -> int | None:
+        s = (raw or "").strip()
+        if not s:
+            return None
+        try:
+            n = int(s)
+        except ValueError:
+            return None
+        return n if n > 0 else None
+
+    target.rpm_limit = _opt_int(str(form.get("rpm_limit") or ""))
+    target.concurrency_limit = _opt_int(str(form.get("concurrency_limit") or ""))
+    target.daily_quota = _opt_int(str(form.get("daily_quota") or ""))
+    target.pool_limit = _opt_int(str(form.get("pool_limit") or ""))
+    if str(form.get("pool_reset_now") or "") == "on":
+        target.pool_used = 0.0
+        from ..data.models import utcnow
+
+        target.pool_window_start = utcnow()
+
     write_audit(
         db,
         actor=user,
         action="user.grant",
         entity_type="user",
         entity_id=target.id,
-        detail=f"services={services} models={len(models)}",
+        detail=(
+            f"services={services} models={len(models)} "
+            f"rpm={target.rpm_limit} conc={target.concurrency_limit} "
+            f"daily={target.daily_quota} pool={target.pool_limit}"
+        ),
     )
     db.commit()
     request.session["flash_ok"] = f"Grant saved for {target.username}."
@@ -1734,7 +1795,7 @@ def users_send_reset(
         send_mail(
             db,
             to_email=target.email,
-            subject="Password reset — LLM Gateway",
+            subject="Password reset — LocalAI Gateway",
             body_text=(
                 f"Hi {target.username},\n\n"
                 f"An admin requested a password reset. Link (1 hour):\n{link}\n"
@@ -1823,6 +1884,7 @@ def usage_page(
             "nav": "usage",
             "is_admin": user.is_platform_admin,
             "teams_enabled": teams_on,
+            "gpu_power_enabled": _gpu_power_enabled(request, db),
         },
     )
 
@@ -1881,6 +1943,10 @@ def usage_export(
             "tokens_out",
             "audio_seconds",
             "response_chars",
+            "watts",
+            "watt_hours",
+            "power_status",
+            "pool_cost",
             "is_demo",
         ]
     )
@@ -1903,6 +1969,10 @@ def usage_export(
                 e.tokens_out or "",
                 e.audio_seconds or "",
                 e.response_chars or "",
+                e.watts if e.watts is not None else "",
+                e.watt_hours if e.watt_hours is not None else "",
+                getattr(e, "power_status", "") or "",
+                e.pool_cost if e.pool_cost is not None else "",
                 1 if e.is_demo else 0,
             ]
         )
@@ -1986,6 +2056,12 @@ async def models_save(
 ):
     from ..data.catalog import list_catalog, update_catalog_meta
 
+    def _parse_weight(raw) -> float:
+        try:
+            return max(0.01, float(raw or 1))
+        except (TypeError, ValueError):
+            return 1.0
+
     form = await request.form()
     enabled_ids = {int(x) for x in form.getlist("enabled") if str(x).isdigit()}
     changed = 0
@@ -2000,6 +2076,7 @@ async def models_save(
             tags=str(form.get(f"tags_{row.id}") or ""),
             short_note=str(form.get(f"note_{row.id}") or ""),
             docs_url=str(form.get(f"docs_{row.id}") or ""),
+            usage_weight=_parse_weight(form.get(f"weight_{row.id}")),
         )
     write_audit(
         db,
@@ -2029,6 +2106,10 @@ def services_page(
     rows = source_rows(db, settings)
     statuses = probe_all(db)
     catalog_by_source = {src.name: catalog_route_models(db, src.name) for src, _ in rows}
+    engine_by = {s.service: s.engine for s in statuses}
+    dialect_blurbs = {
+        src.name: dialect_blurb_for_kind(src.kind, src.api_style) for src, _ in rows
+    }
     flash_ok = request.session.pop("flash_ok", None)
     flash_err = request.session.pop("flash_err", None)
     return templates.TemplateResponse(
@@ -2039,9 +2120,10 @@ def services_page(
             "rows": rows,
             "statuses": statuses,
             "catalog_by_source": catalog_by_source,
+            "engine_by": engine_by,
             "kinds": KINDS,
             "api_styles": dialect_choices(),
-            "dialect_blurbs": {k: dialect_blurb_for_kind(k) for k in KINDS},
+            "dialect_blurbs": dialect_blurbs,
             "domain": settings.domain,
             "nav": "services",
             "flash_ok": flash_ok,
@@ -2142,6 +2224,7 @@ def services_update(
     if style not in API_STYLES:
         style = "auto"
     src.address = normalize_backend(address)
+    src.gpu_power_url = ""  # always derived from address host:9105
     src.route_models = ""  # merge targets come from catalog sync only
     src.isolated = bool(isolated)
     src.api_style = style
@@ -2238,6 +2321,7 @@ def settings_page(
             "teams": teams,
             "flash_ok": flash_ok,
             "flash_err": flash_err,
+            "gpu_power_enabled": _gpu_power_enabled(request, db),
         },
     )
 
@@ -2254,6 +2338,12 @@ def settings_auth_save(
     anonymize_client_ip: str = Form(""),
     retention_days: str = Form("30"),
     auto_vl_routing: str = Form(""),
+    max_keys_per_user: str = Form("3"),
+    pool_window_hours: str = Form("5"),
+    pool_tokens_per_unit: str = Form("1000"),
+    pool_min_cost: str = Form("1"),
+    pool_watt_weight: str = Form("0"),
+    pool_tokens_per_sec: str = Form("50"),
 ):
     from .accounts import get_auth_settings
     from ..privacy import purge_old_usage
@@ -2268,6 +2358,28 @@ def settings_auth_save(
         auth.retention_days = max(0, min(3650, int(retention_days or "30")))
     except ValueError:
         auth.retention_days = 30
+    try:
+        auth.max_keys_per_user = max(0, min(100, int(max_keys_per_user or "3")))
+    except ValueError:
+        auth.max_keys_per_user = 3
+    try:
+        auth.pool_window_hours = max(0, min(8760, int(pool_window_hours or "5")))
+    except ValueError:
+        auth.pool_window_hours = 5
+    try:
+        auth.pool_tokens_per_unit = max(1, int(pool_tokens_per_unit or "1000"))
+    except ValueError:
+        auth.pool_tokens_per_unit = 1000
+    try:
+        auth.pool_min_cost = max(0.0, float(pool_min_cost or "1"))
+    except ValueError:
+        auth.pool_min_cost = 1.0
+    # Energy is display-only; never charge Wh into the pool from Settings.
+    auth.pool_watt_weight = 0.0
+    try:
+        auth.pool_tokens_per_sec = max(1.0, float(pool_tokens_per_sec or "50"))
+    except ValueError:
+        auth.pool_tokens_per_sec = 50.0
     tid = default_team_id.strip()
     if auth.teams_enabled and tid:
         team = db.get(Team, int(tid))
@@ -2286,6 +2398,9 @@ def settings_auth_save(
             f"teams={auth.teams_enabled} "
             f"anon_ip={auth.anonymize_client_ip} "
             f"auto_vl={auth.auto_vl_routing} "
+            f"max_keys={auth.max_keys_per_user} "
+            f"pool_h={auth.pool_window_hours} "
+            f"watt_w={auth.pool_watt_weight} "
             f"retention={auth.retention_days} purged={purged}"
         ),
     )

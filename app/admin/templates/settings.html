@@ -1,35 +1,40 @@
 {% extends "base.html" %}
 {% block title %}Settings · Gateway Admin{% endblock %}
 {% block content %}
-<h1>Settings</h1>
-<p class="muted">Runtime config, registration, and optional teams.</p>
+<header class="page-head page-head--compact">
+  <div>
+    <p class="eyebrow">System</p>
+    <h1>Settings</h1>
+    <p class="lede">Registration, privacy, teams, usage pool, and routing.</p>
+  </div>
+</header>
 {% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
 {% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
 
 {% if user.is_platform_admin and auth %}
 <div class="panel">
-  <h2 style="margin-top:0">Users &amp; registration</h2>
+  <h2>Users &amp; registration</h2>
   <form method="post" action="/settings/auth">
-    <div class="checkboxes" style="margin-bottom:1rem">
+    <div class="checkboxes checkboxes-block">
       <label><input type="checkbox" name="allow_self_registration" {% if auth.allow_self_registration %}checked{% endif %}> Allow self-registration</label>
       <label><input type="checkbox" name="require_email" {% if auth.require_email %}checked{% endif %}> Require email on register</label>
     </div>
 
-    <h3 style="margin:1.25rem 0 0.5rem;font-size:1rem">Privacy</h3>
-    <div class="checkboxes" style="margin-bottom:1rem">
+    <h3 class="section-label">Privacy</h3>
+    <div class="checkboxes checkboxes-block">
       <label><input type="checkbox" name="anonymize_client_ip" {% if auth.anonymize_client_ip %}checked{% endif %}> Anonymize client IPs in usage logs</label>
     </div>
-    <div class="field" style="margin-bottom:1rem;max-width:200px">
+    <div class="field field-gap-md field--sm">
       <label>Usage retention (days, 0 = keep forever)</label>
       <input type="number" name="retention_days" min="0" max="3650" value="{{ auth.retention_days }}">
     </div>
 
-    <h3 style="margin:1.25rem 0 0.5rem;font-size:1rem">Teams (optional)</h3>
-    <p class="muted" style="margin-top:0">Off by default. Users only see their own keys. Turn on only if people should share a key pool.</p>
-    <div class="checkboxes" style="margin-bottom:1rem">
+    <h3 class="section-label">Teams (optional)</h3>
+    <p class="muted mt-0">Off by default. Users only see their own keys. Turn on only if people should share a key pool.</p>
+    <div class="checkboxes checkboxes-block">
       <label><input type="checkbox" name="teams_enabled" id="teams_enabled" {% if auth.teams_enabled %}checked{% endif %}> Enable teams</label>
     </div>
-    <div class="field" style="margin-bottom:1rem;max-width:320px" id="default_team_wrap">
+    <div class="field field-gap-md field--sm" id="default_team_wrap">
       <label>Default team for new registrations</label>
       <select name="default_team_id" {% if not auth.teams_enabled %}disabled{% endif %}>
         <option value="">— none —</option>
@@ -39,12 +44,73 @@
       </select>
     </div>
 
-    <h3 style="margin:1.25rem 0 0.5rem;font-size:1rem">Routing (optional)</h3>
-    <p class="muted" style="margin-top:0">
+    <h3 class="section-label">API keys</h3>
+    <p class="muted mt-0">
+      Global cap on active keys per non-admin user (stops limit bypass via many keys).
+      Platform admins are unlimited. <span class="mono">0</span> = unlimited for everyone.
+    </p>
+    <div class="field field-gap-md field--sm">
+      <label>Max keys per user</label>
+      <input type="number" name="max_keys_per_user" min="0" max="100" value="{{ auth.max_keys_per_user if auth.max_keys_per_user is not none else 3 }}">
+    </div>
+
+    <h3 class="section-label">Usage pool (budget)</h3>
+    <p class="muted mt-0">
+      A <strong>unit</strong> is not one request — it is a budget point burned by prompt size.
+      Default formula: <span class="mono">max(min cost, tokens ÷ tokens-per-unit) × model weight</span>.
+      Small “hi” still costs the min (often 1). A long / complex prompt with many tokens costs more.
+      Heavier models can cost more via Models → <span class="mono">usage_weight</span>.
+      <span class="mono">0</span> window hours = pools off. Per-user limit: Users → Edit grant.
+    </p>
+    <p class="muted text-sm">
+      Example with defaults (1000 tokens/unit, min 1, weight 1):
+      ~50 tokens → <strong>1</strong> unit · ~3000 tokens → <strong>3</strong> units.
+      Pool limit <span class="mono">100</span> ≈ one hundred tiny chats or ~33 medium prompts per window — not “100 requests”.
+    </p>
+    <div class="row row--loose">
+      <div class="field field--xs">
+        <label>Window (hours)</label>
+        <input type="number" name="pool_window_hours" min="0" max="8760" value="{{ auth.pool_window_hours if auth.pool_window_hours is not none else 5 }}">
+      </div>
+      <div class="field field--xs">
+        <label>Tokens / unit</label>
+        <input type="number" name="pool_tokens_per_unit" min="1" value="{{ auth.pool_tokens_per_unit if auth.pool_tokens_per_unit is not none else 1000 }}">
+      </div>
+      <div class="field field--xs">
+        <label>Min units / call</label>
+        <input type="number" name="pool_min_cost" min="0" step="0.1" value="{{ auth.pool_min_cost if auth.pool_min_cost is not none else 1 }}">
+      </div>
+    </div>
+
+    <h3 class="section-label">GPU energy (optional)</h3>
+    {% if gpu_power_enabled %}
+    <p class="muted mt-0">
+      Sidecar on each source host at <span class="mono">:9105/power</span>
+      (same machine as the backend). Services live status shows watts or “sidecar missing”.
+      Chat / embed / STT / TTS meter Wh when it answers. Energy does not change the pool.
+    </p>
+    <div class="row row--loose">
+      <div class="field field--xs">
+        <label>Est. tok/s</label>
+        <input type="number" name="pool_tokens_per_sec" min="1" step="1" value="{{ auth.pool_tokens_per_sec if auth.pool_tokens_per_sec is not none else 50 }}">
+      </div>
+    </div>
+    <input type="hidden" name="pool_watt_weight" value="0">
+    {% else %}
+    <p class="muted mt-0">
+      Add sources under <a href="/services">Services</a>. GPU probe uses
+      <span class="mono">http://&lt;source-host&gt;:9105/power</span> automatically.
+    </p>
+    <input type="hidden" name="pool_watt_weight" value="0">
+    <input type="hidden" name="pool_tokens_per_sec" value="{{ auth.pool_tokens_per_sec if auth.pool_tokens_per_sec is not none else 50 }}">
+    {% endif %}
+
+    <h3 class="section-label">Routing (optional)</h3>
+    <p class="muted mt-0">
       When enabled, chat JSON with image content parts is rewritten to a vision / <span class="mono">-VL</span>
       sibling on the same source (catalog tag or id match). No match → request unchanged.
     </p>
-    <div class="checkboxes" style="margin-bottom:1rem">
+    <div class="checkboxes checkboxes-block">
       <label><input type="checkbox" name="auto_vl_routing" {% if auth.auto_vl_routing %}checked{% endif %}> Auto-route image chat → VL model</label>
     </div>
     <button class="primary" type="submit">Save</button>
@@ -63,7 +129,7 @@
 {% endif %}
 
 <div class="panel">
-  <h2 style="margin-top:0">Admin</h2>
+  <h2>Admin</h2>
   <table>
     <tr><th>Domain</th><td class="mono">{{ settings.domain }}</td></tr>
     <tr><th>Public API host</th><td class="mono">{{ settings.public_host or '(local gateway port / any Host)' }}</td></tr>
@@ -74,20 +140,20 @@
 </div>
 
 <div class="panel">
-  <h2 style="margin-top:0">Local access (this compose)</h2>
+  <h2>Local access (this compose)</h2>
   <table>
     <tr><th>Admin UI</th><td class="mono"><a href="{{ admin_url }}">{{ admin_url }}</a></td></tr>
     <tr><th>API gateway</th><td class="mono">{{ gateway_url }}</td></tr>
   </table>
-  <p class="muted" style="margin:0.75rem 0 0;font-size:0.85rem">
+  <p class="muted hint-after">
     Path selects the service. Example:
     <span class="mono">curl -H "X-Api-Key: …" {{ gateway_url }}/v1/chat/completions -d '…'</span>
   </p>
 </div>
 
 <div class="panel">
-  <h2 style="margin-top:0">API routes</h2>
-  <p class="muted" style="margin-top:0">
+  <h2>API routes</h2>
+  <p class="muted mt-0">
     One base URL + API key. Configure upstreams under <a href="/services">Services</a>.
     Reverse proxy optional — point one hostname at the API gateway.
   </p>
@@ -97,7 +163,7 @@
     {% for src, route in backend_rows %}
       <tr>
         <td><span class="badge">{{ src.name }}</span>{% if src.is_default %} · {{ src.kind }} default{% endif %}</td>
-        <td class="mono" style="font-size:0.85rem">{{ route }}</td>
+        <td class="mono cell-sm">{{ route }}</td>
         <td class="mono">{{ src.address if src.address else '— (disabled)' }}</td>
       </tr>
     {% endfor %}
@@ -106,7 +172,7 @@
 </div>
 
 <div class="panel">
-  <h2 style="margin-top:0">Temp guard</h2>
+  <h2>Temp guard</h2>
   <table>
     <tr><th>Disabled</th><td class="mono">{{ 'yes' if temp_guard_disabled else 'no' }}</td></tr>
     <tr><th>Max °C</th><td class="mono">{{ temp_max_c }}</td></tr>

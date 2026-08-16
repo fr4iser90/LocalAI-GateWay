@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block title %}My account · Gateway{% endblock %}
 {% block content %}
-<header class="page-head">
+<header class="page-head page-head--compact">
   <div>
     <p class="eyebrow">Your workspace</p>
-    <h1>My account</h1>
-    <p class="lede">{% if teams_enabled %}Scoped to your team memberships.{% else %}Only your keys and usage — other users stay invisible.{% endif %}{% if is_admin %} You are also platform admin.{% endif %}</p>
+    <h1>Home</h1>
+    <p class="lede">{% if teams_enabled %}Scoped to your team memberships.{% else %}Only your keys and usage — other users stay invisible.{% endif %}{% if is_admin %} You are also platform admin.{% endif %} Email / password: <a href="/account">Profile</a>.</p>
   </div>
 </header>
 
@@ -52,6 +52,25 @@
       <div class="value">{% if latency_p95 %}{{ '%.0f'|format(latency_p95) }}<span class="unit">ms</span>{% else %}—{% endif %}</div>
       <div class="hint">Tail</div>
     </div>
+    {% if gpu_power_enabled %}
+    <div class="card">
+      <div class="label">GPU energy</div>
+      <div class="value">{% if watt_hours %}{{ '%.3f'|format(watt_hours) }}<span class="unit">Wh</span>{% else %}—{% endif %}</div>
+      <div class="hint">Estimate · 24h{% if watt_hours_week %} · {{ '%.2f'|format(watt_hours_week) }} Wh / 7d{% endif %}</div>
+    </div>
+    <div class="card">
+      <div class="label">Avg GPU draw</div>
+      <div class="value">{% if watts_avg %}{{ '%.0f'|format(watts_avg) }}<span class="unit">W</span>{% else %}—{% endif %}</div>
+      <div class="hint">Mean sampled watts during calls</div>
+    </div>
+    {% endif %}
+    {% if pool_limit %}
+    <div class="card">
+      <div class="label">Usage pool</div>
+      <div class="value">{{ '%.0f'|format(pool_used) }}<span class="unit">/{{ pool_limit }}</span></div>
+      <div class="hint">Compute units this window{% if pool_cost %} · {{ '%.1f'|format(pool_cost) }} charged 24h{% endif %}</div>
+    </div>
+    {% endif %}
   </div>
 </section>
 
@@ -98,7 +117,7 @@
   {% if daily_rows %}
   <div class="table-wrap">
   <table>
-    <thead><tr>{% if teams_enabled %}<th>Team</th>{% endif %}<th>Key</th><th>Service</th><th>Model</th><th>OK</th><th>Tokens in</th><th>Audio s</th></tr></thead>
+    <thead><tr>{% if teams_enabled %}<th>Team</th>{% endif %}<th>Key</th><th>Service</th><th>Model</th><th>OK</th><th>Tokens in</th>{% if gpu_power_enabled %}<th>Wh</th>{% endif %}<th>Pool</th><th>Audio s</th></tr></thead>
     <tbody>
     {% for r in daily_rows %}
       <tr>
@@ -108,6 +127,8 @@
         <td class="mono">{{ r.model or '—' }}</td>
         <td class="num">{{ r.ok_count }}</td>
         <td class="num">{{ r.tokens_in or 0 }}</td>
+        {% if gpu_power_enabled %}<td class="num">{% if r.watt_hours %}{{ '%.3f'|format(r.watt_hours) }}{% else %}—{% endif %}</td>{% endif %}
+        <td class="num">{% if r.pool_cost %}{{ '%.1f'|format(r.pool_cost) }}{% else %}—{% endif %}</td>
         <td class="num">{{ '%.1f'|format(r.audio_seconds or 0) }}</td>
       </tr>
     {% endfor %}
@@ -136,7 +157,13 @@
         <td>{% if k.is_active %}<span class="badge ok">active</span>{% else %}<span class="badge off">off</span>{% endif %}</td>
       </tr>
     {% else %}
-      <tr><td colspan="4" class="muted">No keys yet.</td></tr>
+      <tr><td colspan="4" class="empty-cell">
+        <div class="empty-state">
+          <p class="empty-state-title">No keys yet</p>
+          <p class="empty-state-text">Mint an API key to call the gateway from clients.</p>
+          <a class="btn primary" href="/keys/new">New key</a>
+        </div>
+      </td></tr>
     {% endfor %}
     </tbody>
   </table>
@@ -150,10 +177,10 @@
     <p class="panel-sub">Pinned models appear first in <span class="mono">GET /v1/models</span> (VS Code etc.). Does not change permissions.</p>
   </div>
   {% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
-  <form method="get" action="/me" class="row" style="margin-bottom:1rem">
-    <div class="field">
-      <label>Key</label>
-      <select name="fav_key" onchange="this.form.submit()">
+  <form method="get" action="/me" class="row row-filter">
+    <div class="field field--sm">
+      <label for="fav-key">Key</label>
+      <select id="fav-key" name="fav_key" onchange="this.form.submit()">
         {% for k in keys %}
         <option value="{{ k.id }}" {% if fav_key and fav_key.id == k.id %}selected{% endif %}>{{ k.label }}</option>
         {% endfor %}
@@ -168,9 +195,12 @@
     {% include "partials/model_picker.html" %}
     {% endwith %}
     {% else %}
-    <p class="muted">No catalog models yet — ask an admin to sync under Models.</p>
+    <div class="empty-state">
+      <p class="empty-state-title">No catalog models yet</p>
+      <p class="empty-state-text">Ask an admin to sync under Models, then pin favorites here.</p>
+    </div>
     {% endif %}
-    <div class="actions" style="margin-top:1rem">
+    <div class="actions actions-mt">
       <input class="primary" type="submit" value="Save favorites">
     </div>
   </form>

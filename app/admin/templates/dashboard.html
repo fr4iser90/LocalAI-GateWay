@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Dashboard · Gateway Admin{% endblock %}
 {% block content %}
-<header class="page-head">
+<header class="page-head page-head--compact">
   <div>
     <p class="eyebrow">Operations</p>
     <h1>Dashboard</h1>
@@ -22,17 +22,14 @@
 {% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
 {% if demo_count %}<div class="banner-info">Showing <strong>{{ '{:,}'.format(demo_count) }}</strong> demo events in the 7-day window — tagged in Usage as <span class="badge">demo</span>.</div>{% endif %}
 
-<section class="panel setup-panel {% if setup.complete %}setup-done{% endif %}" id="setup">
-  <div class="panel-head" style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap">
+{% if not setup.complete %}
+<section class="panel setup-panel" id="setup">
+  <div class="panel-head">
     <div>
-      <h2 style="margin:0">Setup{% if not setup.complete %} checklist{% endif %}</h2>
-      <p class="panel-sub" style="margin:0.35rem 0 0">
-        {% if setup.complete %}
-        All set — {{ setup.done_n }}/{{ setup.total_n }}. Sources come from the UI (or optional <span class="mono">*_SOURCE</span> in <span class="mono">.env</span>).
-        {% else %}
-        Fresh install? Follow the <a href="/setup">setup wizard</a>
-        ({{ setup.done_n }}/{{ setup.total_n }} checklist items).
-        {% endif %}
+      <h2>Setup checklist</h2>
+      <p class="panel-sub">
+        Finish the <a href="/setup">setup wizard</a>
+        ({{ setup.done_n }}/{{ setup.total_n }}). Until then the rest of the admin UI stays locked.
       </p>
     </div>
   </div>
@@ -43,7 +40,7 @@
         <span class="setup-mark">{% if step.done %}✓{% else %}{{ loop.index }}{% endif %}</span>
         <div>
           <strong>{{ step.title }}</strong>
-          <p class="muted" style="margin:0.2rem 0 0;font-size:0.85rem">{{ step.detail }}</p>
+          <p class="muted text-sm mt-block">{{ step.detail }}</p>
         </div>
       </div>
       {% if not step.done %}
@@ -55,6 +52,7 @@
     {% endfor %}
   </ol>
 </section>
+{% endif %}
 
 <section class="metric-section">
   <h2 class="section-title">Requests</h2>
@@ -120,7 +118,7 @@
     <div class="card">
       <div class="label">Latency p50</div>
       <div class="value">{% if latency_p50 %}{{ '%.0f'|format(latency_p50) }}<span class="unit">ms</span>{% else %}—{% endif %}</div>
-      <div class="hint">Median auth check</div>
+      <div class="hint">Median upstream (chat)</div>
     </div>
     <div class="card">
       <div class="label">Latency p95</div>
@@ -129,6 +127,34 @@
     </div>
   </div>
 </section>
+
+{% if gpu_power_enabled %}
+<section class="metric-section">
+  <h2 class="section-title">Energy · estimate</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="label">GPU energy · 24h</div>
+      <div class="value">{% if watt_hours_day %}{{ '%.3f'|format(watt_hours_day) }}<span class="unit">Wh</span>{% else %}—{% endif %}</div>
+      <div class="hint">Wh = mean W × call duration</div>
+    </div>
+    <div class="card">
+      <div class="label">GPU energy · 7d</div>
+      <div class="value">{% if watt_hours_week %}{{ '%.2f'|format(watt_hours_week) }}<span class="unit">Wh</span>{% else %}—{% endif %}</div>
+      <div class="hint">Sum of per-request Wh</div>
+    </div>
+    <div class="card">
+      <div class="label">Avg draw · 24h</div>
+      <div class="value">{% if watts_avg %}{{ '%.0f'|format(watts_avg) }}<span class="unit">W</span>{% else %}—{% endif %}</div>
+      <div class="hint">Mean sampled watts during calls</div>
+    </div>
+    <div class="card">
+      <div class="label">Pool cost · 24h</div>
+      <div class="value">{% if pool_cost_day %}{{ '%.1f'|format(pool_cost_day) }}{% else %}—{% endif %}</div>
+      <div class="hint">Budget units charged (tokens)</div>
+    </div>
+  </div>
+</section>
+{% endif %}
 
 <section class="panel panel-chart">
   <div class="panel-head">
@@ -167,6 +193,7 @@
 
 <p class="footnote">
   Live traffic estimates prompt tokens from request body size (chars÷4). Completion tokens and exact STT duration need response-side logging.
-  Auth latency is gateway check time, not full model generation.
+  Chat latency / Wh use real upstream time (gateway proxy). Other routes still record auth-check latency.
+  {% if gpu_power_enabled %}Wh = mean GPU watts during the call × real seconds / 3600.{% endif %}
 </p>
 {% endblock %}

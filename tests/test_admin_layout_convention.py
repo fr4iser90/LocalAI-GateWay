@@ -1,0 +1,330 @@
+"""Admin layout conventions — structural + CSS token assertions.
+
+Industry-aligned admin shell rules we enforce:
+
+1. One content column that fills the main pane (``--page-max: none``).
+2. No half-viewport page wrappers (``.stack--form`` / ``.form-narrow`` / ``.panel-chart``
+   must not introduce a narrower max-width than the page column).
+3. Authenticated app pages use ``page-head page-head--compact`` (not bare ``<h1>``).
+4. ``base.html`` wraps content in ``.content-inner``.
+5. Charts fill their panel (``.chart`` / ``.panel-chart`` → ``max-width: none``).
+
+These are not visual screenshots — they assert the design tokens and template
+contracts so half-width regressions fail CI.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+TEMPLATES = ROOT / "app" / "admin" / "templates"
+STYLE = ROOT / "app" / "admin" / "static" / "style.css"
+
+# App pages that render inside the authenticated shell (extend base + block content)
+APP_PAGES = sorted(
+    p
+    for p in TEMPLATES.glob("*.html")
+    if p.name
+    not in {
+        "base.html",
+        "setup_base.html",  # uses page-head via its own content
+        "_pw_rules.html",
+        "login.html",
+        "register.html",
+        "forgot.html",
+        "reset.html",
+        # wizard bodies are partials included by setup_base
+        "setup_key.html",
+        "setup_models.html",
+        "setup_sources.html",
+    }
+)
+
+# Setup partials are OK without their own page-head (parent provides it)
+PARTIALS = {
+    "setup_key.html",
+    "setup_models.html",
+    "setup_sources.html",
+    "_pw_rules.html",
+}
+
+
+def _css_token(name: str) -> str:
+    text = STYLE.read_text(encoding="utf-8")
+    # Prefer :root / dark theme block
+    m = re.search(rf"{re.escape(name)}\s*:\s*([^;]+);", text)
+    assert m, f"CSS token {name} not found in style.css"
+    return m.group(1).strip()
+
+
+def _rule_max_width(selector: str) -> str | None:
+    """Return max-width for a rule that includes ``selector`` (comma lists OK)."""
+    text = STYLE.read_text(encoding="utf-8")
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    for m in re.finditer(r"([^{}]+)\{([^}]+)\}", text):
+        sel_list = m.group(1)
+        body = m.group(2)
+        parts = [p.strip() for p in sel_list.split(",") if p.strip()]
+        if selector not in parts:
+            continue
+        mw = re.search(r"max-width\s*:\s*([^;]+);", body)
+        if mw:
+            return mw.group(1).strip()
+    return None
+
+
+def test_layout_tokens_fill_main_column():
+    assert _css_token("--page-max") == "none"
+    assert _css_token("--sidebar-width") == "240px"
+    pad_x = _css_token("--page-pad-x")
+    assert pad_x.endswith("rem") or pad_x.endswith("px")
+    # Meaningful horizontal padding (≥ 1rem)
+    if pad_x.endswith("rem"):
+        assert float(pad_x[:-3]) >= 1.0
+
+
+def test_page_wrappers_are_full_width():
+    for sel in (".stack--form", ".form-narrow", ".panel-chart", ".chart", ".content-inner"):
+        mw = _rule_max_width(sel)
+        assert mw is not None, f"{sel} should declare max-width"
+        assert mw in {"none", "var(--page-max)"}, (
+            f"{sel} max-width must be none or var(--page-max), got {mw!r}"
+        )
+
+
+def test_base_wraps_content_inner():
+    base = (TEMPLATES / "base.html").read_text(encoding="utf-8")
+    assert 'class="content-inner"' in base
+    assert "{% block content %}" in base
+    # content block must live inside content-inner
+    inner_at = base.index('class="content-inner"')
+    block_at = base.index("{% block content %}")
+    assert block_at > inner_at
+
+
+def test_app_pages_use_compact_page_head():
+    missing: list[str] = []
+    for path in APP_PAGES:
+        text = path.read_text(encoding="utf-8")
+        if "{% block content %}" not in text and "{% block wizard_body %}" not in text:
+            continue
+        if "page-head page-head--compact" not in text and "page-head--compact" not in text:
+            # setup_done etc. must still have it
+            missing.append(path.name)
+    assert not missing, (
+        "App pages missing page-head--compact: " + ", ".join(missing)
+    )
+
+
+def test_no_bare_h1_outside_page_head_on_app_pages():
+    """Bare top-level <h1> without page-head chrome is a layout drift."""
+    bad: list[str] = []
+    for path in APP_PAGES:
+        text = path.read_text(encoding="utf-8")
+        if "page-head" in text:
+            continue
+        if re.search(r"<h1[\s>]", text):
+            bad.append(path.name)
+    assert not bad, f"Pages with bare <h1> (use page-head): {', '.join(bad)}"
+
+
+def test_no_form_narrow_class_in_templates():
+    hits = []
+    for path in TEMPLATES.glob("*.html"):
+        text = path.read_text(encoding="utf-8")
+        if "form-narrow" in text:
+            hits.append(path.name)
+    assert not hits, f"Remove form-narrow from: {', '.join(hits)}"
+
+
+def test_no_stack_form_narrowing_in_templates():
+    """stack--form is deprecated as a width mode; plain stack is OK."""
+    hits = []
+    for path in TEMPLATES.glob("*.html"):
+        if "stack--form" in path.read_text(encoding="utf-8"):
+            hits.append(path.name)
+    assert not hits, f"Replace stack--form with stack: {', '.join(hits)}"
+
+
+def test_account_and_privacy_panels_share_full_stack():
+    for name in ("account.html", "privacy.html"):
+        text = (TEMPLATES / name).read_text(encoding="utf-8")
+        assert 'class="stack"' in text
+        assert "stack--form" not in text
+        assert "form-narrow" not in text
+        assert "panel-head" in text
+        assert 'style="' not in text, f"{name} should have zero inline styles"
+        panels = re.findall(r'<div class="panel[^"]*"', text)
+        assert len(panels) >= 2
+
+
+def test_layout_grid_uses_sidebar_token():
+    text = STYLE.read_text(encoding="utf-8")
+    assert "var(--sidebar-width)" in text
+    assert re.search(
+        r"\.layout\s*\{[^}]*grid-template-columns:\s*var\(--sidebar-width\)",
+        text,
+        re.DOTALL,
+    )
+
+
+def test_expected_page_max_and_chart_contract_values():
+    """Pin the concrete contract values used in the design scorecard."""
+    assert _css_token("--page-max") == "none"
+    assert _rule_max_width(".panel-chart") == "none"
+    assert _rule_max_width(".chart") == "none"
+    assert _rule_max_width(".stack--form") == "none"
+    assert _rule_max_width(".form-narrow") == "none"
+    assert _rule_max_width(".content-inner") == "var(--page-max)"
+
+
+def test_field_max_tokens():
+    assert _css_token("--field-max") == "32rem"
+    assert _css_token("--field-max-sm") == "12.5rem"
+    assert _css_token("--field-max-xs") == "9rem"
+    css = STYLE.read_text(encoding="utf-8")
+    assert "max-width: var(--field-max)" in css
+    assert ".field--xs" in css
+    assert ".field-gap" in css
+    assert "focus-visible" in css
+
+
+def test_settings_uses_section_labels_not_inline_h3():
+    text = (TEMPLATES / "settings.html").read_text(encoding="utf-8")
+    assert "section-label" in text
+    assert "h3 style=" not in text
+
+
+def test_core_pages_inline_style_budget():
+    """Showcase / form pages: keep inline styles near zero.
+
+    Dense UIs (models catalog, setup_key) may still use a few layout styles.
+    """
+    budget = {
+        "account.html": 0,
+        "privacy.html": 0,
+        "login.html": 0,
+        "register.html": 0,
+        "settings.html": 2,
+        "alerts.html": 2,
+        "keys.html": 2,
+        "smtp.html": 4,
+        "team_form.html": 3,
+    }
+    over: list[str] = []
+    for name, max_n in budget.items():
+        text = (TEMPLATES / name).read_text(encoding="utf-8")
+        n = len(re.findall(r'\sstyle="', text))
+        if n > max_n:
+            over.append(f"{name}: {n} > {max_n}")
+    assert not over, "Inline style budget exceeded: " + "; ".join(over)
+
+
+def test_services_live_status_uses_panel_head():
+    text = (TEMPLATES / "services.html").read_text(encoding="utf-8")
+    assert "panel-head" in text
+    assert "Live status" in text
+    assert 'style="display:flex;align-items:baseline' not in text
+
+
+def test_a11y_shell_contracts():
+    base = (TEMPLATES / "base.html").read_text(encoding="utf-8")
+    assert 'class="skip-link"' in base
+    assert 'href="#main-content"' in base
+    assert 'id="main-content"' in base
+    assert 'aria-label="Primary"' in base
+    assert "aria-current=\"page\"" in base
+    assert "data-nav-toggle" in base
+    assert "data-nav-backdrop" in base
+    assert 'src="/static/nav.js"' in base
+    css = STYLE.read_text(encoding="utf-8")
+    assert ".skip-link" in css
+    assert ".layout.nav-open .sidebar" in css
+    assert ".empty-state" in css
+    assert (ROOT / "app" / "admin" / "static" / "nav.js").is_file()
+
+
+def test_models_setup_key_services_inline_budget():
+    budget = {
+        "models.html": 0,
+        "setup_key.html": 0,
+        "services.html": 0,
+    }
+    over = []
+    for name, max_n in budget.items():
+        n = len(re.findall(r'\sstyle="', (TEMPLATES / name).read_text(encoding="utf-8")))
+        if n > max_n:
+            over.append(f"{name}: {n} > {max_n}")
+    assert not over, "Inline style budget exceeded: " + "; ".join(over)
+
+
+def test_empty_state_pattern_present():
+    models = (TEMPLATES / "models.html").read_text(encoding="utf-8")
+    keys = (TEMPLATES / "keys.html").read_text(encoding="utf-8")
+    services = (TEMPLATES / "services.html").read_text(encoding="utf-8")
+    assert "empty-state" in models and "No models yet" in models
+    assert "empty-state" in keys
+    assert "empty-state" in services
+
+
+def test_list_pages_use_empty_state():
+    pages = {
+        "users.html": "No users yet",
+        "audit.html": "No audit events yet",
+        "teams.html": "No teams yet",
+        "usage.html": "No events",
+        "usage_daily.html": "No aggregates yet",
+        "me.html": "No keys yet",
+        "keys.html": "No API keys yet",
+        "models.html": "No models yet",
+        "services.html": "No sources to probe",
+    }
+    missing = []
+    for name, phrase in pages.items():
+        text = (TEMPLATES / name).read_text(encoding="utf-8")
+        if "empty-state" not in text or phrase not in text:
+            missing.append(name)
+    assert not missing, f"Missing empty-state pattern: {', '.join(missing)}"
+
+
+def test_a11y_usage_subnav_and_forms():
+    usage = (TEMPLATES / "usage.html").read_text(encoding="utf-8")
+    daily = (TEMPLATES / "usage_daily.html").read_text(encoding="utf-8")
+    assert 'aria-current="page"' in usage
+    assert 'aria-current="page"' in daily
+    assert 'role="search"' in usage
+    assert "for=\"usage-service\"" in usage
+    users = (TEMPLATES / "users.html").read_text(encoding="utf-8")
+    assert 'for="new-username"' in users
+    assert "details-edit" in users
+    audit = (TEMPLATES / "audit.html").read_text(encoding="utf-8")
+    assert 'role="status"' in audit or 'role="alert"' in audit
+    assert "sr-only" in audit
+
+
+def test_core_ops_pages_inline_budget_tight():
+    budget = {
+        "users.html": 0,
+        "audit.html": 0,
+        "teams.html": 0,
+        "usage.html": 0,
+        "usage_daily.html": 0,
+        "alerts.html": 0,
+        "smtp.html": 0,
+        "me.html": 0,
+        "user_grant.html": 0,
+        "key_form.html": 0,
+        "setup_done.html": 0,
+        "setup_models.html": 0,
+        "setup_sources.html": 0,
+        "_pw_rules.html": 0,
+    }
+    over = []
+    for name, max_n in budget.items():
+        text = (TEMPLATES / name).read_text(encoding="utf-8")
+        n = len(re.findall(r'\sstyle="', text))
+        if n > max_n:
+            over.append(f"{name}: {n} > {max_n}")
+    assert not over, "Inline style budget exceeded: " + "; ".join(over)

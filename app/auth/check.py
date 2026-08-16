@@ -25,6 +25,9 @@ class AuthResult:
     priority: int = 0
     api_key: ApiKey | None = None
     model: str | None = None
+    usage_event_id: int | None = None
+    # Chat proxied via /v1/gateway/forward for real duration / Wh metering
+    meter_proxy: bool = False
 
 
 def check_temperature() -> AuthResult | None:
@@ -137,6 +140,19 @@ def _effective_limits(api_key: ApiKey) -> tuple[int | None, int | None, int, int
     return rpm, concurrency, priority, daily, monthly
 
 
+def _owner_ceilings(api_key: ApiKey) -> tuple[int | None, int | None, int | None, int | None]:
+    """User-level caps across all keys. Platform admins: no user ceiling."""
+    owner = api_key.owner
+    if owner is None or owner.is_platform_admin:
+        return None, None, None, None
+    return (
+        owner.id,
+        owner.rpm_limit,
+        owner.concurrency_limit,
+        owner.daily_quota,
+    )
+
+
 def _monthly_ok_count(db: Session, team_id: int | None) -> int:
     if not team_id:
         return 0
@@ -169,7 +185,12 @@ def log_usage(
     response_chars: int | None = None,
     body: bytes | None = None,
     kind: str | None = None,
-) -> None:
+    watts: float | None = None,
+    watt_hours: float | None = None,
+    pool_cost: float | None = None,
+    defer_metering: bool = False,
+    power_status: str = "",
+) -> UsageEvent:
     from ..admin.accounts import get_auth_settings
     from ..privacy import anonymize_ip, estimate_prompt_tokens
 
@@ -181,32 +202,48 @@ def log_usage(
     if tokens_in is None and result == "ok" and kind in MODEL_CHECK_KINDS:
         tokens_in = estimate_prompt_tokens(body)
 
+    # Deferred: entry/forward patches real duration + Wh after upstream ends.
+    # Auth-time global GPU sample removed — Wh is per-source probe only.
+    if defer_metering:
+        watts = None
+        watt_hours = None
+        duration_ms = None
+        if not power_status:
+            power_status = ""
+    else:
+        watts = None
+        watt_hours = None
+
     team_id = api_key.team_id if api_key else None
     key_id = api_key.id if api_key else None
     key_label = api_key.label if api_key else ""
     team_name = api_key.team.name if api_key and api_key.team else ""
-    db.add(
-        UsageEvent(
-            api_key_id=key_id,
-            team_id=team_id,
-            key_label=key_label,
-            team_name=team_name,
-            service=service,
-            method=method,
-            path=path[:512],
-            host=host[:256],
-            client_ip=ip[:64],
-            model=model,
-            status=status,
-            result=result,
-            duration_ms=duration_ms,
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
-            audio_seconds=audio_seconds,
-            response_chars=response_chars,
-            is_demo=False,
-        )
+    event = UsageEvent(
+        api_key_id=key_id,
+        team_id=team_id,
+        key_label=key_label,
+        team_name=team_name,
+        service=service,
+        method=method,
+        path=path[:512],
+        host=host[:256],
+        client_ip=ip[:64],
+        model=model,
+        status=status,
+        result=result,
+        duration_ms=duration_ms,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        audio_seconds=audio_seconds,
+        response_chars=response_chars,
+        watts=watts,
+        watt_hours=watt_hours,
+        power_status=(power_status or "")[:32],
+        pool_cost=pool_cost,
+        is_demo=False,
     )
+    db.add(event)
+    db.flush()
     bump_usage_daily(
         db,
         team_id=team_id,
@@ -221,6 +258,8 @@ def log_usage(
         audio_seconds=audio_seconds,
         response_chars=response_chars,
         duration_ms=duration_ms,
+        watt_hours=watt_hours,
+        pool_cost=pool_cost,
     )
     if result == "rate_limit":
         maybe_alert(
@@ -228,6 +267,7 @@ def log_usage(
             event="rate_limit",
             message=f"key={key_label or '?'} service={service} model={model or '-'}",
         )
+    return event
 
 
 def authorize(
@@ -242,6 +282,7 @@ def authorize(
     client_ip: str,
     body: bytes | None = None,
     content_type: str | None = None,
+    defer_metering: bool = False,
 ) -> AuthResult:
     started = time.perf_counter()
     model = None
@@ -307,6 +348,7 @@ def authorize(
 
     rpm, concurrency, priority, daily_quota, monthly_quota = _effective_limits(api_key)
     mlim = _pick_model_limit(api_key, service, model)
+    owner_id, user_rpm, user_conc, user_daily = _owner_ceilings(api_key)
 
     if monthly_quota and monthly_quota > 0 and api_key.team_id:
         if _monthly_ok_count(db, api_key.team_id) >= monthly_quota:
@@ -326,6 +368,10 @@ def authorize(
         key_daily_quota=api_key.daily_quota,
         team_daily_quota=api_key.team.daily_quota if api_key.team else None,
         model_daily_quota=mlim.daily_quota if mlim else None,
+        user_id=owner_id,
+        user_rpm=user_rpm,
+        user_concurrency=user_conc,
+        user_daily_quota=user_daily,
     )
     if not decision.allowed:
         priority_gate.release(api_key.id)
@@ -337,15 +383,39 @@ def authorize(
             priority=priority,
         )
 
-    rate_limiter.release(api_key.id, model=model)
+    rate_limiter.release(api_key.id, model=model, user_id=owner_id)
     priority_gate.release(api_key.id)
+
+    from ..admin.accounts import get_auth_settings
+    from ..usage_pool import check_and_consume_pool
+
+    pool = check_and_consume_pool(
+        db,
+        api_key=api_key,
+        auth=get_auth_settings(db),
+        service=service,
+        model=model,
+        body=body,
+    )
+    if not pool.allowed:
+        return _fail(
+            429,
+            pool.reason,
+            api_key,
+            remaining_rpm=decision.remaining_rpm,
+            priority=priority,
+        )
 
     temp_block = check_temperature()
     if temp_block is not None:
         return _fail(temp_block.status, temp_block.reason, api_key, priority=priority)
 
+    # Only /v1/gateway/entry (or VL forward hop) finalizes duration/Wh.
+    # Plain auth_request must not leave orphan deferred events.
+    meter_proxy = bool(defer_metering) and kind in {"chat", "embed", "stt", "tts"}
+
     api_key.last_used_at = utcnow()
-    log_usage(
+    event = log_usage(
         db,
         api_key=api_key,
         service=service,
@@ -359,6 +429,10 @@ def authorize(
         result="ok",
         duration_ms=(time.perf_counter() - started) * 1000,
         body=body,
+        watts=None if meter_proxy else pool.watts,
+        watt_hours=None if meter_proxy else pool.watt_hours,
+        pool_cost=pool.cost if pool.cost else None,
+        defer_metering=meter_proxy,
     )
     check_quota_alert(
         db,
@@ -366,6 +440,8 @@ def authorize(
         team_id=api_key.team_id,
         key_q=api_key.daily_quota,
         team_q=api_key.team.daily_quota if api_key.team else None,
+        user_id=owner_id,
+        user_q=user_daily,
         label=api_key.label,
     )
     db.commit()
@@ -377,4 +453,6 @@ def authorize(
         priority=priority,
         api_key=api_key,
         model=model,
+        usage_event_id=event.id if meter_proxy else None,
+        meter_proxy=meter_proxy,
     )

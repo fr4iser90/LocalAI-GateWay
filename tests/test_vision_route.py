@@ -151,9 +151,25 @@ def test_forward_ticket_roundtrip():
         backend="10.0.0.1:1",
         rewrite_uri="/v1/chat/completions",
         rewrite_model="x-VL",
+        usage_id=42,
     )
     p = parse_forward_ticket(t, "s")
     assert p is not None
     assert p["service"] == "chat"
     assert p["model"] == "x-VL"
+    assert p["uid"] == 42
     assert parse_forward_ticket(t, "wrong") is None
+
+
+def test_forward_ticket_passthrough_no_model():
+    t = mint_forward_ticket(
+        secret="s",
+        service="chat",
+        backend="10.0.0.1:1",
+        rewrite_uri="/v1/chat/completions",
+        usage_id=7,
+    )
+    p = parse_forward_ticket(t, "s")
+    assert p is not None
+    assert p["model"] == ""
+    assert p["uid"] == 7

@@ -1,32 +1,39 @@
 {% extends "base.html" %}
 {% block title %}Services · Gateway Admin{% endblock %}
 {% block content %}
-<h1>Services</h1>
-<p class="muted">
-  <strong>Default: merge.</strong> Clients use one <span class="mono">/v1/…</span> URL; the gateway picks the source by
-  request <span class="mono">model</span> (from <a href="/models">Models → Sync</a>).
-  Unmatched → default of that kind.
-  <strong>Separate</strong> = out of merge (only <span class="mono">/s/{name}/…</span> + key grant).
-  <strong>API dialect</strong> maps client paths to your self-hosted server (Piper, whisper.cpp, …).
-</p>
+<header class="page-head page-head--compact">
+  <div>
+    <p class="eyebrow">Backends</p>
+    <h1>Services</h1>
+    <p class="lede">
+      Upstream sources for chat / embed / STT / TTS.
+      Merge via model id on <span class="mono">/v1/…</span>; separate sources use <span class="mono">/s/{name}/…</span>.
+    </p>
+  </div>
+</header>
 {% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
 {% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
 
 <div class="panel">
-  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-    <h2 style="margin:0">Live status</h2>
+  <div class="panel-head">
+    <div class="panel-head-text">
+      <h2>Live status</h2>
+      <p class="panel-sub">
+        Probes against upstreams. llama.cpp: <span class="mono">/health</span> + <span class="mono">/slots</span>.
+        Ollama: <span class="mono">/api/ps</span>. TEI: <span class="mono">/info</span>.
+        Engine ending in <span class="mono">?</span> = soft guess from kind (no unique fingerprint yet).
+      </p>
+    </div>
     <button type="button" class="btn-sm" id="refresh-status">Refresh</button>
   </div>
-  <p class="muted" style="margin:0.5rem 0 0.75rem;font-size:0.85rem">
-    Probes against upstreams. llama.cpp: <span class="mono">/health</span> + <span class="mono">/slots</span>.
-    Ollama: <span class="mono">/api/ps</span>. Whisper/Piper: reachability or <span class="mono">/health</span>.
-  </p>
   <table id="status-table">
     <thead>
       <tr>
         <th>Source</th>
         <th>Kind</th>
         <th>State</th>
+        <th>Engine</th>
+        <th>GPU W</th>
         <th>Slots</th>
         <th>Detail</th>
       </tr>
@@ -39,19 +46,39 @@
         <td class="state-cell">
           <span class="pill state-{{ s.state }}">{{ s.state }}</span>
         </td>
+        <td class="engine-cell mono cell-sm">
+          {% if s.engine %}{{ s.engine }}{% else %}—{% endif %}
+        </td>
+        <td class="gpu-cell mono cell-sm">
+          {% if s.gpu_power == 'ok' %}
+            <span class="pill state-ok">{{ '%.0f'|format(s.gpu_watts) }}W</span>
+          {% elif s.gpu_power == 'unreachable' %}
+            <span class="pill state-down" title="{{ s.gpu_power_url }}">sidecar missing</span>
+            <div class="muted hint-micro">
+              Start gpu-power on {{ s.backend.split(':')[0] }}:9105
+            </div>
+          {% else %}
+            <span class="muted" title="No source address">—</span>
+          {% endif %}
+        </td>
         <td class="slots-cell mono">
           {% if s.slots_total is not none %}
             {{ s.slots_busy }}/{{ s.slots_total }} busy
           {% else %}—{% endif %}
         </td>
-        <td class="detail-cell muted" style="font-size:0.85rem">
+        <td class="detail-cell muted cell-sm">
           {{ s.detail or '—' }}
           {% if s.models %} · {{ s.models|join(', ') }}{% endif %}
         </td>
       </tr>
     {% endfor %}
     {% if not statuses %}
-      <tr><td colspan="5" class="muted">No sources yet — add one below.</td></tr>
+      <tr><td colspan="7">
+        <div class="empty-state">
+          <p class="empty-state-title">No sources to probe</p>
+          <p class="empty-state-text">Add a backend below to see live health, engine fingerprint, and GPU watts.</p>
+        </div>
+      </td></tr>
     {% endif %}
     </tbody>
   </table>
@@ -60,18 +87,18 @@
 {% if can_edit %}
 {% if not rows %}
 <div class="panel setup-hint">
-  <h2 style="margin-top:0">Add your first backend</h2>
-  <p class="muted" style="margin:0 0 0.75rem">
+  <h2>Add your first backend</h2>
+  <p class="muted mb-1">
     Nothing is seeded from <span class="mono">.env</span> — that’s fine.
     Add each upstream here (name + kind + <span class="mono">host:port</span>), then continue on the Dashboard checklist.
   </p>
-  <p class="muted" style="margin:0;font-size:0.85rem">
+  <p class="muted m-0 text-sm">
     Example: name <span class="mono">chat</span>, kind <span class="mono">chat</span>, address <span class="mono">192.168.178.25:11535</span>, dialect <span class="mono">auto</span>, check <em>default</em>.
   </p>
 </div>
 {% endif %}
 <div class="panel">
-  <h2 style="margin-top:0">{% if rows %}Sources{% else %}Add source{% endif %}</h2>
+  <h2>{% if rows %}Sources{% else %}Add source{% endif %}</h2>
   {% if rows %}
   <table>
     <thead>
@@ -87,21 +114,22 @@
       <tr>
         <td><span class="badge">{{ src.name }}</span></td>
         <td>{{ src.kind }}</td>
-        <td class="mono" style="font-size:0.8rem">{{ route }}</td>
+        <td class="mono text-xs">{{ route }}</td>
         <td>
           <form method="post" action="/services/{{ src.id }}/save">
-            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:0.35rem">
-              <input class="mono" type="text" name="address" value="{{ src.address }}"
-                     placeholder="192.168.1.10:8080" style="width:100%;max-width:240px">
-              <label style="font-size:0.85rem;white-space:nowrap">
+            <div class="svc-editor">
+              <label class="sr-only" for="addr-{{ src.id }}">Address for {{ src.name }}</label>
+              <input id="addr-{{ src.id }}" class="mono svc-address" type="text" name="address" value="{{ src.address }}"
+                     placeholder="192.168.1.10:8080">
+              <label class="svc-check">
                 <input type="checkbox" name="is_default" value="1" {% if src.is_default %}checked{% endif %}> default
               </label>
-              <label style="font-size:0.85rem;white-space:nowrap" title="Out of /v1 merge — only /s/{{ src.name }}/ + key grant">
+              <label class="svc-check" title="Out of /v1 merge — only /s/{{ src.name }}/ + key grant">
                 <input type="checkbox" name="isolated" value="1" {% if src.isolated %}checked{% endif %}> separate
               </label>
-              <label style="font-size:0.85rem" title="How this upstream speaks HTTP">
+              <label class="svc-dialect" title="Path rewrite for this upstream — Auto picks by kind, not a live scan">
                 Dialect
-                <select name="api_style" style="max-width:11rem">
+                <select name="api_style">
                   {% for st in api_styles %}
                   <option value="{{ st.id }}" {% if (src.api_style or 'auto') == st.id %}selected{% endif %}
                           title="{{ st.summary }}">{{ st.label }}</option>
@@ -110,15 +138,15 @@
               </label>
               <button class="btn-sm primary" type="submit">Save</button>
             </div>
-            <p class="muted" style="margin:0 0 0.35rem;font-size:0.75rem">
-              {{ dialect_blurbs.get(src.kind, '') }}
-              {% if src.api_style and src.api_style != 'auto' %}
-                · saved: <span class="mono">{{ src.api_style }}</span>
+            <p class="muted hint-tight">
+              {{ dialect_blurbs.get(src.name, '') }}
+              {% if engine_by.get(src.name) %}
+                · probe: <span class="mono">{{ engine_by.get(src.name) }}</span>
               {% endif %}
             </p>
             {% set cats = catalog_by_source.get(src.name, []) %}
-            <div style="margin:0.35rem 0 0.5rem">
-              <div class="muted" style="font-size:0.8rem;margin-bottom:0.25rem">
+            <div class="svc-models">
+              <div class="svc-models-label">
                 Models for /v1 merge (from <a href="/models">catalog sync</a>{% if src.isolated %}; inactive while separate{% endif %})
               </div>
               {% if cats %}
@@ -127,26 +155,26 @@
                 <span class="badge tag mono">{{ mid }}</span>
                 {% endfor %}
                 {% if cats|length > 24 %}
-                <span class="muted" style="font-size:0.75rem">+{{ cats|length - 24 }} more</span>
+                <span class="muted text-micro">+{{ cats|length - 24 }} more</span>
                 {% endif %}
               </div>
               {% else %}
-              <p class="muted" style="margin:0;font-size:0.8rem">None yet — open Models → Sync after the upstream is up.</p>
+              <p class="muted m-0 text-xs">None yet — open Models → Sync after the upstream is up.</p>
               {% endif %}
             </div>
           </form>
-          <form method="post" action="/services/{{ src.id }}/delete" style="display:inline" onsubmit="return confirm('Delete source {{ src.name }}?');">
-            <button class="btn-sm" type="submit" style="margin-top:0.35rem">Delete</button>
+          <form method="post" action="/services/{{ src.id }}/delete" class="inline-form" onsubmit="return confirm('Delete source {{ src.name }}?');">
+            <button class="btn-sm btn-after" type="submit">Delete</button>
           </form>
         </td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
-  <h3 style="margin-top:1.5rem">Add another source</h3>
+  <h3 class="section-label-lg">Add another source</h3>
   {% endif %}
-  <form method="post" action="/services" style="display:flex;flex-direction:column;gap:0.75rem;max-width:420px">
-    <div class="row" style="align-items:end;gap:0.75rem;flex-wrap:wrap">
+  <form method="post" action="/services" class="form-col">
+    <div class="row">
       <div class="field">
         <label>Name</label>
         <input class="mono" type="text" name="name" required placeholder="ollama" pattern="[a-z][a-z0-9_-]{0,31}">
@@ -161,10 +189,10 @@
       </div>
       <div class="field">
         <label>Address</label>
-        <input class="mono" type="text" name="address" placeholder="192.168.1.10:11434" style="min-width:200px">
+        <input class="mono" type="text" name="address" placeholder="192.168.1.10:11434">
       </div>
     </div>
-    <div class="field" style="display:flex;gap:1rem;flex-wrap:wrap;align-items:center">
+    <div class="checkboxes checkboxes-block">
       <label><input type="checkbox" name="is_default" value="1"> Default for kind</label>
       <label><input type="checkbox" name="isolated" value="1"> Separate (not in /v1 merge)</label>
       <label>Dialect
@@ -175,11 +203,11 @@
         </select>
       </label>
     </div>
-    <button class="primary" type="submit" style="align-self:start">Add</button>
+    <button class="primary btn-start" type="submit">Add</button>
   </form>
-  <div class="muted" style="margin:0.75rem 0 0;font-size:0.85rem">
-    <p style="margin:0 0 0.5rem"><strong>Dialects</strong> (client always uses OpenAI <span class="mono">/v1/…</span>):</p>
-    <ul style="margin:0;padding-left:1.2rem">
+  <div class="muted hint-after">
+    <p class="mb-1"><strong>Dialects</strong> (client always uses OpenAI <span class="mono">/v1/…</span>):</p>
+    <ul class="list-plain">
       {% for st in api_styles %}
       <li><span class="mono">{{ st.id }}</span> — {{ st.summary }}</li>
       {% endfor %}
@@ -188,7 +216,7 @@
 </div>
 {% else %}
 <div class="panel">
-  <h2 style="margin-top:0">Sources</h2>
+  <h2>Sources</h2>
   <table>
     <thead><tr><th>Name</th><th>Kind</th><th>Client path</th><th>Address</th><th>Dialect</th><th>Models</th></tr></thead>
     <tbody>
@@ -200,10 +228,10 @@
           {% if src.isolated %} · separate{% endif %}
         </td>
         <td>{{ src.kind }}</td>
-        <td class="mono" style="font-size:0.85rem">{{ route }}</td>
+        <td class="mono cell-sm">{{ route }}</td>
         <td class="mono">{{ src.address or '—' }}</td>
         <td class="mono">{{ src.api_style or 'auto' }}</td>
-        <td class="mono" style="font-size:0.8rem">
+        <td class="mono text-xs">
           {% set cats = catalog_by_source.get(src.name, []) %}
           {% if cats %}{{ cats|length }} from catalog{% else %}—{% endif %}
         </td>
@@ -215,22 +243,6 @@
 </div>
 {% endif %}
 
-<style>
-.pill {
-  display: inline-block;
-  padding: 0.15rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-.state-ok { background: var(--accent-soft); color: var(--accent); }
-.state-busy { background: var(--warn-soft); color: var(--accent-2); }
-.state-loading { background: var(--warn-soft); color: var(--accent-2); }
-.state-down { background: var(--danger-soft); color: var(--danger); }
-.state-unset, .state-unknown { background: var(--bg-soft); color: var(--muted); }
-</style>
 <script>
 (function () {
   var btn = document.getElementById('refresh-status');
@@ -249,6 +261,23 @@
         slots.textContent = (s.slots_total != null)
           ? (s.slots_busy + '/' + s.slots_total + ' busy')
           : '—';
+      }
+      var eng = row.querySelector('.engine-cell');
+      if (eng) {
+        eng.textContent = s.engine || '—';
+      }
+      var gpu = row.querySelector('.gpu-cell');
+      if (gpu) {
+        if (s.gpu_power === 'ok' && s.gpu_watts != null) {
+          gpu.innerHTML = '<span class="pill state-ok">' + Math.round(s.gpu_watts) + 'W</span>';
+        } else if (s.gpu_power === 'unreachable') {
+          var host = (s.backend || '').split(':')[0] || 'HOST';
+          gpu.innerHTML = '<span class="pill state-down">sidecar missing</span>'
+            + '<div class="muted hint-micro">Start gpu-power on '
+            + host + ':9105</div>';
+        } else {
+          gpu.innerHTML = '<span class="muted">—</span>';
+        }
       }
       var detail = row.querySelector('.detail-cell');
       if (detail) {

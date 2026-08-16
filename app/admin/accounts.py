@@ -13,7 +13,7 @@ from ..audit import write_audit
 from ..config import get_settings
 from ..crypto_util import encrypt_secret
 from ..data.db import get_db, hash_password, verify_password
-from ..forgot_limit import forgot_limiter
+from ..password_policy import policy_for_template, validate_new_password
 from ..mailer import MailError, send_mail, smtp_ready, get_smtp
 from ..data.models import AdminUser, AuthSettings, PasswordResetToken, SmtpConfig, Team, TeamMember, utcnow
 from .access import Forbidden, require_platform_admin, require_user, current_user
@@ -71,6 +71,12 @@ def get_auth_settings(db: Session) -> AuthSettings:
             anonymize_client_ip=True,
             retention_days=30,
             auto_vl_routing=False,
+            max_keys_per_user=3,
+            pool_window_hours=5,
+            pool_tokens_per_unit=1000,
+            pool_min_cost=1.0,
+            pool_watt_weight=0.0,
+            pool_tokens_per_sec=50.0,
         )
         db.add(cfg)
         db.flush()
@@ -79,6 +85,41 @@ def get_auth_settings(db: Session) -> AuthSettings:
 
 def teams_feature_enabled(db: Session) -> bool:
     return bool(get_auth_settings(db).teams_enabled)
+
+
+def active_key_count(db: Session, owner_user_id: int) -> int:
+    from ..data.models import ApiKey
+
+    return (
+        db.query(ApiKey)
+        .filter(
+            ApiKey.owner_user_id == owner_user_id,
+            ApiKey.is_active.is_(True),
+        )
+        .count()
+    )
+
+
+def max_keys_allowed(db: Session, owner: AdminUser | None) -> int | None:
+    """None = unlimited. Platform admins always unlimited."""
+    if owner is None or owner.is_platform_admin:
+        return None
+    n = int(getattr(get_auth_settings(db), "max_keys_per_user", 3) or 0)
+    return None if n <= 0 else n
+
+
+def assert_can_create_key(db: Session, owner: AdminUser | None) -> str | None:
+    """Return error message if owner is at max keys, else None."""
+    limit = max_keys_allowed(db, owner)
+    if limit is None or owner is None:
+        return None
+    have = active_key_count(db, owner.id)
+    if have >= limit:
+        return (
+            f"User '{owner.username}' already has {have} active key(s) "
+            f"(limit {limit}). Raise Max keys in Settings or revoke an old key."
+        )
+    return None
 
 
 # ---- Login helpers used from routes (re-export pattern via import) ----
@@ -103,7 +144,12 @@ def register_page(request: Request, db: Annotated[Session, Depends(get_db)]):
     return templates.TemplateResponse(
         request,
         "register.html",
-        {"error": None, "enabled": True, "require_email": auth.require_email},
+        {
+            "error": None,
+            "enabled": True,
+            "require_email": auth.require_email,
+            "pw_policy": policy_for_template(),
+        },
     )
 
 
@@ -153,14 +199,16 @@ def register_submit(
             },
             status_code=400,
         )
-    if password != password2 or len(password) < 8:
+    err = validate_new_password(password, password2)
+    if err:
         return templates.TemplateResponse(
             request,
             "register.html",
             {
-                "error": "Passwords must match (min 8 characters).",
+                "error": err,
                 "enabled": True,
                 "require_email": auth.require_email,
+                "pw_policy": policy_for_template(),
             },
             status_code=400,
         )
@@ -277,7 +325,7 @@ def forgot_submit(
             send_mail(
                 db,
                 to_email=user.email,
-                subject="Password reset — LLM Gateway",
+                subject="Password reset — LocalAI Gateway",
                 body_text=(
                     f"Hi {user.username},\n\n"
                     f"Reset your password (valid 1 hour):\n{link}\n\n"
@@ -318,7 +366,7 @@ def reset_page(
     return templates.TemplateResponse(
         request,
         "reset.html",
-        {"token": token, "error": None},
+        {"token": token, "error": None, "pw_policy": policy_for_template()},
     )
 
 
@@ -330,13 +378,15 @@ def reset_submit(
     password: str = Form(...),
     password2: str = Form(...),
 ):
-    if password != password2 or len(password) < 8:
+    err = validate_new_password(password, password2)
+    if err:
         return templates.TemplateResponse(
             request,
             "reset.html",
             {
                 "token": token,
-                "error": "Passwords must match and be at least 8 characters.",
+                "error": err,
+                "pw_policy": policy_for_template(),
             },
             status_code=400,
         )
@@ -397,6 +447,7 @@ def account_page(
             "flash_err": err,
             "is_admin": user.is_platform_admin,
             "force_pw": user.must_change_password,
+            "pw_policy": policy_for_template(),
         },
     )
 
@@ -452,8 +503,9 @@ def account_password(
     password: str = Form(...),
     password2: str = Form(...),
 ):
-    if password != password2 or len(password) < 8:
-        request.session["flash_err"] = "New passwords must match (min 8 chars)."
+    err = validate_new_password(password, password2)
+    if err:
+        request.session["flash_err"] = err
         return RedirectResponse("/account", status_code=303)
     if not user.must_change_password:
         if not verify_password(current_password, user.password_hash):
@@ -605,7 +657,7 @@ async def smtp_save(
     cfg.port = int(form.get("port") or 587)
     cfg.username = str(form.get("username") or "").strip()
     cfg.from_email = str(form.get("from_email") or "").strip()
-    cfg.from_name = str(form.get("from_name") or "LLM Gateway").strip()
+    cfg.from_name = str(form.get("from_name") or "LocalAI Gateway").strip()
     cfg.use_tls = form.get("use_tls") == "on"
     cfg.use_ssl = form.get("use_ssl") == "on"
     cfg.public_base_url = str(form.get("public_base_url") or "").strip().rstrip("/")
@@ -636,8 +688,8 @@ def smtp_test(
         send_mail(
             db,
             to_email=to,
-            subject="LLM Gateway SMTP test",
-            body_text=f"SMTP test OK from LLM Gateway (sent by {user.username}).\n",
+            subject="LocalAI Gateway SMTP test",
+            body_text=f"SMTP test OK from LocalAI Gateway (sent by {user.username}).\n",
         )
         write_audit(db, actor=user, action="smtp.test", detail=to)
         db.commit()

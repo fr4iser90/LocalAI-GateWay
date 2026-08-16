@@ -27,11 +27,11 @@ class ApiDialect:
 DIALECTS: dict[str, ApiDialect] = {
     "openai": ApiDialect(
         id="openai",
-        label="OpenAI-compatible",
-        summary="Upstream speaks the same /v1/… paths as the client (llama.cpp, many embeds, OpenAI drop-ins).",
+        label="OpenAI / llama.cpp",
+        summary="Same /v1/… paths as the client (llama.cpp server, Ollama OpenAI API, most embeds).",
         kinds=("chat", "embed", "stt", "tts"),
         path_map=(),
-        examples="/v1/chat/completions, /v1/embeddings, /v1/audio/*",
+        examples="/v1/chat/completions, /v1/embeddings (no path rewrite)",
     ),
     "piper": ApiDialect(
         id="piper",
@@ -72,7 +72,7 @@ def dialect_choices() -> list[dict[str, str]]:
         {
             "id": "auto",
             "label": "Auto (by kind)",
-            "summary": "tts→Piper, stt→whisper.cpp, chat/embed→OpenAI. Override if your server differs.",
+            "summary": "Not a live probe — chat/embed→OpenAI/llama.cpp paths, stt→whisper.cpp, tts→Piper. Override only if your server differs.",
         }
     ]
     for d in DIALECTS.values():
@@ -93,6 +93,11 @@ def get_dialect(dialect_id: str) -> ApiDialect:
     return DIALECTS.get(dialect_id) or DIALECTS["openai"]
 
 
+def effective_dialect_label(kind: str, api_style: str | None) -> str:
+    """Human label for the dialect actually used for path rewrite."""
+    return get_dialect(resolve_api_style(kind, api_style)).label
+
+
 def map_upstream_path(client_path: str, *, kind: str, api_style: str | None = None) -> str:
     """Translate OpenAI client paths to backend-native paths for the resolved dialect."""
     p = (client_path or "").split("?")[0] or "/"
@@ -103,8 +108,11 @@ def map_upstream_path(client_path: str, *, kind: str, api_style: str | None = No
     return p
 
 
-def dialect_blurb_for_kind(kind: str) -> str:
-    """One-line help for Services UI."""
-    auto_id = AUTO_DIALECT_BY_KIND.get(kind, "openai")
-    d = get_dialect(auto_id)
-    return f"auto → {d.label}: {d.examples or d.summary}"
+def dialect_blurb_for_kind(kind: str, api_style: str | None = None) -> str:
+    """One-line help for Services UI (shows saved mode + effective dialect)."""
+    saved = (api_style or "auto").strip().lower() or "auto"
+    effective = resolve_api_style(kind, saved)
+    d = get_dialect(effective)
+    if saved == "auto":
+        return f"Auto → uses {d.label}" + (f" · {d.examples}" if d.examples else "")
+    return f"Forced {d.label}" + (f" · {d.examples}" if d.examples else "")

@@ -5,18 +5,22 @@
   <div class="login-card">
     <h1>Set new password</h1>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
-    <form method="post" action="/reset">
+    <form method="post" action="/reset" data-pw-form>
       <input type="hidden" name="token" value="{{ token }}">
-      <div class="field" style="margin-bottom:0.75rem">
+      <div class="field field-gap">
         <label>New password</label>
-        <input type="password" name="password" required minlength="8" autocomplete="new-password">
+        <input type="password" name="password" data-pw-new required autocomplete="new-password"
+               minlength="{{ pw_policy.min_len }}" maxlength="{{ pw_policy.max_len }}">
       </div>
-      <div class="field" style="margin-bottom:1rem">
+      <div class="field field-gap">
         <label>Confirm password</label>
-        <input type="password" name="password2" required minlength="8" autocomplete="new-password">
+        <input type="password" name="password2" data-pw-confirm required autocomplete="new-password"
+               minlength="{{ pw_policy.min_len }}" maxlength="{{ pw_policy.max_len }}">
       </div>
-      <input class="primary" type="submit" value="Update password" style="width:100%">
+      {% include "_pw_rules.html" %}
+      <input class="primary" type="submit" value="Update password" data-pw-submit class="w-full btn-after">
     </form>
   </div>
 </div>
+<script src="/static/pw-strength.js"></script>
 {% endblock %}

@@ -1,60 +1,81 @@
 {% extends "base.html" %}
-{% block title %}Account · Gateway{% endblock %}
+{% block title %}Profile · Gateway{% endblock %}
 {% block content %}
-<h1>Account</h1>
+<header class="page-head page-head--compact">
+  <div>
+    <p class="eyebrow">You</p>
+    <h1>Profile</h1>
+    <p class="lede">Email, password, and display timezone.</p>
+  </div>
+</header>
 {% if force_pw %}<div class="flash warn">You must change your password before continuing.</div>{% endif %}
 {% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
 {% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
 
-<div class="panel form-narrow">
-  <h2 style="margin-top:0">Profile</h2>
-  <table>
-    <tr><th>Username</th><td class="mono">{{ user.username }}</td></tr>
-    <tr><th>Role</th><td>{% if user.is_platform_admin %}platform admin{% else %}team user{% endif %}</td></tr>
-    <tr><th>Display timezone</th><td class="mono">{{ display_tz }}</td></tr>
-  </table>
-  <p class="muted" style="font-size:0.85rem;margin:0.75rem 0 0">
-    Taken automatically from your browser. No setting needed.
-  </p>
-</div>
+<div class="stack">
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-head-text"><h2>Identity</h2></div>
+    </div>
+    <table>
+      <tr><th>Username</th><td class="mono">{{ user.username }}</td></tr>
+      <tr><th>Role</th><td>{% if user.is_platform_admin %}platform admin{% else %}team user{% endif %}</td></tr>
+      <tr><th>Display timezone</th><td class="mono">{{ display_tz }}</td></tr>
+    </table>
+    <p class="muted hint-after">
+      Timezone comes from your browser. Overview of your keys and traffic:
+      <a href="/me">Home</a>.
+    </p>
+  </div>
 
-<div class="panel">
-  <h2 style="margin-top:0">Email</h2>
-  <form method="post" action="/account/email">
-    <div class="row">
-      <div class="field">
-        <label>Email (also used for login)</label>
-        <input type="email" name="email" value="{{ user.email or '' }}" placeholder="you@example.com">
-      </div>
-      <div class="field">
-        <label>Current password</label>
-        <input type="password" name="current_password" required autocomplete="current-password">
-      </div>
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-head-text"><h2>Email</h2></div>
     </div>
-    <input class="primary" type="submit" value="Save email">
-  </form>
-</div>
+    <form method="post" action="/account/email">
+      <div class="row">
+        <div class="field">
+          <label for="account-email">Email (also used for login)</label>
+          <input id="account-email" type="email" name="email" value="{{ user.email or '' }}" placeholder="you@example.com">
+        </div>
+        <div class="field">
+          <label for="account-email-pw">Current password</label>
+          <input id="account-email-pw" type="password" name="current_password" required autocomplete="current-password">
+        </div>
+      </div>
+      <input class="primary" type="submit" value="Save email">
+    </form>
+  </div>
 
-<div class="panel">
-  <h2 style="margin-top:0">Change password</h2>
-  <form method="post" action="/account/password">
-    {% if not force_pw %}
-    <div class="field" style="margin-bottom:0.75rem">
-      <label>Current password</label>
-      <input type="password" name="current_password" required autocomplete="current-password">
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-head-text"><h2>Change password</h2></div>
     </div>
-    {% else %}
-    <input type="hidden" name="current_password" value="">
-    {% endif %}
-    <div class="field" style="margin-bottom:0.75rem">
-      <label>New password</label>
-      <input type="password" name="password" required minlength="8" autocomplete="new-password">
-    </div>
-    <div class="field" style="margin-bottom:1rem">
-      <label>Confirm new password</label>
-      <input type="password" name="password2" required minlength="8" autocomplete="new-password">
-    </div>
-    <input class="primary" type="submit" value="Update password">
-  </form>
+    <form method="post" action="/account/password" data-pw-form>
+      {% if not force_pw %}
+      <div class="field field-gap">
+        <label for="account-cur-pw">Current password</label>
+        <input id="account-cur-pw" type="password" name="current_password" required autocomplete="current-password">
+      </div>
+      {% else %}
+      <input type="hidden" name="current_password" value="">
+      {% endif %}
+      <div class="field field-gap">
+        <label for="account-new-pw">New password</label>
+        <input id="account-new-pw" type="password" name="password" data-pw-new required
+               minlength="{{ pw_policy.min_len }}" maxlength="{{ pw_policy.max_len }}"
+               autocomplete="new-password">
+      </div>
+      <div class="field field-gap">
+        <label for="account-new-pw2">Confirm new password</label>
+        <input id="account-new-pw2" type="password" name="password2" data-pw-confirm required
+               minlength="{{ pw_policy.min_len }}" maxlength="{{ pw_policy.max_len }}"
+               autocomplete="new-password">
+      </div>
+      {% include "_pw_rules.html" %}
+      <input class="primary btn-after" type="submit" value="Update password" data-pw-submit>
+    </form>
+  </div>
 </div>
+<script src="/static/pw-strength.js"></script>
 {% endblock %}

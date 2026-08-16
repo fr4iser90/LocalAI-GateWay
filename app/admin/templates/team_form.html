@@ -1,15 +1,20 @@
 {% extends "base.html" %}
 {% block title %}{{ 'Edit' if team else 'New' }} Team · Gateway Admin{% endblock %}
 {% block content %}
-<h1>{{ 'Edit team' if team else 'New team' }}</h1>
-<p class="muted">
-  A team is an <strong>access group</strong> (e.g. tier‑1 / tier‑2).
-  Sources + model set below are the <strong>grant ceiling</strong> for member keys.
-  Empty model list = all enabled chat/embed models for those sources.
-</p>
+<header class="page-head page-head--compact">
+  <div>
+    <p class="eyebrow">Access</p>
+    <h1>{{ 'Edit team' if team else 'New team' }}</h1>
+    <p class="lede">
+      A team is an <strong>access group</strong> (e.g. tier‑1 / tier‑2).
+      Sources + model set below are the <strong>grant ceiling</strong> for member keys.
+      Empty model list = all enabled chat/embed models for those sources.
+    </p>
+  </div>
+</header>
 <div class="panel">
   <form method="post" action="{{ '/teams/' ~ team.id if team else '/teams/new' }}">
-    <fieldset {% if read_only %}disabled{% endif %} style="border:0;margin:0;padding:0">
+    <fieldset {% if read_only %}disabled{% endif %} class="fieldset-plain">
     <div class="row">
       <div class="field">
         <label>Name</label>
@@ -20,12 +25,12 @@
         <input type="number" name="priority" value="{{ team.priority if team else 0 }}">
       </div>
     </div>
-    <div class="field" style="margin-bottom:1rem">
+    <div class="field field-gap-md">
       <label>Description</label>
       <input type="text" name="description" value="{{ team.description if team else '' }}" placeholder="All chat models">
     </div>
 
-    <div class="field" style="margin-bottom:1.15rem">
+    <div class="field field-gap-lg">
       <label>Grant · sources</label>
       <div class="source-chips">
         {% for s in services %}
@@ -35,24 +40,24 @@
         </label>
         {% endfor %}
       </div>
-      <p class="muted" style="margin:0.45rem 0 0;font-size:0.8rem">None checked = members have no API sources.</p>
+      <p class="muted hint-below">None checked = members have no API sources.</p>
     </div>
 
-    <div class="field" style="margin-bottom:1.15rem">
+    <div class="field field-gap-lg">
       <label>Grant · model set (chat / embed)</label>
       {% with catalog_groups=catalog_groups, selected=selected_models, input_name='models', picker_id='team-models', hint='None checked = all ON models for granted sources. Keys may only further restrict.' %}
       {% include "partials/model_picker.html" %}
       {% endwith %}
     </div>
 
-    <div class="field" style="margin-bottom:1.15rem">
+    <div class="field field-gap-lg">
       <label>Default favorites (optional)</label>
       {% with catalog_groups=catalog_groups, selected=selected_favorites, input_name='favorites', picker_id='team-favs', hint='Used when a key has no favorites of its own.' %}
       {% include "partials/model_picker.html" %}
       {% endwith %}
     </div>
 
-    <div class="field" style="margin-bottom:1rem">
+    <div class="field field-gap-md">
       <label>Per-model limits (<span class="mono">source:model:rpm:concurrency:daily</span>)</label>
       <textarea name="model_limits">{{ model_limits_text }}</textarea>
     </div>
@@ -76,7 +81,7 @@
       </div>
     </div>
 
-    <div class="field" style="margin-bottom:1rem">
+    <div class="field field-gap-md">
       <label>Members</label>
       {% if read_only %}
       <ul>
@@ -86,7 +91,7 @@
         <li class="muted">No members listed.</li>
         {% endfor %}
       </ul>
-      <p class="muted" style="font-size:0.85rem">Only platform admins can change membership.</p>
+      <p class="muted text-sm">Only platform admins can change membership.</p>
       {% else %}
       <div class="checkboxes">
         {% for u in users %}

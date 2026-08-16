@@ -1,16 +1,26 @@
 {% extends "base.html" %}
 {% block title %}Usage · Gateway Admin{% endblock %}
 {% block content %}
-<div class="row" style="justify-content:space-between;align-items:center">
-  <h1 style="margin:0">Usage</h1>
-  <a class="btn" href="/usage/export.csv?service={{ filters.service }}&team_id={{ filters.team_id }}&key_id={{ filters.key_id }}&result={{ filters.result }}">Export CSV</a>
-</div>
+<header class="page-head page-head--compact">
+  <div>
+    <p class="eyebrow">Activity</p>
+    <h1>Usage</h1>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/usage/export.csv?service={{ filters.service }}&team_id={{ filters.team_id }}&key_id={{ filters.key_id }}&result={{ filters.result }}">Export CSV</a>
+  </div>
+</header>
 
-<div class="panel" style="margin-top:1rem">
-  <form method="get" action="/usage" class="row">
+<nav class="subnav" aria-label="Usage views">
+  <a href="/usage" class="is-active" aria-current="page">Events</a>
+  <a href="/usage/daily">Daily rollup</a>
+</nav>
+
+<div class="panel">
+  <form method="get" action="/usage" class="row" role="search" aria-label="Filter usage events">
     <div class="field">
-      <label>Service</label>
-      <select name="service">
+      <label for="usage-service">Service</label>
+      <select id="usage-service" name="service">
         <option value="">all</option>
         {% for s in services %}
         <option value="{{ s }}" {% if filters.service == s %}selected{% endif %}>{{ s }}</option>
@@ -19,8 +29,8 @@
     </div>
     {% if teams_enabled %}
     <div class="field">
-      <label>Team</label>
-      <select name="team_id">
+      <label for="usage-team">Team</label>
+      <select id="usage-team" name="team_id">
         <option value="">all</option>
         {% for t in teams %}
         <option value="{{ t.id }}" {% if filters.team_id|string == t.id|string %}selected{% endif %}>{{ t.name }}</option>
@@ -29,8 +39,8 @@
     </div>
     {% endif %}
     <div class="field">
-      <label>Key</label>
-      <select name="key_id">
+      <label for="usage-key">Key</label>
+      <select id="usage-key" name="key_id">
         <option value="">all</option>
         {% for k in keys %}
         <option value="{{ k.id }}" {% if filters.key_id|string == k.id|string %}selected{% endif %}>{{ k.label }}</option>
@@ -38,17 +48,17 @@
       </select>
     </div>
     <div class="field">
-      <label>Result</label>
-      <select name="result">
+      <label for="usage-result">Result</label>
+      <select id="usage-result" name="result">
         <option value="">all</option>
         <option value="ok" {% if filters.result == 'ok' %}selected{% endif %}>ok</option>
         <option value="deny" {% if filters.result == 'deny' %}selected{% endif %}>deny</option>
         <option value="rate_limit" {% if filters.result == 'rate_limit' %}selected{% endif %}>rate_limit</option>
       </select>
     </div>
-    <div class="field" style="flex:0">
-      <label>&nbsp;</label>
-      <input class="primary" type="submit" value="Filter">
+    <div class="field field--btn">
+      <label class="sr-only" for="usage-filter-submit">Apply filters</label>
+      <input id="usage-filter-submit" class="primary" type="submit" value="Filter">
     </div>
   </form>
 </div>
@@ -65,6 +75,8 @@
         <th>Model</th>
         <th>IP</th>
         <th>Tokens</th>
+        {% if gpu_power_enabled %}<th>W / Wh</th>{% endif %}
+        <th>Pool</th>
         <th>Audio/TTS</th>
         <th>ms</th>
         <th>Result</th>
@@ -81,6 +93,10 @@
         <td class="mono">{{ e.model or '—' }}</td>
         <td class="mono">{{ e.client_ip }}</td>
         <td class="mono">{% if e.tokens_in or e.tokens_out %}{{ e.tokens_in or 0 }}→{{ e.tokens_out or 0 }}{% else %}—{% endif %}</td>
+        {% if gpu_power_enabled %}
+        <td class="mono">{% if e.power_status == 'no_probe' %}<span class="muted" title="GPU probe disabled for this source">off</span>{% elif e.power_status == 'unreachable' %}<span class="muted" title="Sidecar not reachable on source host:9105">sidecar?</span>{% elif e.watts is not none or e.watt_hours %}{% if e.watts is not none %}{{ '%.0f'|format(e.watts) }}W{% else %}—{% endif %} / {% if e.watt_hours %}{{ '%.3f'|format(e.watt_hours) }}{% else %}—{% endif %}{% else %}—{% endif %}</td>
+        {% endif %}
+        <td class="mono">{% if e.pool_cost %}{{ '%.1f'|format(e.pool_cost) }}{% else %}—{% endif %}</td>
         <td class="mono">{% if e.audio_seconds %}{{ '%.1f'|format(e.audio_seconds) }}s{% elif e.response_chars %}{{ e.response_chars }}c{% else %}—{% endif %}</td>
         <td class="mono">{% if e.duration_ms %}{{ '%.0f'|format(e.duration_ms) }}{% else %}—{% endif %}</td>
         <td>
@@ -90,7 +106,13 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="8" class="muted">No events.</td></tr>
+      <tr><td colspan="13" class="empty-cell">
+        <div class="empty-state">
+          <p class="empty-state-title">No events</p>
+          <p class="empty-state-text">Usage appears after API calls with your keys. Adjust filters above, or try Daily rollup.</p>
+          <a class="btn" href="/usage/daily">Daily rollup</a>
+        </div>
+      </td></tr>
     {% endfor %}
     </tbody>
   </table>

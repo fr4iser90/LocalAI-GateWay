@@ -16,6 +16,27 @@ class Forbidden(Exception):
     pass
 
 
+class SetupWizardRequired(Exception):
+    """Platform admin must finish first-run wizard before using the rest of the UI."""
+
+    def __init__(self, redirect_to: str):
+        self.redirect_to = redirect_to
+
+
+def _setup_path_allowed(path: str) -> bool:
+    """Routes reachable while the first-run wizard is incomplete."""
+    p = path or "/"
+    if p.startswith("/setup"):
+        return True
+    if p.startswith("/account"):
+        return True
+    if p.startswith("/static"):
+        return True
+    if p in {"/logout", "/login", "/forgot", "/register", "/healthz"}:
+        return True
+    return False
+
+
 def current_user(
     request: Request, db: Annotated[Session, Depends(get_db)]
 ) -> AdminUser | None:
@@ -39,6 +60,19 @@ def require_user(
     user = current_user(request, db)
     if user is None:
         raise RedirectToLogin()
+
+    # First-run: lock the full admin UI until sources → models → key are done.
+    if user.is_platform_admin:
+        from .setup import needs_setup_wizard, wizard_progress
+
+        if needs_setup_wizard(db, user):
+            request.state.setup_incomplete = True
+            if not _setup_path_allowed(request.url.path):
+                nxt = wizard_progress(db)["next"]
+                raise SetupWizardRequired((nxt["path"] if nxt else "/setup"))
+        else:
+            request.state.setup_incomplete = False
+
     return user
 
 

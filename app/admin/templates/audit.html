@@ -1,15 +1,34 @@
 {% extends "base.html" %}
-{% block title %}Audit · Gateway Admin{% endblock %}
+{% block title %}Audit log · Gateway Admin{% endblock %}
 {% block content %}
-<h1>Audit log</h1>
-<p class="muted">Append-only (DB triggers block UPDATE/DELETE). Hash chain for tamper detection.</p>
+<header class="page-head page-head--compact">
+  <div>
+    <p class="eyebrow">System</p>
+    <h1>Audit log</h1>
+    <p class="lede">
+      Append-only admin actions (DB blocks UPDATE/DELETE).
+      Each row’s hash covers the previous hash + this event — so edits would break the chain.
+    </p>
+  </div>
+</header>
+
 {% if chain_ok %}
-<div class="flash">Chain OK — {{ chain_msg }}</div>
+<div class="flash" role="status">Chain OK — {{ chain_msg }}</div>
 {% else %}
-<div class="error">Chain FAIL — {{ chain_msg }}</div>
+<div class="error" role="alert">
+  Chain FAIL — {{ chain_msg }}
+  <p class="muted chain-note">
+    Usually a timestamp/format bug on old rows, not someone tampering.
+    Fresh volume after this build should verify clean; existing FAIL can stay until you wipe the DB
+    (<span class="mono">compose down -v</span>) if you care about a green check.
+  </p>
+</div>
 {% endif %}
+
 <div class="panel">
+  <div class="table-wrap">
   <table>
+    <caption class="sr-only">Audit events, newest first</caption>
     <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Entity</th><th>Detail</th><th>Hash</th></tr></thead>
     <tbody>
     {% for r in rows %}
@@ -19,12 +38,18 @@
         <td><span class="badge">{{ r.action }}</span></td>
         <td class="mono">{{ r.entity_type }} {{ r.entity_id }}</td>
         <td>{{ r.detail }}</td>
-        <td class="mono" style="font-size:0.7rem">{{ (r.entry_hash or '')[:12] }}{% if r.entry_hash %}…{% endif %}</td>
+        <td class="mono hash-cell" title="{{ r.entry_hash or '' }}">{{ (r.entry_hash or '')[:12] }}{% if r.entry_hash %}…{% endif %}</td>
       </tr>
     {% else %}
-      <tr><td colspan="6" class="muted">No audit events yet.</td></tr>
+      <tr><td colspan="6" class="empty-cell">
+        <div class="empty-state">
+          <p class="empty-state-title">No audit events yet</p>
+          <p class="empty-state-text">Admin actions (users, keys, settings, sources) will appear here as an append-only chain.</p>
+        </div>
+      </td></tr>
     {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% endblock %}

@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     temp_max_c: str = "30"
     temp_guard_disabled: bool = False
     temp_guard_url: str = "http://temp-guard:8080/check"
+    # Optional GPU power probe (compose.gpu-power.yaml). Empty = off.
+    gpu_power_url: str = ""
     # Dashboard demo seed/clear — off by default; set DEMO_TOOLS=1 for local UI polish
     demo_tools: bool = False
     # Deprecated unused; charts use each browser's timezone (cookie gw_tz).
@@ -134,3 +136,19 @@ def public_route_for_source(
 
 SERVICES = KINDS
 MODEL_CHECK_SERVICES = MODEL_CHECK_KINDS
+
+
+def public_api_base(*, gateway_port: str | None = None) -> str:
+    """Client-facing OpenAI-compatible base (…/v1), no trailing slash after v1."""
+    import os
+
+    settings = get_settings()
+    host = (settings.public_host or os.getenv("PUBLIC_HOST") or "").strip()
+    if host and host != "_":
+        host = host.split("/")[0].strip()
+        if host.startswith("http://") or host.startswith("https://"):
+            return f"{host.rstrip('/')}/v1"
+        # Homelab public names are almost always TLS via reverse proxy
+        return f"https://{host}/v1"
+    port = gateway_port or os.getenv("GATEWAY_PORT", "9081")
+    return f"http://localhost:{port}/v1"

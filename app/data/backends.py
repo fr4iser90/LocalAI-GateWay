@@ -219,6 +219,7 @@ def upsert_source(
     route_models: str = "",
     isolated: bool = False,
     api_style: str = "auto",
+    gpu_power_url: str = "",
 ) -> BackendSource:
     from ..config import API_STYLES
 
@@ -228,6 +229,7 @@ def upsert_source(
     style = (api_style or "auto").strip().lower()
     if style not in API_STYLES:
         style = "auto"
+    gpu = (gpu_power_url or "").strip()
     existing = get_source_by_name(db, name)
     if is_default:
         clear_default_for_kind(db, kind, except_id=existing.id if existing else None)
@@ -238,6 +240,7 @@ def upsert_source(
         existing.route_models = models
         existing.isolated = isolated
         existing.api_style = style
+        existing.gpu_power_url = gpu
         return existing
     # If this is the first of its kind, force default
     siblings = db.query(BackendSource).filter(BackendSource.kind == kind).count()
@@ -251,6 +254,7 @@ def upsert_source(
         route_models=models,
         isolated=isolated,
         api_style=style,
+        gpu_power_url=gpu,
     )
     db.add(src)
     db.flush()

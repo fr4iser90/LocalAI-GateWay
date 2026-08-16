@@ -17,54 +17,102 @@
     })();
   </script>
   <title>{% block title %}Gateway Admin{% endblock %}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;650&display=swap" rel="stylesheet">
 </head>
 <body{% if user is defined and user %} data-tz="{{ display_tz|default('UTC') }}"{% endif %}>
 {% if user is defined and user %}
+<a class="skip-link" href="#main-content">Skip to main content</a>
 <div class="layout">
-  <aside class="sidebar">
-    <p class="brand">LLM <span>Gateway</span></p>
-    <nav class="nav">
+  <button type="button" class="nav-backdrop" data-nav-backdrop hidden aria-hidden="true" tabindex="-1"></button>
+  <aside class="sidebar" id="app-sidebar" aria-label="Main">
+    <p class="brand">
+      <img class="brand-mark" src="/static/favicon.svg" width="22" height="22" alt="">
+      LocalAI <span>Gateway</span>
+    </p>
+    <nav class="nav" aria-label="Primary">
+      {% set setup_lock = setup_incomplete|default(false) or request.state.setup_incomplete|default(false) %}
+      {% set usage_on = nav in ['usage', 'usage-daily'] %}
+      {% if setup_lock %}
+      <div class="nav-group nav-group--you" role="group" aria-labelledby="nav-first-run">
+        <p class="nav-group-label" id="nav-first-run">First run</p>
+        <a href="/setup" class="{{ 'active' if nav == 'setup' else '' }}" {% if nav == 'setup' %}aria-current="page"{% endif %}>Setup</a>
+        <a href="/account" class="{{ 'active' if nav == 'account' else '' }}" {% if nav == 'account' %}aria-current="page"{% endif %}>Profile</a>
+      </div>
+      {% else %}
+
+      <div class="nav-group nav-group--you" role="group" aria-labelledby="nav-you">
+        <p class="nav-group-label" id="nav-you">You</p>
+        <a href="/me" class="{{ 'active' if nav == 'me' else '' }}" {% if nav == 'me' %}aria-current="page"{% endif %}>Home</a>
+        <a href="/keys" class="{{ 'active' if nav == 'keys' else '' }}" {% if nav == 'keys' %}aria-current="page"{% endif %}>API Keys</a>
+        <a href="/usage" class="{{ 'active' if usage_on else '' }}" {% if usage_on %}aria-current="page"{% endif %}>Usage</a>
+        <a href="/account" class="{{ 'active' if nav == 'account' else '' }}" {% if nav == 'account' %}aria-current="page"{% endif %}>Profile</a>
+        <a href="/privacy" class="{{ 'active' if nav == 'privacy' else '' }}" {% if nav == 'privacy' %}aria-current="page"{% endif %}>Privacy</a>
+      </div>
+
       {% if user.is_platform_admin %}
-      <a href="/" class="{{ 'active' if nav == 'dashboard' else '' }}">Dashboard</a>
-      <a href="/setup" class="{{ 'active' if nav == 'setup' else '' }}">Setup</a>
+      <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-ops">
+        <p class="nav-group-label" id="nav-ops">Ops</p>
+        <a href="/" class="{{ 'active' if nav == 'dashboard' else '' }}" {% if nav == 'dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
+      </div>
+
+      <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-backends">
+        <p class="nav-group-label" id="nav-backends">Backends</p>
+        <a href="/services" class="{{ 'active' if nav == 'services' else '' }}" {% if nav == 'services' %}aria-current="page"{% endif %}>Services</a>
+        <a href="/models" class="{{ 'active' if nav == 'models' else '' }}" {% if nav == 'models' %}aria-current="page"{% endif %}>Models</a>
+      </div>
+
+      <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-access">
+        <p class="nav-group-label" id="nav-access">Access</p>
+        <a href="/users" class="{{ 'active' if nav == 'users' else '' }}" {% if nav == 'users' %}aria-current="page"{% endif %}>Users / Grants</a>
+        {% if teams_enabled %}
+        <a href="/teams" class="{{ 'active' if nav == 'teams' else '' }}" {% if nav == 'teams' %}aria-current="page"{% endif %}>Teams</a>
+        {% endif %}
+      </div>
+
+      <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-system">
+        <p class="nav-group-label" id="nav-system">System</p>
+        <a href="/settings" class="{{ 'active' if nav == 'settings' else '' }}" {% if nav == 'settings' %}aria-current="page"{% endif %}>Settings</a>
+        <a href="/smtp" class="{{ 'active' if nav == 'smtp' else '' }}" {% if nav == 'smtp' %}aria-current="page"{% endif %}>SMTP</a>
+        <a href="/alerts" class="{{ 'active' if nav == 'alerts' else '' }}" {% if nav == 'alerts' %}aria-current="page"{% endif %}>Alerts</a>
+        <a href="/audit" class="{{ 'active' if nav == 'audit' else '' }}" {% if nav == 'audit' %}aria-current="page"{% endif %}>Audit</a>
+      </div>
+      {% elif teams_enabled %}
+      <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-team">
+        <p class="nav-group-label" id="nav-team">Team</p>
+        <a href="/teams" class="{{ 'active' if nav == 'teams' else '' }}" {% if nav == 'teams' %}aria-current="page"{% endif %}>Teams</a>
+      </div>
       {% endif %}
-      <a href="/me" class="{{ 'active' if nav == 'me' else '' }}">My account</a>
-      <a href="/account" class="{{ 'active' if nav == 'account' else '' }}">Account</a>
-      <a href="/privacy" class="{{ 'active' if nav == 'privacy' else '' }}">Privacy</a>
-      <a href="/keys" class="{{ 'active' if nav == 'keys' else '' }}">API Keys</a>
-      {% if teams_enabled %}
-      <a href="/teams" class="{{ 'active' if nav == 'teams' else '' }}">Teams</a>
-      {% endif %}
-      {% if user.is_platform_admin %}
-      <a href="/users" class="{{ 'active' if nav == 'users' else '' }}">Users / Grants</a>
-      {% endif %}
-      <a href="/usage" class="{{ 'active' if nav == 'usage' else '' }}">Usage</a>
-      <a href="/usage/daily" class="{{ 'active' if nav == 'usage-daily' else '' }}">Daily rollup</a>
-      {% if user.is_platform_admin %}
-      <a href="/smtp" class="{{ 'active' if nav == 'smtp' else '' }}">SMTP</a>
-      <a href="/audit" class="{{ 'active' if nav == 'audit' else '' }}">Audit</a>
-      <a href="/alerts" class="{{ 'active' if nav == 'alerts' else '' }}">Alerts</a>
-      <a href="/services" class="{{ 'active' if nav == 'services' else '' }}">Services</a>
-      <a href="/models" class="{{ 'active' if nav == 'models' else '' }}">Models</a>
-      <a href="/settings" class="{{ 'active' if nav == 'settings' else '' }}">Settings</a>
+
       {% endif %}
     </nav>
     <div class="sidebar-foot">
-      <button type="button" class="btn btn-sm theme-toggle" data-theme-toggle>Light</button>
+      <button type="button" class="btn btn-sm theme-toggle" data-theme-toggle aria-label="Toggle color theme">Light</button>
       <div>{{ user.username }}{% if user.is_platform_admin %} · admin{% endif %}</div>
-      <form method="post" action="/logout" style="margin-top:0.5rem">
+      <form method="post" action="/logout" class="logout-form">
         <button class="btn-sm" type="submit">Logout</button>
       </form>
     </div>
   </aside>
-  <main class="content{% block content_class %}{% endblock %}">
-    {% block content %}{% endblock %}
-  </main>
+  <div class="main-column">
+    <header class="topbar">
+      <button type="button" class="btn btn-sm nav-toggle" data-nav-toggle
+              aria-controls="app-sidebar" aria-expanded="false" aria-label="Open navigation">
+        Menu
+      </button>
+      <span class="topbar-brand">LocalAI Gateway</span>
+    </header>
+    <main id="main-content" class="content{% block content_class %}{% endblock %}" tabindex="-1">
+      <div class="content-inner">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
 </div>
 <script src="/static/theme.js"></script>
+<script src="/static/nav.js"></script>
 <script src="/static/picker.js"></script>
 <script>
 (function () {
@@ -78,23 +126,17 @@
     if (c.indexOf('gw_tz=') === 0) prev = decodeURIComponent(c.slice(6));
   });
   document.cookie = 'gw_tz=' + encodeURIComponent(tz) + ';path=/;max-age=31536000;SameSite=Lax';
-  if (prev !== tz || server !== tz) {
-    fetch('/account/timezone/auto', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
-      body: JSON.stringify({timezone: tz}),
-      credentials: 'same-origin'
-    }).catch(function () {});
-  }
-  if (server !== tz && !sessionStorage.getItem('gw_tz_boot')) {
-    sessionStorage.setItem('gw_tz_boot', '1');
-    location.reload();
-  }
+  if (tz === server || tz === prev) return;
+  fetch('/account/timezone/auto', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'tz=' + encodeURIComponent(tz)
+  }).catch(function () {});
 })();
 </script>
 {% else %}
-  {% block body %}{% endblock %}
-  <script src="/static/theme.js"></script>
+{% block body %}{% endblock %}
 {% endif %}
 </body>
 </html>

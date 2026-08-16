@@ -1,0 +1,21 @@
+{# Requires pw_policy = {min_len, max_len} #}
+{% set pmin = pw_policy.min_len if pw_policy is defined else 8 %}
+{% set pmax = pw_policy.max_len if pw_policy is defined else 72 %}
+<div class="pw-rules" data-pw-rules data-pw-min="{{ pmin }}" data-pw-max="{{ pmax }}">
+  <div class="pw-meter-row">
+    <div class="pw-meter" data-pw-meter data-score="0" aria-hidden="true"></div>
+    <span class="pw-meter-label" data-pw-meter-label>Weak</span>
+    <span class="muted mono pw-count" data-pw-count>0 / {{ pmax }}</span>
+  </div>
+  <ul class="pw-rule-list">
+    <li data-pw-rule="length"><span class="pw-rule-mark">·</span> {{ pmin }}–{{ pmax }} characters <span class="pw-req">required</span></li>
+    <li data-pw-rule="lower"><span class="pw-rule-mark">·</span> Lowercase letter <span class="pw-hint">a–z</span></li>
+    <li data-pw-rule="upper"><span class="pw-rule-mark">·</span> Uppercase letter <span class="pw-hint">A–Z</span></li>
+    <li data-pw-rule="digit"><span class="pw-rule-mark">·</span> Digit <span class="pw-hint">0–9</span> <span class="pw-req">required</span></li>
+    <li data-pw-rule="symbol"><span class="pw-rule-mark">·</span> Symbol <span class="pw-hint">!@#$…</span></li>
+    <li data-pw-rule="match"><span class="pw-rule-mark">·</span> Passwords match <span class="pw-req">required</span></li>
+  </ul>
+  <p class="pw-footnote">
+    Required: length, a letter, a digit, and match. Uppercase + symbol make it stronger.
+  </p>
+</div>

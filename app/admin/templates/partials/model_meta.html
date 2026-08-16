@@ -2,7 +2,7 @@
 <span class="model-meta">
   <span class="mono">{{ m.model_id }}</span>
   {% if m.ctx_size or m.n_embd or m.n_ctx_train %}
-  <span class="muted model-note mono" style="font-size:0.75rem">
+  <span class="muted model-note mono text-micro">
     {%- if m.ctx_size %}ctx {{ m.ctx_size }}{% endif -%}
     {%- if m.n_ctx_train %}{% if m.ctx_size %} · {% endif %}train {{ m.n_ctx_train }}{% endif -%}
     {%- if m.n_embd %}{% if m.ctx_size or m.n_ctx_train %} · {% endif %}dim {{ m.n_embd }}{% endif -%}

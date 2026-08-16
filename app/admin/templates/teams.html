@@ -1,13 +1,23 @@
 {% extends "base.html" %}
 {% block title %}Teams · Gateway Admin{% endblock %}
 {% block content %}
-<div class="row" style="justify-content:space-between;align-items:center">
-  <h1 style="margin:0">Teams</h1>
-  {% if is_admin %}<a class="btn btn-primary" href="/teams/new">New team</a>{% endif %}
-</div>
+<header class="page-head page-head--compact">
+  <div>
+    <p class="eyebrow">Access</p>
+    <h1>Teams</h1>
+    <p class="lede">Shared key pools and grants when teams mode is on.</p>
+  </div>
+  {% if is_admin %}
+  <div class="page-actions">
+    <a class="btn primary" href="/teams/new">New team</a>
+  </div>
+  {% endif %}
+</header>
 
-<div class="panel" style="margin-top:1rem">
+<div class="panel">
+  <div class="table-wrap">
   <table>
+    <caption class="sr-only">Teams and membership</caption>
     <thead>
       <tr>
         <th>Name</th>
@@ -23,7 +33,7 @@
       <tr>
         <td>
           <strong>{{ t.name }}</strong>
-          {% if t.description %}<div class="muted" style="font-size:0.8rem">{{ t.description }}</div>{% endif %}
+          {% if t.description %}<div class="muted text-xs">{{ t.description }}</div>{% endif %}
         </td>
         <td>{{ t.members|length }}</td>
         <td>
@@ -41,9 +51,18 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="6" class="muted">No teams yet.</td></tr>
+      <tr><td colspan="6" class="empty-cell">
+        <div class="empty-state">
+          <p class="empty-state-title">No teams yet</p>
+          <p class="empty-state-text">Teams share a grant ceiling and optional key pool. Enable teams under Settings first if needed.</p>
+          {% if is_admin %}
+          <a class="btn primary" href="/teams/new">New team</a>
+          {% endif %}
+        </div>
+      </td></tr>
     {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% endblock %}

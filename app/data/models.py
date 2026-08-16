@@ -38,6 +38,16 @@ class AdminUser(Base):
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
     # IANA name cached from browser detection (cookie gw_tz). Not a manual setting.
     timezone: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
+    # Rate ceiling across all of this user's keys (None = no user-level cap).
+    rpm_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    concurrency_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    daily_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Usage pool (compute units). None limit = pool off for this user.
+    pool_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pool_used: Mapped[float] = mapped_column(Float, default=0.0)
+    pool_window_start: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     memberships: Mapped[list[TeamMember]] = relationship(back_populates="user")
@@ -259,6 +269,12 @@ class UsageEvent(Base):
     tokens_out: Mapped[int | None] = mapped_column(Integer, nullable=True)
     audio_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     response_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Estimated GPU sample at auth (optional sidecar)
+    watts: Mapped[float | None] = mapped_column(Float, nullable=True)
+    watt_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # metered | no_probe | unreachable | ""
+    power_status: Mapped[str] = mapped_column(String(32), default="")
+    pool_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
@@ -292,6 +308,8 @@ class UsageDaily(Base):
     response_chars: Mapped[int] = mapped_column(Integer, default=0)
     latency_sum_ms: Mapped[float] = mapped_column(Float, default=0.0)
     latency_count: Mapped[int] = mapped_column(Integer, default=0)
+    watt_hours: Mapped[float] = mapped_column(Float, default=0.0)
+    pool_cost: Mapped[float] = mapped_column(Float, default=0.0)
 
 
 class AuditLog(Base):
@@ -332,7 +350,7 @@ class SmtpConfig(Base):
     username: Mapped[str] = mapped_column(String(255), default="")
     password: Mapped[str] = mapped_column(Text, default="")
     from_email: Mapped[str] = mapped_column(String(255), default="")
-    from_name: Mapped[str] = mapped_column(String(255), default="LLM Gateway")
+    from_name: Mapped[str] = mapped_column(String(255), default="LocalAI Gateway")
     use_tls: Mapped[bool] = mapped_column(Boolean, default=True)
     use_ssl: Mapped[bool] = mapped_column(Boolean, default=False)
     public_base_url: Mapped[str] = mapped_column(String(512), default="")  # https://gateway.example.com
@@ -368,6 +386,9 @@ class BackendSource(Base):
     isolated: Mapped[bool] = mapped_column(Boolean, default=False)
     # auto|openai|piper|whisper_cpp — how to map /v1 client paths to upstream
     api_style: Mapped[str] = mapped_column(String(32), default="auto")
+    # Optional gpu-power sidecar is always co-located: http://<address-host>:9105/power
+    # (column kept for migrations; not used for overrides)
+    gpu_power_url: Mapped[str] = mapped_column(String(512), default="")
 
 
 class CatalogModel(Base):
@@ -399,6 +420,8 @@ class CatalogModel(Base):
     model_size: Mapped[int | None] = mapped_column(Integer, nullable=True)  # bytes
     modalities_in: Mapped[str] = mapped_column(String(128), default="")
     modalities_out: Mapped[str] = mapped_column(String(128), default="")
+    # Multiplier for usage-pool cost (1.0 = default). Heavy models → higher.
+    usage_weight: Mapped[float] = mapped_column(Float, default=1.0)
     upstream_meta_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -422,6 +445,17 @@ class AuthSettings(Base):
     retention_days: Mapped[int] = mapped_column(Integer, default=30)
     # When on: chat requests with image parts rewrite model → VL sibling (if found).
     auto_vl_routing: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Max active API keys per non-admin user (0 = unlimited). Platform admins exempt.
+    max_keys_per_user: Mapped[int] = mapped_column(Integer, default=3)
+    # Usage pool: window length in hours (Claude-style rolling reset). 0 = disabled globally.
+    pool_window_hours: Mapped[int] = mapped_column(Integer, default=5)
+    # tokens → units: cost ~= max(min_cost, tokens/pool_tokens_per_unit) * weight
+    pool_tokens_per_unit: Mapped[int] = mapped_column(Integer, default=1000)
+    pool_min_cost: Mapped[float] = mapped_column(Float, default=1.0)
+    # Multiply estimated Wh into pool cost (0 = ignore sidecar even if up).
+    pool_watt_weight: Mapped[float] = mapped_column(Float, default=0.0)
+    # Rough tok/s for Wh estimate at auth time (no end-of-request hook yet).
+    pool_tokens_per_sec: Mapped[float] = mapped_column(Float, default=50.0)
 
 
 class PasswordResetToken(Base):

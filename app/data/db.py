@@ -57,6 +57,13 @@ def _ensure_columns(eng) -> None:
             ("is_platform_admin", "BOOLEAN DEFAULT 0"),
             ("email", "VARCHAR(255)"),
             ("must_change_password", "BOOLEAN DEFAULT 0"),
+            ("timezone", "VARCHAR(64)"),
+            ("rpm_limit", "INTEGER"),
+            ("concurrency_limit", "INTEGER"),
+            ("daily_quota", "INTEGER"),
+            ("pool_limit", "INTEGER"),
+            ("pool_used", "FLOAT DEFAULT 0"),
+            ("pool_window_start", "DATETIME"),
         ],
         "teams": [
             ("daily_quota", "INTEGER"),
@@ -68,6 +75,10 @@ def _ensure_columns(eng) -> None:
             ("audio_seconds", "FLOAT"),
             ("response_chars", "INTEGER"),
             ("is_demo", "BOOLEAN DEFAULT 0"),
+            ("watts", "FLOAT"),
+            ("watt_hours", "FLOAT"),
+            ("pool_cost", "FLOAT"),
+            ("power_status", "VARCHAR(32) DEFAULT ''"),
         ],
         "usage_daily": [
             ("tokens_in", "INTEGER DEFAULT 0"),
@@ -76,6 +87,8 @@ def _ensure_columns(eng) -> None:
             ("response_chars", "INTEGER DEFAULT 0"),
             ("latency_sum_ms", "FLOAT DEFAULT 0"),
             ("latency_count", "INTEGER DEFAULT 0"),
+            ("watt_hours", "FLOAT DEFAULT 0"),
+            ("pool_cost", "FLOAT DEFAULT 0"),
         ],
         "api_keys": [
             ("daily_quota", "INTEGER"),
@@ -89,6 +102,12 @@ def _ensure_columns(eng) -> None:
             ("anonymize_client_ip", "BOOLEAN DEFAULT 1"),
             ("retention_days", "INTEGER DEFAULT 30"),
             ("auto_vl_routing", "BOOLEAN DEFAULT 0"),
+            ("max_keys_per_user", "INTEGER DEFAULT 3"),
+            ("pool_window_hours", "INTEGER DEFAULT 5"),
+            ("pool_tokens_per_unit", "INTEGER DEFAULT 1000"),
+            ("pool_min_cost", "FLOAT DEFAULT 1.0"),
+            ("pool_watt_weight", "FLOAT DEFAULT 0"),
+            ("pool_tokens_per_sec", "FLOAT DEFAULT 50"),
         ],
         "audit_logs": [
             ("prev_hash", "VARCHAR(64) DEFAULT ''"),
@@ -98,13 +117,11 @@ def _ensure_columns(eng) -> None:
             ("chat", "VARCHAR(255) DEFAULT ''"),
             ("chat2", "VARCHAR(255) DEFAULT ''"),
         ],
-        "admin_users": [
-            ("timezone", "VARCHAR(64)"),
-        ],
         "backend_sources": [
             ("route_models", "TEXT DEFAULT ''"),
             ("isolated", "BOOLEAN DEFAULT 0"),
             ("api_style", "VARCHAR(32) DEFAULT 'auto'"),
+            ("gpu_power_url", "VARCHAR(512) DEFAULT ''"),
         ],
         "service_grants": [
             ("user_id", "INTEGER"),
@@ -126,6 +143,7 @@ def _ensure_columns(eng) -> None:
             ("modalities_in", "VARCHAR(128) DEFAULT ''"),
             ("modalities_out", "VARCHAR(128) DEFAULT ''"),
             ("upstream_meta_at", "DATETIME"),
+            ("usage_weight", "FLOAT DEFAULT 1.0"),
         ],
     }
     insp = inspect(eng)
@@ -355,6 +373,12 @@ def init_db(settings: Settings) -> None:
                     anonymize_client_ip=True,
                     retention_days=30,
                     auto_vl_routing=False,
+                    max_keys_per_user=3,
+                    pool_window_hours=5,
+                    pool_tokens_per_unit=1000,
+                    pool_min_cost=1.0,
+                    pool_watt_weight=0.0,
+                    pool_tokens_per_sec=50.0,
                 )
             )
         from .backends import seed_backends_from_env

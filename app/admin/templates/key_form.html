@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ 'Edit' if key else 'New' }} Key · Gateway Admin{% endblock %}
 {% block content %}
-<header class="page-head">
+<header class="page-head page-head--compact">
   <div>
     <p class="eyebrow">API access</p>
     <h1>{{ 'Edit key' if key else 'New API key' }}</h1>
@@ -9,8 +9,8 @@
 </header>
 
 <div class="panel setup-hint">
-  <p style="margin:0"><strong>Your access grant</strong> — {{ grant_summary }}</p>
-  <p class="muted" style="margin:0.35rem 0 0;font-size:0.85rem">
+  <p class="m-0"><strong>Your access grant</strong> — {{ grant_summary }}</p>
+  <p class="muted hint-after">
     Keys can only use sources/models from this grant.
     {% if teams_enabled %}
     Admin sets grants on <a href="/teams">Teams</a>.
@@ -21,7 +21,7 @@
 </div>
 
 {% if grant_empty %}
-<div class="error">
+<div class="error" role="alert">
   No sources in your grant yet — ask an admin to grant access before this key can call the API.
 </div>
 {% endif %}
@@ -55,7 +55,7 @@
       {% endif %}
     </div>
 
-    <div class="field" style="margin-bottom:1.15rem">
+    <div class="field field-gap-lg">
       <label>Sources for this key</label>
       {% if services %}
       <div class="source-chips">
@@ -66,27 +66,30 @@
         </label>
         {% endfor %}
       </div>
-      <p class="muted" style="margin:0.45rem 0 0;font-size:0.8rem">None checked = use <strong>all sources from your grant</strong>.</p>
+      <p class="muted hint-below">None checked = use <strong>all sources from your grant</strong>.</p>
       {% else %}
-      <p class="muted">No sources available under your grant.</p>
+      <div class="empty-state">
+        <p class="empty-state-title">No sources in your grant</p>
+        <p class="empty-state-text">Ask an admin to grant sources before creating a key.</p>
+      </div>
       {% endif %}
     </div>
 
-    <div class="field" style="margin-bottom:1.15rem">
+    <div class="field field-gap-lg">
       <label>Further restrict models (optional)</label>
       {% with catalog_groups=catalog_groups, selected=selected_models, input_name='models', picker_id='key-models', hint='None checked = all models allowed by your grant (chat/embed). STT/TTS need only a source grant.' %}
       {% include "partials/model_picker.html" %}
       {% endwith %}
     </div>
 
-    <div class="field" style="margin-bottom:1.15rem">
+    <div class="field field-gap-lg">
       <label>Favorites (pin to top of <span class="mono">/v1/models</span>)</label>
       {% with catalog_groups=catalog_groups, selected=selected_favorites, input_name='favorites', picker_id='key-favs', hint='UX only — does not grant access.' %}
       {% include "partials/model_picker.html" %}
       {% endwith %}
     </div>
 
-    <div class="field" style="margin-bottom:1rem">
+    <div class="field field-gap-md">
       <label>Per-model limits (<span class="mono">source:model:rpm:concurrency:daily</span>)</label>
       <textarea name="model_limits" placeholder="chat:llama3.2:30:2:500">{{ model_limits_text }}</textarea>
     </div>
@@ -111,7 +114,7 @@
     </div>
 
     {% if key %}
-    <div class="field" style="margin-bottom:1rem">
+    <div class="field field-gap-md">
       <label><input type="checkbox" name="is_active" {% if key.is_active %}checked{% endif %}> Active</label>
     </div>
     {% endif %}

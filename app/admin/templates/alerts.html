@@ -1,27 +1,33 @@
 {% extends "base.html" %}
-{% block title %}Alerts · Gateway Admin{% endblock %}
+{% block title %}Webhook alerts · Gateway Admin{% endblock %}
 {% block content %}
-<h1>Webhook alerts</h1>
+<header class="page-head page-head--compact">
+  <div>
+    <p class="eyebrow">System</p>
+    <h1>Alerts</h1>
+    <p class="lede">Optional webhook for quota warnings and rate limits (Slack / Discord / generic JSON).</p>
+  </div>
+</header>
 <div class="panel">
   <form method="post" action="/alerts">
-    <div class="field" style="margin-bottom:1rem">
-      <label>Webhook URL (Slack/Discord/generic JSON POST)</label>
-      <input type="text" name="webhook_url" value="{{ cfg.webhook_url if cfg else '' }}" placeholder="https://hooks.example/…">
+    <div class="field field-gap-md">
+      <label for="webhook-url">Webhook URL (Slack/Discord/generic JSON POST)</label>
+      <input id="webhook-url" type="url" name="webhook_url" value="{{ cfg.webhook_url if cfg else '' }}" placeholder="https://hooks.example/…">
     </div>
-    <div class="checkboxes" style="margin-bottom:1rem">
+    <div class="checkboxes checkboxes-block">
       <label><input type="checkbox" name="enabled" {% if cfg and cfg.enabled %}checked{% endif %}> Enabled</label>
       <label><input type="checkbox" name="alert_on_quota" {% if not cfg or cfg.alert_on_quota %}checked{% endif %}> Quota warnings</label>
       <label><input type="checkbox" name="alert_on_rate_limit" {% if cfg and cfg.alert_on_rate_limit %}checked{% endif %}> Rate-limit events</label>
     </div>
-    <div class="field" style="margin-bottom:1rem;max-width:200px">
-      <label>Quota warn %</label>
-      <input type="number" name="quota_warn_pct" min="1" max="100" value="{{ cfg.quota_warn_pct if cfg else 80 }}">
+    <div class="field field-gap-md field--sm">
+      <label for="quota-warn">Quota warn %</label>
+      <input id="quota-warn" type="number" name="quota_warn_pct" min="1" max="100" value="{{ cfg.quota_warn_pct if cfg else 80 }}">
     </div>
     <div class="actions">
       <input class="primary" type="submit" value="Save">
     </div>
   </form>
-  <form method="post" action="/alerts/test" style="margin-top:1rem">
+  <form method="post" action="/alerts/test" class="actions-mt">
     <button type="submit">Send test webhook</button>
   </form>
 </div>

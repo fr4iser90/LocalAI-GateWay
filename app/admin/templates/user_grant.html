@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Grant · {{ target.username }} · Gateway Admin{% endblock %}
 {% block content %}
-<header class="page-head">
+<header class="page-head page-head--compact">
   <div>
     <p class="eyebrow">Access</p>
     <h1>Grant · {{ target.username }}</h1>
@@ -18,9 +18,9 @@
 {% endif %}
 
 <div class="panel">
-  <p class="muted" style="margin-top:0">Current: {{ grant_summary }}</p>
+  <p class="muted mt-0">Current: {{ grant_summary }}</p>
   <form method="post" action="/users/{{ target.id }}/grant">
-    <div class="field" style="margin-bottom:1.15rem">
+    <div class="field field-gap-lg">
       <label>Sources</label>
       <div class="source-chips">
         {% for s in services %}
@@ -30,14 +30,51 @@
         </label>
         {% endfor %}
       </div>
-      <p class="muted" style="margin:0.45rem 0 0;font-size:0.8rem">None checked = no API access for this user.</p>
+      <p class="muted hint-below">None checked = no API access for this user.</p>
     </div>
 
-    <div class="field" style="margin-bottom:1.15rem">
+    <div class="field field-gap-lg">
       <label>Model set (chat / embed)</label>
       {% with catalog_groups=catalog_groups, selected=selected_models, input_name='models', picker_id='user-grant', hint='None checked = all ON models for granted sources. Sync under Models first if empty.' %}
       {% include "partials/model_picker.html" %}
       {% endwith %}
+    </div>
+
+    <h3 class="section-label">Rate ceiling (this user)</h3>
+    <p class="muted mt-0 text-sm">
+      Caps across <strong>all</strong> of this user’s API keys (empty = no user-level cap).
+      Key-level limits still apply on top. Platform admins ignore this.
+    </p>
+    <div class="row row--loose">
+      <div class="field field--xs">
+        <label>RPM</label>
+        <input type="number" name="rpm_limit" min="0" placeholder="∞" value="{{ target.rpm_limit if target.rpm_limit is not none else '' }}">
+      </div>
+      <div class="field field--xs">
+        <label>Concurrency</label>
+        <input type="number" name="concurrency_limit" min="0" placeholder="∞" value="{{ target.concurrency_limit if target.concurrency_limit is not none else '' }}">
+      </div>
+      <div class="field field--xs">
+        <label>Daily requests</label>
+        <input type="number" name="daily_quota" min="0" placeholder="∞" value="{{ target.daily_quota if target.daily_quota is not none else '' }}">
+      </div>
+    </div>
+
+    <h3 class="section-label">Usage pool (budget units)</h3>
+    <p class="muted mt-0 text-sm">
+      Limit is in <strong>budget units</strong> from prompt size (see Settings) — not “number of requests”, not watts.
+      Short chats often cost the minimum (~1); long prompts cost more. Empty = pool off.
+      Used now: <span class="mono">{{ '%.1f'|format(target.pool_used or 0) }}</span>
+      {% if target.pool_limit %} / {{ target.pool_limit }} units{% endif %}
+    </p>
+    <div class="row row--loose">
+      <div class="field field--sm">
+        <label for="pool-limit">Pool limit (units)</label>
+        <input id="pool-limit" type="number" name="pool_limit" min="0" placeholder="off" value="{{ target.pool_limit if target.pool_limit is not none else '' }}">
+      </div>
+      <div class="field field--sm field--end">
+        <label><input type="checkbox" name="pool_reset_now"> Reset used → 0 now</label>
+      </div>
     </div>
 
     <div class="actions">
