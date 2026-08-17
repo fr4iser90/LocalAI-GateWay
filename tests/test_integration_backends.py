@@ -1,7 +1,8 @@
 """Live API checks against LAN sources / local gateway (INTEGRATION=1).
 
 Artifacts land in ``output/integration/<timestamp>/`` (and ``latest`` symlink),
-including per-call watt samples when ``GPU_POWER_URL`` is set.
+including per-call watt samples from ``http://<source-host>:9105/power``
+(or ``GPU_POWER_URL`` if set).
 
 Preferred path: hit the **gateway** (``INTEGRATION_GATEWAY`` / ``:9081``) with
 ``INTEGRATION_API_KEY`` so chat metering (real duration + Wh) is exercised.
@@ -13,6 +14,8 @@ Run::
   export INTEGRATION=1
   export INTEGRATION_API_KEY=gw_…
   pytest -m integration -q
+  # Dense 27B bake-off (~10 min text / ~12 min VL with MTP):
+  #   export INTEGRATION_LANDING_HEAVY=1
 """
 
 from __future__ import annotations
@@ -24,8 +27,14 @@ import pytest
 
 from tests.integration_helpers import (
     PowerProbe,
+    TEXT_LANDING_REPRO_PROMPT,
+    TEXT_SMOKE_PROMPT,
+    VL_LANDING_REPRO_PROMPT,
     base_url,
+    chat_model_id,
+    env_chat_model,
     env_source,
+    extract_html_document,
     first_model_id,
     gateway_api_key,
     gateway_base,
@@ -33,12 +42,18 @@ from tests.integration_helpers import (
     integration_output_dir,
     require_integration,
     require_source,
+    resolve_vl_image_path,
+    safe_model_filename,
     sample_gpu_watts,
     save_bytes,
     save_json,
     save_text,
     synthesize_speech,
     transcribe_audio,
+    vl_user_content,
+    write_chat_landing_html,
+    write_model_landing_page,
+    write_power_index_html,
 )
 
 pytestmark = pytest.mark.integration
@@ -73,7 +88,8 @@ def out_dir():
             "note": (
                 "Calls use the gateway when INTEGRATION_API_KEY is set "
                 "(chat gets real duration/Wh metering). "
-                "Each *_power.json has sidecar samples for this test wall time."
+                "Each *_power.json samples http://<source-host>:9105/power "
+                "(or GPU_POWER_URL)."
             ),
         },
     )
@@ -85,7 +101,28 @@ def power_summary(out_dir):
     rows: list[dict] = []
     yield rows
     save_json(out_dir, "power_summary.json", {"calls": rows})
+    write_power_index_html(out_dir, rows)
+    landing_rows = [r for r in rows if r.get("landing_file")]
+    if landing_rows:
+        from tests.integration_helpers import write_compare_landings_index
 
+        write_compare_landings_index(
+            out_dir,
+            entries=[
+                {
+                    "label": r.get("kind", "run"),
+                    "model": r.get("model"),
+                    "duration_ms": r.get("duration_ms"),
+                    "watts_avg": r.get("watts_avg"),
+                    "watt_hours_est": r.get("watt_hours_est"),
+                    "total_tokens": (r.get("usage") or {}).get("total_tokens"),
+                    "landing_href": r.get("landing_file"),
+                    "power_href": r.get("power_file")
+                    or f"chat_{safe_model_filename(str(r.get('model') or 'm'))}_power.json",
+                }
+                for r in landing_rows
+            ],
+        )
 
 @pytest.mark.parametrize(
     "env_name,paths",
@@ -124,16 +161,16 @@ def test_chat_completions_returns_message(out_dir, power_summary):
         headers = {}
         mode = "direct"
 
-    with PowerProbe("chat_completion") as probe:
+    with PowerProbe("chat_completion", host=host) as probe:
         with httpx.Client(timeout=180.0) as client:
-            model = first_model_id(client, host, headers=headers) or "default"
+            model = chat_model_id(client, host, headers=headers) or "default"
             resp = client.post(
                 f"{base_url(host)}/v1/chat/completions",
                 headers=headers,
                 json={
                     "model": model,
-                    "messages": [{"role": "user", "content": "Reply with exactly: pong"}],
-                    "max_tokens": 32,
+                    "messages": [{"role": "user", "content": TEXT_SMOKE_PROMPT}],
+                    "max_tokens": 128,
                     "temperature": 0,
                 },
             )
@@ -152,7 +189,159 @@ def test_chat_completions_returns_message(out_dir, power_summary):
     msg = data["choices"][0].get("message") or {}
     assert msg.get("role") == "assistant"
     assert "content" in msg
+    write_chat_landing_html(
+        out_dir,
+        "chat_completion_report.html",
+        model=model,
+        kind="text",
+        content=msg.get("content") or "",
+        usage=data.get("usage") if isinstance(data.get("usage"), dict) else None,
+        power=report,
+        mode=mode,
+        host=host,
+    )
 
+@pytest.mark.parametrize(
+    "model,kind,tier",
+    [
+        ("Qwen3.6-35B-A3B-MTP-UD-Q4_K_XL", "text", "fast"),
+        ("Qwen3.6-35B-A3B-MTP-UD-Q4_K_XL-VL", "vl", "fast"),
+        ("Qwen3.8-27B-Q4_K_M-MTP", "text", "heavy"),
+        ("Qwen3.8-27B-Q4_K_M-MTP-VL", "vl", "heavy"),
+    ],
+    ids=["a3b-q4-mtp-text", "a3b-q4-mtp-vl", "dense-q4-mtp-text", "dense-q4-mtp-vl"],
+)
+def test_chat_named_models_power(out_dir, power_summary, model: str, kind: str, tier: str):
+    """Bake-off: each model reproduces the landing as HTML + power metrics.
+
+    Default suite: Qwen3.6 35B-A3B MTP Q4 (text + VL). Dense 27B is skipped unless
+    ``INTEGRATION_LANDING_HEAVY=1`` (~10–12 min each with Qwen3.8 MTP on Strix Halo).
+
+    Override a single pair via env (skips other params)::
+
+      export INTEGRATION_LANDING_FILTER=1
+      export INTEGRATION_CHAT_MODEL=…
+      export INTEGRATION_CHAT_MODEL_VL=…
+
+    Open ``compare_landings.html`` and ``*_landing.html`` in the run folder.
+    """
+    require_integration()
+    # Optional filter: only run env-named models when both set and FILTER=1
+    load = __import__("tests.integration_helpers", fromlist=["load_dotenv_file"]).load_dotenv_file
+    load()
+    import os
+
+    heavy = (os.getenv("INTEGRATION_LANDING_HEAVY") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if tier == "heavy" and not heavy:
+        pytest.skip("set INTEGRATION_LANDING_HEAVY=1 for dense 27B (~10–12 min each)")
+
+    filt = (os.getenv("INTEGRATION_LANDING_FILTER") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if filt:
+        want_text = env_chat_model("INTEGRATION_CHAT_MODEL")
+        want_vl = env_chat_model("INTEGRATION_CHAT_MODEL_VL")
+        if kind == "text" and want_text and model != want_text:
+            pytest.skip(f"filter text={want_text}")
+        if kind == "vl" and want_vl and model != want_vl:
+            pytest.skip(f"filter vl={want_vl}")
+
+    gw = _via_gateway()
+    if gw:
+        host, headers = gw
+        mode = "gateway"
+    else:
+        host = require_source("CHAT")
+        headers = {}
+        mode = "direct"
+
+    if kind == "vl":
+        img = resolve_vl_image_path()
+        if img is None:
+            pytest.skip("No VL screenshot fixture; see tests/fixtures/README.md")
+        user_content = vl_user_content(prompt=VL_LANDING_REPRO_PROMPT)
+        label = "landing_vl"
+        save_bytes(out_dir, "reference_gic_landing.jpg", img.read_bytes())
+        prompt_used = VL_LANDING_REPRO_PROMPT
+    else:
+        user_content = TEXT_LANDING_REPRO_PROMPT
+        label = "landing_text"
+        prompt_used = TEXT_LANDING_REPRO_PROMPT
+
+    slug = safe_model_filename(model)
+    # No max_tokens — let the model finish the HTML (truncation broke prior landings).
+    # Long read timeout for local 27B + vision PP.
+    http_timeout = httpx.Timeout(connect=30.0, read=3600.0, write=60.0, pool=30.0)
+    payload: dict = {
+        "model": model,
+        "messages": [{"role": "user", "content": user_content}],
+        "temperature": 0.2,
+        # Qwen hybrid: skip reasoning so tokens go into the HTML, not thinking.
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    with PowerProbe(f"{label}:{slug}", host=host) as probe:
+        with httpx.Client(timeout=http_timeout) as client:
+            resp = client.post(
+                f"{base_url(host)}/v1/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+    assert resp.status_code == 200, resp.text[:800]
+    data = resp.json()
+    save_json(out_dir, f"chat_{slug}.json", data)
+    msg = (data.get("choices") or [{}])[0].get("message") or {}
+    raw = (msg.get("content") or "").strip()
+    if not raw and msg.get("reasoning_content"):
+        raw = str(msg.get("reasoning_content") or "")
+    save_text(out_dir, f"chat_{slug}_raw.txt", raw)
+    landing_html = extract_html_document(raw)
+    landing_name = f"chat_{slug}_landing.html"
+    landing_path = write_model_landing_page(out_dir, landing_name, landing_html)
+    power_name = f"chat_{slug}_power.json"
+    report = probe.report(
+        mode=mode,
+        host=host,
+        model=model,
+        kind=kind,
+        http_status=resp.status_code,
+        usage=data.get("usage"),
+        vl_image=str(resolve_vl_image_path()) if kind == "vl" else None,
+        prompt=prompt_used[:500],
+        landing_file=landing_name,
+        power_file=power_name,
+        finish_reason=(data.get("choices") or [{}])[0].get("finish_reason"),
+    )
+    save_json(out_dir, power_name, report)
+    power_summary.append(report)
+    # Metrics sidecar (not the product landing)
+    write_chat_landing_html(
+        out_dir,
+        f"chat_{slug}_metrics.html",
+        model=model,
+        kind=kind,
+        content=f"(see {landing_name} for the generated page)\n\n" + raw[:2000],
+        usage=data.get("usage") if isinstance(data.get("usage"), dict) else None,
+        power=report,
+        mode=mode,
+        host=host,
+    )
+    print(
+        f"[{kind}] {model}: status={resp.status_code} "
+        f"duration_ms={report.get('duration_ms')} "
+        f"watts_avg={report.get('watts_avg')} "
+        f"Wh≈{report.get('watt_hours_est')} "
+        f"usage={data.get('usage')} "
+        f"landing={landing_path}"
+    )
+    assert msg.get("role") == "assistant"
+    assert landing_html and "<" in landing_html, "model did not produce HTML"
+    assert "html" in landing_html.lower() or "body" in landing_html.lower()
 
 def test_embeddings_returns_vector(out_dir, power_summary):
     gw = _via_gateway()
@@ -164,7 +353,7 @@ def test_embeddings_returns_vector(out_dir, power_summary):
         headers = {}
         mode = "direct"
 
-    with PowerProbe("embeddings") as probe:
+    with PowerProbe("embeddings", host=host) as probe:
         with httpx.Client(timeout=120.0) as client:
             model = first_model_id(client, host, headers=headers) or "default"
             resp = client.post(
@@ -204,7 +393,7 @@ def test_tts_returns_wav_audio(out_dir, power_summary):
         headers = {}
         mode = "direct"
 
-    with PowerProbe("tts") as probe:
+    with PowerProbe("tts", host=host) as probe:
         with httpx.Client(timeout=120.0) as client:
             audio, path_used = synthesize_speech(client, host, phrase, headers=headers)
     assert len(audio) > 1000
@@ -241,7 +430,7 @@ def test_stt_transcribes_tts_audio_roundtrip(out_dir, power_summary):
         headers = {}
         mode = "direct"
 
-    with PowerProbe("roundtrip_tts_stt") as probe:
+    with PowerProbe("roundtrip_tts_stt", host=tts_host) as probe:
         with httpx.Client(timeout=180.0) as client:
             audio, tts_path = synthesize_speech(client, tts_host, phrase, headers=headers)
             assert audio[:4] == b"RIFF"

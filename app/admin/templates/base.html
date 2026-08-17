@@ -74,10 +74,7 @@
 
       <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-system">
         <p class="nav-group-label" id="nav-system">System</p>
-        <a href="/settings" class="{{ 'active' if nav == 'settings' else '' }}" {% if nav == 'settings' %}aria-current="page"{% endif %}>Settings</a>
-        <a href="/smtp" class="{{ 'active' if nav == 'smtp' else '' }}" {% if nav == 'smtp' %}aria-current="page"{% endif %}>SMTP</a>
-        <a href="/alerts" class="{{ 'active' if nav == 'alerts' else '' }}" {% if nav == 'alerts' %}aria-current="page"{% endif %}>Alerts</a>
-        <a href="/audit" class="{{ 'active' if nav == 'audit' else '' }}" {% if nav == 'audit' %}aria-current="page"{% endif %}>Audit</a>
+        <a href="/settings" class="{{ 'active' if nav in ['settings', 'smtp', 'alerts', 'audit'] else '' }}" {% if nav in ['settings', 'smtp', 'alerts', 'audit'] %}aria-current="page"{% endif %}>Settings</a>
       </div>
       {% elif teams_enabled %}
       <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-team">

@@ -9,6 +9,54 @@
   </div>
 </header>
 
+{% if is_admin %}
+<div class="banner-info" role="status">
+  Personal usage lives here. Fleet health, sources, and users are under
+  <a href="/"><strong>Ops → Dashboard</strong></a>.
+</div>
+{% endif %}
+
+{% if not keys %}
+<section class="panel" id="connect">
+  <div class="panel-head">
+    <div class="panel-head-text">
+      <h2>Connect a client</h2>
+      <p class="panel-sub">Three steps — then VS Code / Continue / curl work.</p>
+    </div>
+  </div>
+  <ol class="setup-steps">
+    <li class="setup-step is-todo">
+      <div class="setup-step-main">
+        <span class="setup-mark">1</span>
+        <div>
+          <strong>OpenAI base URL</strong>
+          <p class="muted text-sm mt-block mono select-all">{{ api_base }}</p>
+        </div>
+      </div>
+    </li>
+    <li class="setup-step is-todo">
+      <div class="setup-step-main">
+        <span class="setup-mark">2</span>
+        <div>
+          <strong>API key</strong>
+          <p class="muted text-sm mt-block">Create one under API Keys — copy it once (shown only at creation). Header: <span class="mono">X-Api-Key</span> or <span class="mono">Authorization: Bearer …</span></p>
+        </div>
+      </div>
+      <a class="btn btn-sm primary" href="/keys/new">New key</a>
+    </li>
+    <li class="setup-step is-todo">
+      <div class="setup-step-main">
+        <span class="setup-mark">3</span>
+        <div>
+          <strong>Smoke test</strong>
+          <p class="muted text-sm mt-block mono select-all">curl -s -H "X-Api-Key: YOUR_KEY" {{ api_base }}/models</p>
+        </div>
+      </div>
+    </li>
+  </ol>
+</section>
+{% endif %}
+
 <section class="metric-section">
   <h2 class="section-title">Last 24 hours</h2>
   <div class="cards">
@@ -66,9 +114,9 @@
     {% endif %}
     {% if pool_limit %}
     <div class="card">
-      <div class="label">Usage pool</div>
+      <div class="label">Token budget</div>
       <div class="value">{{ '%.0f'|format(pool_used) }}<span class="unit">/{{ pool_limit }}</span></div>
-      <div class="hint">Compute units this window{% if pool_cost %} · {{ '%.1f'|format(pool_cost) }} charged 24h{% endif %}</div>
+      <div class="hint">Prompt tokens this window{% if pool_cost %} · {{ '%.0f'|format(pool_cost) }} charged 24h{% endif %}</div>
     </div>
     {% endif %}
   </div>
@@ -109,6 +157,46 @@
   {% endif %}
 </section>
 {% endif %}
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>My model averages · 7d</h2>
+    <p class="panel-sub">From your keys via the gateway (duration, tokens/s, watts when sidecar is up).</p>
+  </div>
+  {% if model_avgs %}
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Model</th>
+        <th>n</th>
+        <th>PP tok/s</th>
+        <th>TG tok/s</th>
+        {% if gpu_power_enabled %}<th>avg W</th><th>avg Wh</th>{% endif %}
+        <th>Latency</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in model_avgs %}
+      <tr>
+        <td class="mono">{{ r.model }}</td>
+        <td class="num">{{ r.n }}</td>
+        <td class="num">{% if r.pp_tok_s_avg %}{{ '%.1f'|format(r.pp_tok_s_avg) }}{% else %}—{% endif %}</td>
+        <td class="num">{% if r.tg_tok_s_avg %}{{ '%.1f'|format(r.tg_tok_s_avg) }}{% else %}—{% endif %}</td>
+        {% if gpu_power_enabled %}
+        <td class="num">{% if r.watts_avg %}{{ '%.0f'|format(r.watts_avg) }}{% else %}—{% endif %}</td>
+        <td class="num">{% if r.watt_hours_avg %}{{ '%.4f'|format(r.watt_hours_avg) }}{% else %}—{% endif %}</td>
+        {% endif %}
+        <td class="num">{% if r.duration_ms_avg %}{% if r.duration_ms_avg >= 60000 %}{{ '%.1f'|format(r.duration_ms_avg / 60000) }} min{% else %}{{ '%.1f'|format(r.duration_ms_avg / 1000) }} s{% endif %}{% else %}—{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">No metered chat yet in the last 7 days. Call models through the gateway with your API key.</p>
+  {% endif %}
+</section>
 
 <section class="panel">
   <div class="panel-head">

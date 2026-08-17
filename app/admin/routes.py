@@ -12,7 +12,13 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..audit import write_audit
 from ..config import API_STYLES, KINDS, MODEL_CHECK_KINDS, Settings, dialect_choices
-from ..data.backends import get_source_by_name, list_sources, source_names
+from ..data.backends import (
+    default_grant_source_names,
+    get_source_by_name,
+    list_sources,
+    source_chip_rows,
+    source_names,
+)
 from ..data.catalog import list_catalog
 from ..data.dialects import dialect_blurb_for_kind
 from ..data.db import (
@@ -303,6 +309,7 @@ def _key_form_context(
         "user": user,
         "key": api_key,
         "services": services,
+        "source_chips": source_chip_rows(db, services),
         "selected_services": selected_services,
         "teams": teams,
         "owners": owners,
@@ -596,6 +603,12 @@ def setup_key_page(
             "created_summary": created_summary,
             "created_models_n": created_models_n,
             "sources": wiz["sources"],
+            "source_chips": source_chip_rows(db),
+            "selected_services": (
+                [s.name for s in wiz["sources"] if not getattr(s, "isolated", False)]
+                if wiz.get("sources")
+                else []
+            ),
             "catalog_groups": catalog_groups,
             "catalog_vl_groups": catalog_vl_groups,
             "auto_vl_routing": bool(auth.auto_vl_routing),
@@ -780,6 +793,7 @@ def me_page(
     from ..stats import (
         bar_chart_svg,
         daily_traffic_chart_svg,
+        model_perf_averages,
         usage_stats,
         week_window_start,
         zone_from_request,
@@ -802,6 +816,11 @@ def me_page(
     week_ago = week_window_start(zone)
     day = usage_stats(db, since=day_ago, key_ids=key_ids, tz=zone)
     week = usage_stats(db, since=week_ago, key_ids=key_ids, tz=zone)
+    model_avgs = model_perf_averages(db, key_ids=key_ids, lookback_days=7)
+    from ..config import public_api_base
+    import os
+
+    api_base = public_api_base(gateway_port=os.getenv("GATEWAY_PORT", "9081"))
     today = now.astimezone(zone).date()
     tz_label = str(zone)
     daily_q = db.query(UsageDaily).filter(UsageDaily.day == today)
@@ -850,6 +869,8 @@ def me_page(
             "chart_daily": daily_traffic_chart_svg(week["daily_series"], tz_label=tz_label),
             "chart_service": bar_chart_svg(day["by_service"], unit="requests"),
             "daily_rows": daily_rows,
+            "model_avgs": model_avgs,
+            "api_base": api_base,
             "keys": keys,
             "teams": user_teams(user) if teams_on else [],
             "fav_key": fav_key,
@@ -944,6 +965,10 @@ def keys_list(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_user)],
 ):
+    import os
+
+    from ..config import public_api_base
+
     teams_on = _teams_on(db)
     q = db.query(ApiKey).options(joinedload(ApiKey.team), joinedload(ApiKey.service_grants))
     q = scope_keys_query(q, user, teams_enabled=teams_on)
@@ -966,6 +991,8 @@ def keys_list(
             "services": source_names(db),
             "teams": teams,
             "flash_key": request.session.pop("flash_key", None),
+            "flash_key_services": request.session.pop("flash_key_services", None),
+            "api_base": public_api_base(gateway_port=os.getenv("GATEWAY_PORT", "9081")),
             "nav": "keys",
             "is_admin": user.is_platform_admin,
             "teams_enabled": teams_on,
@@ -1092,6 +1119,9 @@ async def keys_create(
     )
     db.commit()
     request.session["flash_key"] = raw
+    request.session["flash_key_services"] = (
+        ", ".join(services) if services else "all from grant"
+    )
     return RedirectResponse("/keys", status_code=303)
 
 
@@ -1339,7 +1369,8 @@ def teams_new(
             "user": user,
             "team": None,
             "services": names,
-            "selected_services": [],
+            "source_chips": source_chip_rows(db),
+            "selected_services": default_grant_source_names(db),
             "catalog_groups": catalog_groups_for_ceiling(
                 db, AccessCeiling(unrestricted=True)
             ),
@@ -1436,6 +1467,7 @@ def teams_edit(
             "user": user,
             "team": team,
             "services": source_names(db),
+            "source_chips": source_chip_rows(db),
             "selected_services": [g.service for g in team.service_grants],
             "catalog_groups": catalog_groups_for_ceiling(
                 db, AccessCeiling(unrestricted=True)
@@ -1522,6 +1554,7 @@ def users_list(
     user: Annotated[AdminUser, Depends(require_platform_admin)],
 ):
     from ..data.grants import ceiling_from_user, grant_summary
+    from ..mailer import smtp_ready, get_smtp
 
     users = (
         db.query(AdminUser)
@@ -1534,10 +1567,11 @@ def users_list(
     )
     flash = request.session.pop("flash_ok", None)
     err = request.session.pop("flash_err", None)
-    from ..mailer import smtp_ready, get_smtp
-
     grant_labels = {
         u.id: grant_summary(ceiling_from_user(u)) for u in users
+    }
+    grant_sources = {
+        u.id: sorted({g.service for g in u.service_grants}) for u in users
     }
     return templates.TemplateResponse(
         request,
@@ -1552,6 +1586,9 @@ def users_list(
             "smtp_ok": smtp_ready(get_smtp(db)),
             "teams_enabled": _teams_on(db),
             "grant_labels": grant_labels,
+            "grant_sources": grant_sources,
+            "source_chips": source_chip_rows(db),
+            "selected_services": default_grant_source_names(db),
         },
     )
 
@@ -1582,6 +1619,10 @@ def users_grant_edit(
         )
         return RedirectResponse("/users", status_code=303)
     selected = _selected_model_keys(target.model_allowlists)
+    selected_services = [g.service for g in target.service_grants]
+    # Empty grant on first open: pre-check safe (non-isolated) defaults.
+    if not selected_services and not target.is_platform_admin:
+        selected_services = default_grant_source_names(db)
     return templates.TemplateResponse(
         request,
         "user_grant.html",
@@ -1590,7 +1631,8 @@ def users_grant_edit(
             "target": target,
             "nav": "users",
             "services": source_names(db),
-            "selected_services": [g.service for g in target.service_grants],
+            "source_chips": source_chip_rows(db),
+            "selected_services": selected_services,
             "catalog_groups": catalog_groups_for_ceiling(
                 db, AccessCeiling(unrestricted=True)
             ),
@@ -1664,19 +1706,21 @@ async def users_grant_save(
 
 
 @router.post("/users/new")
-def users_create(
+async def users_create(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_platform_admin)],
-    username: str = Form(...),
-    password: str = Form(...),
-    email: str = Form(""),
-    is_platform_admin: str = Form(""),
-    must_change_password: str = Form(""),
 ):
-    username = username.strip()
-    email_n = email.strip().lower() or None
+    from ..data.grants import sync_user_grants
+
+    form = await request.form()
+    username = str(form.get("username") or "").strip()
+    password = str(form.get("password") or "")
+    email_n = str(form.get("email") or "").strip().lower() or None
+    is_platform_admin = form.get("is_platform_admin") == "on"
+    must_change_password = form.get("must_change_password") == "on"
     if not username or not password:
+        request.session["flash_err"] = "Username and password are required."
         return RedirectResponse("/users", status_code=303)
     if db.query(AdminUser).filter(AdminUser.username == username).first():
         request.session["flash_err"] = "Username already exists."
@@ -1684,21 +1728,35 @@ def users_create(
     if email_n and db.query(AdminUser).filter(AdminUser.email == email_n).first():
         request.session["flash_err"] = "Email already exists."
         return RedirectResponse("/users", status_code=303)
-    db.add(
-        AdminUser(
-            username=username,
-            email=email_n,
-            password_hash=hash_password(password),
-            is_active=True,
-            is_platform_admin=is_platform_admin == "on",
-            must_change_password=must_change_password == "on",
-        )
+
+    target = AdminUser(
+        username=username,
+        email=email_n,
+        password_hash=hash_password(password),
+        is_active=True,
+        is_platform_admin=is_platform_admin,
+        must_change_password=must_change_password,
     )
+    db.add(target)
+    db.flush()
+    if not target.is_platform_admin and not _teams_on(db):
+        names = source_names(db)
+        services = _parse_services(form.getlist("services"), names)
+        if not services:
+            services = default_grant_source_names(db)
+        sync_user_grants(db, target, services)
     write_audit(
         db, actor=user, action="user.create", entity_type="user", detail=username
     )
     db.commit()
-    request.session["flash_ok"] = f"User {username} created."
+    if target.is_platform_admin:
+        request.session["flash_ok"] = f"Admin {username} created (full access)."
+    else:
+        n = len(target.service_grants)
+        request.session["flash_ok"] = (
+            f"User {username} created with {n} source(s). "
+            f"Fine-tune models under Edit grant if needed."
+        )
     return RedirectResponse("/users", status_code=303)
 
 
@@ -2001,10 +2059,24 @@ def models_page(
         list_catalog,
         suggest_docs_url,
     )
+    from ..stats import model_perf_averages, model_perf_by_id
+    from ..vision_route import group_kind_rows_vl_pairs
+    from .accounts import get_auth_settings
 
     flash_ok = request.session.pop("flash_ok", None)
     flash_err = request.session.pop("flash_err", None)
     rows = list_catalog(db)
+    auth = get_auth_settings(db)
+    auto_vl = bool(auth.auto_vl_routing)
+    pool_weights = bool(auth.pool_model_weights_enabled)
+    observed = model_perf_by_id(model_perf_averages(db, key_ids=None, lookback_days=7))
+    groups = []
+    for kind, kind_rows in catalog_grouped_by_kind(rows):
+        pairs = group_kind_rows_vl_pairs(
+            kind_rows,
+            pair=auto_vl and kind == "chat",
+        )
+        groups.append((kind, pairs, len(kind_rows)))
     return templates.TemplateResponse(
         request,
         "models.html",
@@ -2012,13 +2084,17 @@ def models_page(
             "user": user,
             "nav": "models",
             "rows": rows,
-            "groups": catalog_grouped_by_kind(rows),
+            "groups": groups,
+            "observed": observed,
+            "auto_vl_routing": auto_vl,
+            "pool_model_weights_enabled": pool_weights,
             "suggest_docs_url": suggest_docs_url,
             "format_param_count": format_param_count,
             "format_bytes": format_bytes,
             "tag_suggestions": TAG_SUGGESTIONS,
             "flash_ok": flash_ok,
             "flash_err": flash_err,
+            "gpu_power_enabled": _gpu_power_enabled(request, db),
         },
     )
 
@@ -2055,6 +2131,7 @@ async def models_save(
     user: Annotated[AdminUser, Depends(require_platform_admin)],
 ):
     from ..data.catalog import list_catalog, update_catalog_meta
+    from .accounts import get_auth_settings
 
     def _parse_weight(raw) -> float:
         try:
@@ -2064,20 +2141,21 @@ async def models_save(
 
     form = await request.form()
     enabled_ids = {int(x) for x in form.getlist("enabled") if str(x).isdigit()}
+    weights_on = bool(get_auth_settings(db).pool_model_weights_enabled)
     changed = 0
     for row in list_catalog(db):
         want = row.id in enabled_ids
         if row.enabled != want:
             row.enabled = want
             changed += 1
-        update_catalog_meta(
-            db,
-            row.id,
-            tags=str(form.get(f"tags_{row.id}") or ""),
-            short_note=str(form.get(f"note_{row.id}") or ""),
-            docs_url=str(form.get(f"docs_{row.id}") or ""),
-            usage_weight=_parse_weight(form.get(f"weight_{row.id}")),
-        )
+        meta_kw: dict = {
+            "tags": str(form.get(f"tags_{row.id}") or ""),
+            "short_note": str(form.get(f"note_{row.id}") or ""),
+            "docs_url": str(form.get(f"docs_{row.id}") or ""),
+        }
+        if weights_on and f"weight_{row.id}" in form:
+            meta_kw["usage_weight"] = _parse_weight(form.get(f"weight_{row.id}"))
+        update_catalog_meta(db, row.id, **meta_kw)
     write_audit(
         db,
         actor=user,
@@ -2105,6 +2183,7 @@ def services_page(
     settings = _settings(request)
     rows = source_rows(db, settings)
     statuses = probe_all(db)
+    sources_by_name = {src.name: src for src, _ in rows}
     catalog_by_source = {src.name: catalog_route_models(db, src.name) for src, _ in rows}
     engine_by = {s.service: s.engine for s in statuses}
     dialect_blurbs = {
@@ -2119,6 +2198,7 @@ def services_page(
             "user": user,
             "rows": rows,
             "statuses": statuses,
+            "sources_by_name": sources_by_name,
             "catalog_by_source": catalog_by_source,
             "engine_by": engine_by,
             "kinds": KINDS,
@@ -2304,6 +2384,16 @@ def settings_page(
     )
     flash_ok = request.session.pop("flash_ok", None)
     flash_err = request.session.pop("flash_err", None)
+    observed_tok_s = None
+    if auth is not None:
+        from ..usage_pool import migrate_pool_to_token_budget, observed_tokens_per_sec
+
+        if migrate_pool_to_token_budget(db, auth):
+            db.commit()
+            db.refresh(auth)
+        observed_tok_s = observed_tokens_per_sec(db)
+    from ..auto_route import DEFAULT_AUTO_LONG, DEFAULT_AUTO_MODEL, DEFAULT_AUTO_QUALITY
+
     return templates.TemplateResponse(
         request,
         "settings.html",
@@ -2322,6 +2412,10 @@ def settings_page(
             "flash_ok": flash_ok,
             "flash_err": flash_err,
             "gpu_power_enabled": _gpu_power_enabled(request, db),
+            "observed_tok_s": observed_tok_s,
+            "default_auto_model": DEFAULT_AUTO_MODEL,
+            "default_auto_quality": DEFAULT_AUTO_QUALITY,
+            "default_auto_long": DEFAULT_AUTO_LONG,
         },
     )
 
@@ -2338,22 +2432,32 @@ def settings_auth_save(
     anonymize_client_ip: str = Form(""),
     retention_days: str = Form("30"),
     auto_vl_routing: str = Form(""),
+    auto_model_default: str = Form(""),
+    auto_model_quality: str = Form(""),
+    auto_model_long: str = Form(""),
     max_keys_per_user: str = Form("3"),
     pool_window_hours: str = Form("5"),
-    pool_tokens_per_unit: str = Form("1000"),
+    pool_tokens_per_unit: str = Form("1"),
     pool_min_cost: str = Form("1"),
     pool_watt_weight: str = Form("0"),
-    pool_tokens_per_sec: str = Form("50"),
+    pool_model_weights_enabled: str = Form(""),
 ):
     from .accounts import get_auth_settings
     from ..privacy import purge_old_usage
+    from ..usage_pool import migrate_pool_to_token_budget, resolve_tokens_per_sec
 
     auth = get_auth_settings(db)
+    # Convert legacy unit budgets → tokens before applying form values.
+    migrate_pool_to_token_budget(db, auth)
     auth.allow_self_registration = allow_self_registration == "on"
     auth.require_email = require_email == "on"
     auth.teams_enabled = teams_enabled == "on"
     auth.anonymize_client_ip = anonymize_client_ip == "on"
     auth.auto_vl_routing = auto_vl_routing == "on"
+    auth.auto_model_default = (auto_model_default or "").strip()[:256]
+    auth.auto_model_quality = (auto_model_quality or "").strip()[:256]
+    auth.auto_model_long = (auto_model_long or "").strip()[:256]
+    auth.pool_model_weights_enabled = pool_model_weights_enabled == "on"
     try:
         auth.retention_days = max(0, min(3650, int(retention_days or "30")))
     except ValueError:
@@ -2366,20 +2470,16 @@ def settings_auth_save(
         auth.pool_window_hours = max(0, min(8760, int(pool_window_hours or "5")))
     except ValueError:
         auth.pool_window_hours = 5
-    try:
-        auth.pool_tokens_per_unit = max(1, int(pool_tokens_per_unit or "1000"))
-    except ValueError:
-        auth.pool_tokens_per_unit = 1000
+    # Token budget: always 1 token = 1 budget point (no unit conversion in UI).
+    auth.pool_tokens_per_unit = 1
     try:
         auth.pool_min_cost = max(0.0, float(pool_min_cost or "1"))
     except ValueError:
         auth.pool_min_cost = 1.0
     # Energy is display-only; never charge Wh into the pool from Settings.
     auth.pool_watt_weight = 0.0
-    try:
-        auth.pool_tokens_per_sec = max(1.0, float(pool_tokens_per_sec or "50"))
-    except ValueError:
-        auth.pool_tokens_per_sec = 50.0
+    # Keep column filled with observed/fallback for any legacy readers.
+    auth.pool_tokens_per_sec = resolve_tokens_per_sec(db)
     tid = default_team_id.strip()
     if auth.teams_enabled and tid:
         team = db.get(Team, int(tid))
@@ -2398,8 +2498,12 @@ def settings_auth_save(
             f"teams={auth.teams_enabled} "
             f"anon_ip={auth.anonymize_client_ip} "
             f"auto_vl={auth.auto_vl_routing} "
+            f"auto={auth.auto_model_default or '-'} "
+            f"auto_q={auth.auto_model_quality or '-'} "
+            f"auto_l={auth.auto_model_long or '-'} "
             f"max_keys={auth.max_keys_per_user} "
             f"pool_h={auth.pool_window_hours} "
+            f"pool_weights={auth.pool_model_weights_enabled} "
             f"watt_w={auth.pool_watt_weight} "
             f"retention={auth.retention_days} purged={purged}"
         ),

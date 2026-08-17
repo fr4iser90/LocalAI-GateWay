@@ -57,22 +57,9 @@
 
     <div class="field field-gap-lg">
       <label>Sources for this key</label>
-      {% if services %}
-      <div class="source-chips">
-        {% for s in services %}
-        <label class="source-chip">
-          <input type="checkbox" name="services" value="{{ s }}" {% if s in selected_services %}checked{% endif %}>
-          <span class="source-chip-name mono">{{ s }}</span>
-        </label>
-        {% endfor %}
-      </div>
-      <p class="muted hint-below">None checked = use <strong>all sources from your grant</strong>.</p>
-      {% else %}
-      <div class="empty-state">
-        <p class="empty-state-title">No sources in your grant</p>
-        <p class="empty-state-text">Ask an admin to grant sources before creating a key.</p>
-      </div>
-      {% endif %}
+      {% with source_chips=source_chips, selected_services=selected_services, hint_below='None checked = use all sources from your grant (usually daily defaults). Isolated lab sources stay opt-in.' %}
+      {% include "_source_chips.html" %}
+      {% endwith %}
     </div>
 
     <div class="field field-gap-lg">

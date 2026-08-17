@@ -13,9 +13,19 @@
 </header>
 
 {% if flash_key %}
-<div class="flash warn">
-  Copy this key now — it will not be shown again:<br>
-  <strong>{{ flash_key }}</strong>
+<div class="flash warn" role="status">
+  <p class="m-0"><strong>Copy this key now</strong> — it will not be shown again.</p>
+  <p class="mono key-reveal select-all mt-block">{{ flash_key }}</p>
+  {% if flash_key_services %}
+  <p class="muted text-sm mt-half">Sources: {{ flash_key_services }}</p>
+  {% endif %}
+  {% if api_base %}
+  <p class="muted text-sm mt-half">
+    OpenAI base URL:
+    <span class="mono select-all">{{ api_base }}</span>
+  </p>
+  <p class="muted text-xs mt-third mono select-all">curl -s -H "X-Api-Key: {{ flash_key }}" {{ api_base }}/models</p>
+  {% endif %}
 </div>
 {% endif %}
 

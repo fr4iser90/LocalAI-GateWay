@@ -144,6 +144,46 @@ def test_group_models_vl_pairs_suffix(tmp_path: Path):
     assert pairs[1][1] is None
 
 
+def test_group_kind_rows_vl_pairs_per_source(tmp_path: Path):
+    db = _session(tmp_path)
+    a = CatalogModel(
+        source_name="chat",
+        kind="chat",
+        model_id="Foo-Q4",
+        enabled=True,
+    )
+    b = CatalogModel(
+        source_name="chat",
+        kind="chat",
+        model_id="Foo-Q4-VL",
+        enabled=True,
+        modalities_in="text,image",
+    )
+    other = CatalogModel(
+        source_name="other",
+        kind="chat",
+        model_id="Foo-Q4-VL",
+        enabled=True,
+        modalities_in="text,image",
+    )
+    db.add_all([a, b, other])
+    db.commit()
+    from app.vision_route import group_kind_rows_vl_pairs
+
+    flat = group_kind_rows_vl_pairs([a, b, other], pair=False)
+    assert len(flat) == 3
+    assert all(vl is None for _, vl in flat)
+
+    paired = group_kind_rows_vl_pairs([a, b, other], pair=True)
+    assert len(paired) == 2
+    assert paired[0][0].model_id == "Foo-Q4"
+    assert paired[0][1].model_id == "Foo-Q4-VL"
+    assert paired[0][1].source_name == "chat"
+    assert paired[1][0].model_id == "Foo-Q4-VL"
+    assert paired[1][0].source_name == "other"
+    assert paired[1][1] is None
+
+
 def test_forward_ticket_roundtrip():
     t = mint_forward_ticket(
         secret="s",

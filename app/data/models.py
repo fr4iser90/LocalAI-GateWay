@@ -274,6 +274,9 @@ class UsageEvent(Base):
     watt_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
     # metered | no_probe | unreachable | ""
     power_status: Mapped[str] = mapped_column(String(32), default="")
+    # llama.cpp timings / derived throughput (tok/s)
+    pp_tok_s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tg_tok_s: Mapped[float | None] = mapped_column(Float, nullable=True)
     pool_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -445,17 +448,24 @@ class AuthSettings(Base):
     retention_days: Mapped[int] = mapped_column(Integer, default=30)
     # When on: chat requests with image parts rewrite model → VL sibling (if found).
     auto_vl_routing: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Gateway aliases auto / auto-quality / auto-long. Empty → built-in Halo defaults.
+    auto_model_default: Mapped[str] = mapped_column(String(256), default="")
+    auto_model_quality: Mapped[str] = mapped_column(String(256), default="")
+    auto_model_long: Mapped[str] = mapped_column(String(256), default="")
     # Max active API keys per non-admin user (0 = unlimited). Platform admins exempt.
     max_keys_per_user: Mapped[int] = mapped_column(Integer, default=3)
     # Usage pool: window length in hours (Claude-style rolling reset). 0 = disabled globally.
     pool_window_hours: Mapped[int] = mapped_column(Integer, default=5)
-    # tokens → units: cost ~= max(min_cost, tokens/pool_tokens_per_unit) * weight
-    pool_tokens_per_unit: Mapped[int] = mapped_column(Integer, default=1000)
+    # Token budget: cost ~= max(min_cost, tokens/pool_tokens_per_unit)
+    # Optional × factor only when pool_model_weights_enabled (default off).
+    pool_tokens_per_unit: Mapped[int] = mapped_column(Integer, default=1)
     pool_min_cost: Mapped[float] = mapped_column(Float, default=1.0)
     # Multiply estimated Wh into pool cost (0 = ignore sidecar even if up).
     pool_watt_weight: Mapped[float] = mapped_column(Float, default=0.0)
     # Rough tok/s for Wh estimate at auth time (no end-of-request hook yet).
     pool_tokens_per_sec: Mapped[float] = mapped_column(Float, default=50.0)
+    # Off by default: budget charge = tokens. On: Models → factor may scale charge only.
+    pool_model_weights_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class PasswordResetToken(Base):

@@ -9,7 +9,8 @@
       {% if teams_enabled %}
       Teams mode is on — grants live on <a href="/teams">Teams</a>.
       {% else %}
-      Create users and grant sources/models. They mint keys under API Keys.
+      Create users, pick <strong>which sources</strong> they may use, then they mint keys under API Keys.
+      Default = daily sources only (not isolated lab). Uncheck to deny; <strong>Disable</strong> blocks login + API.
       {% endif %}
     </p>
   </div>
@@ -21,9 +22,13 @@
 {% endif %}
 {% if not smtp_ok %}<p class="muted">SMTP not ready — password-reset emails won’t send until you configure <a href="/smtp">SMTP</a>.</p>{% endif %}
 
+{% if not teams_enabled %}
 <div class="panel">
   <div class="panel-head">
-    <div class="panel-head-text"><h2>Create user</h2></div>
+    <div class="panel-head-text">
+      <h2>Create user</h2>
+      <p class="panel-sub">Sources below are the ceiling — keys can only use what you check. Isolated lab stays off unless you opt in.</p>
+    </div>
   </div>
   <form method="post" action="/users/new">
     <div class="row">
@@ -41,12 +46,19 @@
       </div>
     </div>
     <div class="checkboxes checkboxes-block">
-      <label><input type="checkbox" name="is_platform_admin"> Platform admin</label>
+      <label><input type="checkbox" name="is_platform_admin" id="new-is-admin"> Platform admin (full access — ignores source grant)</label>
       <label><input type="checkbox" name="must_change_password" checked> Must change password on first login</label>
+    </div>
+    <div class="field field-gap-lg" id="new-user-grants">
+      <label>Sources for this user</label>
+      {% with source_chips=source_chips, selected_services=selected_services, hint_below='Pre-checked: non-isolated (daily). Leave isolated lab unchecked for normal friends.' %}
+      {% include "_source_chips.html" %}
+      {% endwith %}
     </div>
     <input class="primary" type="submit" value="Add user">
   </form>
 </div>
+{% endif %}
 
 <div class="panel">
   <div class="panel-head">
@@ -59,69 +71,85 @@
         <th>User</th>
         <th>Email</th>
         <th>Role</th>
-        <th>Grant</th>
+        <th>Sources</th>
         <th>Status</th>
         <th>Manage</th>
       </tr>
     </thead>
     <tbody>
     {% for u in users %}
-      <tr>
+      <tr class="{% if not u.is_active %}row-muted{% endif %}">
         <td>
           <strong>{{ u.username }}</strong>
           {% if u.must_change_password %}<span class="badge rate">must change pw</span>{% endif %}
         </td>
         <td class="mono">{{ u.email or '—' }}</td>
         <td>{% if u.is_platform_admin %}<span class="badge">admin</span>{% else %}user{% endif %}</td>
-        <td class="muted text-sm">
+        <td class="text-sm">
           {% if teams_enabled %}
-          via team
+          <span class="muted">via team</span>
+          {% elif u.is_platform_admin %}
+          <span class="badge ok">full access</span>
           {% else %}
-          {{ grant_labels.get(u.id, '—') }}
-          {% if not u.is_platform_admin %}
-          · <a href="/users/{{ u.id }}/grant">Edit grant</a>
-          {% endif %}
+            {% set srcs = grant_sources.get(u.id, []) %}
+            {% if srcs %}
+            <div class="tag-row">
+              {% for s in srcs %}
+              <span class="badge">{{ s }}</span>
+              {% endfor %}
+            </div>
+            <div class="muted hint-micro">{{ grant_labels.get(u.id, '') }}</div>
+            {% else %}
+            <span class="badge off">no sources</span>
+            {% endif %}
+            <div class="mt-third"><a href="/users/{{ u.id }}/grant">Edit grant</a></div>
           {% endif %}
         </td>
-        <td>{% if u.is_active %}<span class="badge ok">active</span>{% else %}<span class="badge off">disabled</span>{% endif %}</td>
         <td>
-          <details class="details-edit">
-            <summary class="btn-sm">Edit</summary>
-            <form method="post" action="/users/{{ u.id }}/update" class="details-edit-body">
-              <div class="field field-gap-sm">
-                <label for="email-{{ u.id }}">Email</label>
-                <input id="email-{{ u.id }}" type="email" name="email" value="{{ u.email or '' }}">
-              </div>
-              <div class="field field-gap-sm">
-                <label for="pw-{{ u.id }}">Set new password (optional)</label>
-                <input id="pw-{{ u.id }}" type="password" name="new_password" minlength="8" autocomplete="new-password">
-              </div>
-              <div class="checkboxes field-gap-sm">
-                {% if u.id != user.id %}
-                <label><input type="checkbox" name="is_platform_admin" {% if u.is_platform_admin %}checked{% endif %}> Platform admin</label>
-                {% endif %}
-                <label><input type="checkbox" name="must_change_password" {% if u.must_change_password %}checked{% endif %}> Must change password</label>
-              </div>
-              <button class="btn-sm primary" type="submit">Save</button>
+          {% if u.is_active %}<span class="badge ok">active</span>{% else %}<span class="badge off">disabled</span>{% endif %}
+        </td>
+        <td>
+          <div class="actions actions-inline">
+            {% if u.id != user.id %}
+            <form method="post" action="/users/{{ u.id }}/toggle">
+              <button class="btn-sm {% if u.is_active %}btn-danger{% else %}primary{% endif %}" type="submit">
+                {{ 'Disable' if u.is_active else 'Enable' }}
+              </button>
             </form>
-            <div class="actions mt-half">
-              {% if u.id != user.id %}
-              <form method="post" action="/users/{{ u.id }}/toggle">
-                <button class="btn-sm" type="submit">{{ 'Disable' if u.is_active else 'Enable' }}</button>
+            {% endif %}
+            <details class="details-edit">
+              <summary class="btn-sm">Edit</summary>
+              <form method="post" action="/users/{{ u.id }}/update" class="details-edit-body">
+                <div class="field field-gap-sm">
+                  <label for="email-{{ u.id }}">Email</label>
+                  <input id="email-{{ u.id }}" type="email" name="email" value="{{ u.email or '' }}">
+                </div>
+                <div class="field field-gap-sm">
+                  <label for="pw-{{ u.id }}">Set new password (optional)</label>
+                  <input id="pw-{{ u.id }}" type="password" name="new_password" minlength="8" autocomplete="new-password">
+                </div>
+                <div class="checkboxes field-gap-sm">
+                  {% if u.id != user.id %}
+                  <label><input type="checkbox" name="is_platform_admin" {% if u.is_platform_admin %}checked{% endif %}> Platform admin</label>
+                  {% endif %}
+                  <label><input type="checkbox" name="must_change_password" {% if u.must_change_password %}checked{% endif %}> Must change password</label>
+                </div>
+                <button class="btn-sm primary" type="submit">Save</button>
               </form>
-              {% endif %}
-              <form method="post" action="/users/{{ u.id }}/send-reset">
-                <button class="btn-sm" type="submit" {% if not u.email or not smtp_ok %}disabled{% endif %}>Send reset email</button>
-              </form>
-            </div>
-          </details>
+              <div class="actions mt-half">
+                <form method="post" action="/users/{{ u.id }}/send-reset">
+                  <button class="btn-sm" type="submit" {% if not u.email or not smtp_ok %}disabled{% endif %}>Send reset email</button>
+                </form>
+              </div>
+            </details>
+          </div>
         </td>
       </tr>
     {% else %}
       <tr><td colspan="6" class="empty-cell">
         <div class="empty-state">
           <p class="empty-state-title">No users yet</p>
-          <p class="empty-state-text">Create a team user above so they can mint their own API keys.</p>
+          <p class="empty-state-text">Create a user above and grant daily sources.</p>
         </div>
       </td></tr>
     {% endfor %}
@@ -129,4 +157,17 @@
   </table>
   </div>
 </div>
+<script>
+(function () {
+  var admin = document.getElementById('new-is-admin');
+  var grants = document.getElementById('new-user-grants');
+  if (!admin || !grants) return;
+  function sync() {
+    grants.style.opacity = admin.checked ? '0.45' : '1';
+    grants.querySelectorAll('input').forEach(function (el) { el.disabled = admin.checked; });
+  }
+  admin.addEventListener('change', sync);
+  sync();
+})();
+</script>
 {% endblock %}

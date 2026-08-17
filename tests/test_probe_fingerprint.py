@@ -10,6 +10,30 @@ def test_llama_cpp_via_slots():
     )
 
 
+def test_llama_router_via_props():
+    assert (
+        fingerprint_engine(
+            kind="chat",
+            probes_ok=["/health", "/props", "/v1/models"],
+            slots_total=None,
+            body_hints='role:router build_info:b8771 model_alias:llama-server',
+        )
+        == "llama-router"
+    )
+
+
+def test_llama_cpp_via_props_without_router_role():
+    assert (
+        fingerprint_engine(
+            kind="embed",
+            probes_ok=["/props", "/v1/models"],
+            slots_total=None,
+            body_hints="build_info:b123 llama.cpp",
+        )
+        == "llama.cpp"
+    )
+
+
 def test_ollama_via_api_tags():
     assert (
         fingerprint_engine(kind="chat", probes_ok=["/api/tags"], slots_total=None) == "ollama"

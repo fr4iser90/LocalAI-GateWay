@@ -228,16 +228,30 @@ def finalize_usage_metering(
     watt_hours: float | None,
     upstream_status: int | None = None,
     power_status: str = "",
+    tokens_in: int | None = None,
+    tokens_out: int | None = None,
+    pp_tok_s: float | None = None,
+    tg_tok_s: float | None = None,
 ) -> None:
-    """Patch UsageEvent after upstream finishes (real duration + sampled Wh)."""
+    """Patch UsageEvent after upstream finishes (real duration + sampled Wh + tokens)."""
     ev = db.get(UsageEvent, usage_id)
     if ev is None:
         return
     prev_wh = float(ev.watt_hours or 0)
     prev_dur = ev.duration_ms
+    prev_in = ev.tokens_in
+    prev_out = ev.tokens_out
     ev.duration_ms = float(duration_ms)
     ev.watts = watts
     ev.watt_hours = watt_hours
+    if tokens_in is not None:
+        ev.tokens_in = int(tokens_in)
+    if tokens_out is not None:
+        ev.tokens_out = int(tokens_out)
+    if pp_tok_s is not None:
+        ev.pp_tok_s = float(pp_tok_s)
+    if tg_tok_s is not None:
+        ev.tg_tok_s = float(tg_tok_s)
     if power_status:
         ev.power_status = power_status[:32]
     elif watts is not None:
@@ -267,6 +281,10 @@ def finalize_usage_metering(
     )
     if row is not None:
         row.watt_hours = max(0.0, float(row.watt_hours or 0) - prev_wh + float(watt_hours or 0))
+        if tokens_in is not None:
+            row.tokens_in = max(0, int(row.tokens_in or 0) - int(prev_in or 0) + int(tokens_in))
+        if tokens_out is not None:
+            row.tokens_out = max(0, int(row.tokens_out or 0) - int(prev_out or 0) + int(tokens_out))
         if prev_dur is None:
             row.latency_sum_ms = float(row.latency_sum_ms or 0) + float(duration_ms)
             row.latency_count = (row.latency_count or 0) + 1

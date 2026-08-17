@@ -71,12 +71,16 @@ def get_auth_settings(db: Session) -> AuthSettings:
             anonymize_client_ip=True,
             retention_days=30,
             auto_vl_routing=False,
+            auto_model_default="",
+            auto_model_quality="",
+            auto_model_long="",
             max_keys_per_user=3,
             pool_window_hours=5,
-            pool_tokens_per_unit=1000,
+            pool_tokens_per_unit=1,
             pool_min_cost=1.0,
             pool_watt_weight=0.0,
             pool_tokens_per_sec=50.0,
+            pool_model_weights_enabled=False,
         )
         db.add(cfg)
         db.flush()
@@ -260,6 +264,11 @@ def register_submit(
         team = db.get(Team, auth.default_team_id)
         if team:
             db.add(TeamMember(team_id=team.id, user_id=user.id, role="member"))
+    elif not auth.teams_enabled:
+        from ..data.backends import default_grant_source_names
+        from ..data.grants import sync_user_grants
+
+        sync_user_grants(db, user, default_grant_source_names(db))
     write_audit(
         db,
         actor=user,

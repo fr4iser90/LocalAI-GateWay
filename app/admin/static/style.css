@@ -897,6 +897,13 @@ td.num, th.num, .num {
   font-weight: 600;
 }
 .btn-danger { background: var(--danger-btn-bg); border-color: var(--danger-btn-border); color: var(--danger-btn-text); }
+.actions-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+.row-muted td { opacity: 0.72; }
 .btn-sm { padding: 0.28rem 0.6rem; font-size: 0.82rem; }
 
 .actions { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
@@ -1298,6 +1305,11 @@ textarea { min-height: 110px; font-family: var(--mono); font-size: 0.85rem; }
 }
 .source-chip input { margin: 0 0 0.25rem; }
 .source-chip-name { font-weight: 600; }
+.source-chip-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
 .source-chip-meta { font-size: 0.78rem; color: var(--muted); }
 
 .flash {
@@ -1472,6 +1484,37 @@ textarea { min-height: 110px; font-family: var(--mono); font-size: 0.85rem; }
 .input-weight { width: 4.5rem; }
 .input-note { min-width: 11rem; }
 .input-docs { min-width: 12rem; }
+
+.catalog-row--pair td {
+  vertical-align: top;
+}
+.catalog-on-stack,
+.catalog-field-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.catalog-on-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.catalog-on-hint {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.catalog-vl-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.3rem;
+}
+.catalog-vl-meta {
+  margin-top: 0.25rem;
+  opacity: 0.9;
+}
 
 /* Services row editor */
 .svc-editor {

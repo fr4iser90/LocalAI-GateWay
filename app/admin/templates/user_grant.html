@@ -22,15 +22,9 @@
   <form method="post" action="/users/{{ target.id }}/grant">
     <div class="field field-gap-lg">
       <label>Sources</label>
-      <div class="source-chips">
-        {% for s in services %}
-        <label class="source-chip">
-          <input type="checkbox" name="services" value="{{ s }}" {% if s in selected_services %}checked{% endif %}>
-          <span class="source-chip-name mono">{{ s }}</span>
-        </label>
-        {% endfor %}
-      </div>
-      <p class="muted hint-below">None checked = no API access for this user.</p>
+      {% with source_chips=source_chips, selected_services=selected_services, hint_below='None checked = no API access for this user. New users get non-isolated (daily) sources by default.' %}
+      {% include "_source_chips.html" %}
+      {% endwith %}
     </div>
 
     <div class="field field-gap-lg">
@@ -42,8 +36,8 @@
 
     <h3 class="section-label">Rate ceiling (this user)</h3>
     <p class="muted mt-0 text-sm">
-      Caps across <strong>all</strong> of this user’s API keys (empty = no user-level cap).
-      Key-level limits still apply on top. Platform admins ignore this.
+      This is how you set rate limits: caps across <strong>all</strong> of this user’s API keys
+      (empty = no user-level cap). Key-level limits still apply on top. Platform admins ignore this.
     </p>
     <div class="row row--loose">
       <div class="field field--xs">
@@ -60,16 +54,16 @@
       </div>
     </div>
 
-    <h3 class="section-label">Usage pool (budget units)</h3>
+    <h3 class="section-label">Token budget (optional)</h3>
     <p class="muted mt-0 text-sm">
-      Limit is in <strong>budget units</strong> from prompt size (see Settings) — not “number of requests”, not watts.
-      Short chats often cost the minimum (~1); long prompts cost more. Empty = pool off.
-      Used now: <span class="mono">{{ '%.1f'|format(target.pool_used or 0) }}</span>
-      {% if target.pool_limit %} / {{ target.pool_limit }} units{% endif %}
+      Max estimated <strong>prompt tokens</strong> per Settings window — not request count, not watts.
+      Empty = off (use RPM / daily only). Used now:
+      <span class="mono">{{ '%.0f'|format(target.pool_used or 0) }}</span>
+      {% if target.pool_limit %} / {{ target.pool_limit }} tokens{% endif %}
     </p>
     <div class="row row--loose">
       <div class="field field--sm">
-        <label for="pool-limit">Pool limit (units)</label>
+        <label for="pool-limit">Max tokens / window</label>
         <input id="pool-limit" type="number" name="pool_limit" min="0" placeholder="off" value="{{ target.pool_limit if target.pool_limit is not none else '' }}">
       </div>
       <div class="field field--sm field--end">

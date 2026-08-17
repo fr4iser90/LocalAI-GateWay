@@ -5,7 +5,7 @@
   <div>
     <p class="eyebrow">Operations</p>
     <h1>Dashboard</h1>
-    <p class="lede">Gateway traffic, limits, and model load at a glance.</p>
+    <p class="lede">Fleet traffic, limits, and backend load — not your personal key usage (<a href="/me">Home</a>).</p>
   </div>
   <div class="page-actions">
     {% if demo_tools %}
@@ -22,6 +22,10 @@
 {% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
 {% if demo_count %}<div class="banner-info">Showing <strong>{{ '{:,}'.format(demo_count) }}</strong> demo events in the 7-day window — tagged in Usage as <span class="badge">demo</span>.</div>{% endif %}
 
+<div class="banner-info" role="status">
+  Ops view for all users. Your keys, personal averages, and connect tips:
+  <a href="/me"><strong>Home</strong></a>.
+</div>
 {% if not setup.complete %}
 <section class="panel setup-panel" id="setup">
   <div class="panel-head">

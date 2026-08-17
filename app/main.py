@@ -14,6 +14,7 @@ from .admin.access import Forbidden, RedirectToLogin, SetupWizardRequired
 from .admin.accounts import get_auth_settings, router as accounts_router
 from .admin.routes import router as admin_router
 from .admin.ops import router as ops_router
+from .auto_route import auto_alias_list_entries, rewrite_auto_model
 from .auth.check import authorize, extract_model
 from .data.backends import (
     address_for_source,
@@ -161,7 +162,13 @@ def create_app() -> FastAPI:
         if api_key.expires_at and api_key.expires_at < utcnow():
             return JSONResponse({"error": "expired_api_key"}, status_code=401)
         rows = models_visible_for_key(db, api_key)
-        return openai_models_payload(rows, favorites_for_key(api_key))
+        payload = openai_models_payload(rows, favorites_for_key(api_key))
+        aliases = auto_alias_list_entries(get_auth_settings(db))
+        if aliases:
+            seen = {x.get("id") for x in payload.get("data") or []}
+            extra = [a for a in aliases if a["id"] not in seen]
+            payload["data"] = extra + list(payload.get("data") or [])
+        return payload
 
     @app.api_route("/v1/auth/check", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"])
     async def auth_check(request: Request, db: Session = Depends(get_db)):
@@ -193,6 +200,13 @@ def create_app() -> FastAPI:
             upstream_uri = upstream_uri or "/"
             if kind in MODEL_ROUTE_KINDS and method_u in {"POST", "PUT", "PATCH"}:
                 body = await request.body()
+            if kind == "chat" and body:
+                asked = extract_model(body, content_type)
+                body, auto_to = rewrite_auto_model(
+                    body, asked=asked, auth=get_auth_settings(db)
+                )
+                if auto_to:
+                    vl_rewrite = auto_to
         else:
             upstream_uri = upstream_path_for_proxy(uri)
             kind = kind_from_upstream_path(upstream_uri)
@@ -204,6 +218,13 @@ def create_app() -> FastAPI:
             # Read body early so model routing can pick the source
             if kind in MODEL_ROUTE_KINDS and method_u in {"POST", "PUT", "PATCH"}:
                 body = await request.body()
+            if kind == "chat" and body:
+                asked = extract_model(body, content_type)
+                body, auto_to = rewrite_auto_model(
+                    body, asked=asked, auth=get_auth_settings(db)
+                )
+                if auto_to:
+                    vl_rewrite = auto_to
             model = extract_model(body, content_type) if body else None
             src = resolve_source_for_kind(db, kind, model=model)
             if src is None:
@@ -303,7 +324,12 @@ def create_app() -> FastAPI:
 
         from .audit import finalize_usage_metering
         from .data.db import SessionLocal
+        from .metering_parse import parse_upstream_metrics
         from .usage_pool import fetch_gpu_watts, watt_hours_from_samples
+
+        # Cap buffered body for usage/timings parse (keep full for small JSON; tail for huge SSE).
+        _BUF_MAX = 2 * 1024 * 1024
+        _BUF_TAIL = 256 * 1024
 
         samples: list[float] = []
         probe = (probe_url or "").strip()
@@ -361,15 +387,31 @@ def create_app() -> FastAPI:
             not in {"transfer-encoding", "connection", "content-length", "content-encoding"}
         }
         upstream_status = upstream.status_code
+        content_type = upstream.headers.get("content-type")
 
         async def _stream():
             last_sample = time_mod.perf_counter()
+            buf = bytearray()
+            truncated = False
             try:
                 async for chunk in upstream.aiter_raw():
                     now = time_mod.perf_counter()
                     if probe and (now - last_sample) >= 1.0:
                         await _sample()
                         last_sample = now
+                    if not truncated:
+                        if len(buf) + len(chunk) <= _BUF_MAX:
+                            buf.extend(chunk)
+                        else:
+                            # Keep a tail window for SSE usage/timings.
+                            buf.extend(chunk)
+                            if len(buf) > _BUF_TAIL:
+                                del buf[: len(buf) - _BUF_TAIL]
+                                truncated = True
+                    else:
+                        buf.extend(chunk)
+                        if len(buf) > _BUF_TAIL:
+                            del buf[: len(buf) - _BUF_TAIL]
                     yield chunk
             finally:
                 await upstream.aclose()
@@ -382,6 +424,11 @@ def create_app() -> FastAPI:
                         duration_sec=max(0.001, duration_ms / 1000.0),
                     )
                     status = "metered" if samples else power_status
+                    metrics = parse_upstream_metrics(
+                        bytes(buf),
+                        duration_ms=duration_ms,
+                        content_type=content_type,
+                    )
                     db = SessionLocal()
                     try:
                         finalize_usage_metering(
@@ -392,6 +439,10 @@ def create_app() -> FastAPI:
                             watt_hours=wh,
                             upstream_status=upstream_status,
                             power_status=status,
+                            tokens_in=metrics.tokens_in,
+                            tokens_out=metrics.tokens_out,
+                            pp_tok_s=metrics.pp_tok_s,
+                            tg_tok_s=metrics.tg_tok_s,
                         )
                     finally:
                         db.close()
@@ -425,6 +476,8 @@ def create_app() -> FastAPI:
         body = await request.body()
 
         named, upstream_uri = split_source_path(uri)
+        auth_cfg = get_auth_settings(db)
+        auto_rewrite: str | None = None
         if named is not None:
             src = get_source_by_name(db, named)
             if src is None:
@@ -435,11 +488,21 @@ def create_app() -> FastAPI:
             service = src.name
             kind = src.kind
             upstream_uri = upstream_uri or "/"
+            if kind == "chat" and body:
+                asked = extract_model(body, content_type)
+                body, auto_rewrite = rewrite_auto_model(
+                    body, asked=asked, auth=auth_cfg
+                )
         else:
             upstream_uri = upstream_path_for_proxy(uri)
             kind = kind_from_upstream_path(upstream_uri)
             if kind is None:
                 return JSONResponse({"error": "unknown_route", "path": uri}, status_code=403)
+            if kind == "chat" and body:
+                asked = extract_model(body, content_type)
+                body, auto_rewrite = rewrite_auto_model(
+                    body, asked=asked, auth=auth_cfg
+                )
             model = extract_model(body, content_type)
             src = resolve_source_for_kind(db, kind, model=model)
             if src is None:
@@ -453,7 +516,7 @@ def create_app() -> FastAPI:
         if (
             kind == "chat"
             and body
-            and get_auth_settings(db).auto_vl_routing
+            and auth_cfg.auto_vl_routing
             and request_needs_vision(body, content_type)
         ):
             asked = extract_model(body, content_type)
@@ -487,8 +550,9 @@ def create_app() -> FastAPI:
         src_row = get_source_by_name(db, service)
         api_style = getattr(src_row, "api_style", None) if src_row is not None else None
         rewrite_uri = map_upstream_path(upstream_uri, kind=kind, api_style=api_style)
-        if vl_rewrite:
-            body = rewrite_json_model(body, vl_rewrite)
+        final_model = vl_rewrite or auto_rewrite
+        if final_model:
+            body = rewrite_json_model(body, final_model)
 
         url = f"http://{backend}{rewrite_uri}"
         if request.url.query:

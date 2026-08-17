@@ -1,0 +1,6 @@
+<nav class="subnav" aria-label="System">
+  <a href="/settings" class="{{ 'is-active' if nav == 'settings' else '' }}"{% if nav == 'settings' %} aria-current="page"{% endif %}>Settings</a>
+  <a href="/smtp" class="{{ 'is-active' if nav == 'smtp' else '' }}"{% if nav == 'smtp' %} aria-current="page"{% endif %}>SMTP</a>
+  <a href="/alerts" class="{{ 'is-active' if nav == 'alerts' else '' }}"{% if nav == 'alerts' %} aria-current="page"{% endif %}>Alerts</a>
+  <a href="/audit" class="{{ 'is-active' if nav == 'audit' else '' }}"{% if nav == 'audit' %} aria-current="page"{% endif %}>Audit</a>
+</nav>

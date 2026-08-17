@@ -1,6 +1,7 @@
-"""Claude-style usage pool: token estimate × model weight, windowed reset.
+"""Usage pool: prompt-token budget × model weight, windowed reset.
 
 Optional GPU Wh from gpu-power sidecar (estimate at auth time).
+Budget is in tokens (tokens_per_unit is always 1 after migrate).
 """
 
 from __future__ import annotations
@@ -12,8 +13,17 @@ import httpx
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .data.models import AdminUser, AuthSettings, CatalogModel, ApiKey, utcnow
+from .data.models import (
+    AdminUser,
+    ApiKey,
+    AuthSettings,
+    CatalogModel,
+    UsageEvent,
+    utcnow,
+)
 from .privacy import estimate_prompt_tokens
+
+_FALLBACK_TOKENS_PER_SEC = 50.0
 
 
 @dataclass
@@ -28,26 +38,100 @@ class PoolDecision:
     watt_hours: float | None = None
 
 
+def observed_tokens_per_sec(db: Session, *, lookback: int = 40) -> float | None:
+    """Mean tok/s from recent OK usage events (tokens ÷ wall duration).
+
+    Prompt processing vs generation differ; this is a blunt average when
+    enough metered calls exist — never a manual Settings knob.
+    """
+    if lookback < 1:
+        return None
+    rows = (
+        db.query(UsageEvent)
+        .filter(
+            UsageEvent.duration_ms.isnot(None),
+            UsageEvent.duration_ms > 50,
+            UsageEvent.result == "ok",
+        )
+        .order_by(UsageEvent.id.desc())
+        .limit(max(lookback * 4, 40))
+        .all()
+    )
+    rates: list[float] = []
+    for r in rows:
+        total = int(r.tokens_in or 0) + int(r.tokens_out or 0)
+        if total < 1:
+            continue
+        sec = float(r.duration_ms or 0) / 1000.0
+        if sec <= 0:
+            continue
+        rates.append(total / sec)
+        if len(rates) >= lookback:
+            break
+    if len(rates) < 3:
+        return None
+    return round(sum(rates) / len(rates), 1)
+
+
+def resolve_tokens_per_sec(db: Session | None = None) -> float:
+    """Observed average when enough data; else a conservative fallback."""
+    if db is not None:
+        obs = observed_tokens_per_sec(db)
+        if obs is not None and obs >= 1.0:
+            return obs
+    return _FALLBACK_TOKENS_PER_SEC
+
+
+def migrate_pool_to_token_budget(db: Session, auth: AuthSettings) -> bool:
+    """Scale legacy 'units' (tokens÷N) to raw tokens; set tokens_per_unit=1.
+
+    Returns True if a conversion ran.
+    """
+    tpu = int(getattr(auth, "pool_tokens_per_unit", 1) or 1)
+    if tpu <= 1:
+        auth.pool_tokens_per_unit = 1
+        return False
+    for u in db.query(AdminUser).all():
+        if u.pool_limit is not None and u.pool_limit > 0:
+            u.pool_limit = int(u.pool_limit) * tpu
+        used = float(u.pool_used or 0.0)
+        if used > 0:
+            u.pool_used = used * float(tpu)
+    auth.pool_tokens_per_unit = 1
+    return True
+
+
 def _pool_settings(auth: AuthSettings) -> tuple[int, int, float, float, float]:
     window = int(getattr(auth, "pool_window_hours", 5) or 0)
-    tpu = int(getattr(auth, "pool_tokens_per_unit", 1000) or 1000)
+    tpu = int(getattr(auth, "pool_tokens_per_unit", 1) or 1)
     if tpu < 1:
-        tpu = 1000
+        tpu = 1
     min_cost = float(getattr(auth, "pool_min_cost", 1.0) or 1.0)
     if min_cost < 0:
         min_cost = 0.0
     watt_w = float(getattr(auth, "pool_watt_weight", 0.0) or 0.0)
     if watt_w < 0:
         watt_w = 0.0
-    tps = float(getattr(auth, "pool_tokens_per_sec", 50.0) or 50.0)
+    # Legacy column; real estimates use resolve_tokens_per_sec(db).
+    tps = float(getattr(auth, "pool_tokens_per_sec", _FALLBACK_TOKENS_PER_SEC) or _FALLBACK_TOKENS_PER_SEC)
     if tps < 1:
-        tps = 50.0
+        tps = _FALLBACK_TOKENS_PER_SEC
     return window, tpu, min_cost, watt_w, tps
 
 
 def model_usage_weight(
-    db: Session, *, service: str, model: str | None
+    db: Session,
+    *,
+    service: str,
+    model: str | None,
+    auth: AuthSettings | None = None,
 ) -> float:
+    """Optional per-model budget factor. Always 1.0 unless explicitly enabled.
+
+    Does not alter logged usage tokens — only the optional token-budget charge.
+    """
+    if auth is None or not bool(getattr(auth, "pool_model_weights_enabled", False)):
+        return 1.0
     if not model or not service:
         return 1.0
     row = (
@@ -73,7 +157,7 @@ def compute_cost(
     watt_hours: float | None = None,
     watt_weight: float = 0.0,
 ) -> float:
-    """Units burned by one call."""
+    """Token-budget points burned by one call (with tokens_per_unit=1 → tokens)."""
     tok = max(0, int(tokens or 0))
     base = max(min_cost, tok / float(tokens_per_unit)) * max(0.0, weight)
     if watt_hours is not None and watt_weight > 0 and watt_hours > 0:
@@ -180,12 +264,14 @@ def _maybe_reset_window(owner: AdminUser, window_hours: int) -> int | None:
 def sample_power(
     *,
     tokens: int | None,
-    tokens_per_sec: float = 50.0,
+    tokens_per_sec: float | None = None,
     url: str | None = None,
+    db: Session | None = None,
 ) -> tuple[float | None, float | None]:
     """(watts, watt_hours) from sidecar; (None, None) if off/unreachable."""
+    tps = float(tokens_per_sec) if tokens_per_sec and tokens_per_sec >= 1 else resolve_tokens_per_sec(db)
     watts = fetch_gpu_watts(url)
-    wh = estimate_watt_hours(watts=watts, tokens=tokens, tokens_per_sec=tokens_per_sec)
+    wh = estimate_watt_hours(watts=watts, tokens=tokens, tokens_per_sec=tps)
     return watts, wh
 
 
@@ -206,19 +292,30 @@ def check_and_consume_pool(
     if limit is None or limit <= 0:
         return PoolDecision(True)
 
-    window_h, tpu, min_cost, watt_w, tps = _pool_settings(auth)
+    window_h, tpu, min_cost, watt_w, _tps_legacy = _pool_settings(auth)
     if window_h <= 0:
         return PoolDecision(True)
 
+    # One-shot: legacy unit budgets → token budgets.
+    if migrate_pool_to_token_budget(db, auth):
+        tpu = 1
+        limit = owner.pool_limit
+        if limit is None or limit <= 0:
+            return PoolDecision(True)
+
     resets_in = _maybe_reset_window(owner, window_h)
     tokens = estimate_prompt_tokens(body)
-    weight = model_usage_weight(db, service=service, model=model)
+    weight = model_usage_weight(db, service=service, model=model, auth=auth)
 
     watts = None
     wh = None
     if watt_w > 0:
         watts = fetch_gpu_watts()
-        wh = estimate_watt_hours(watts=watts, tokens=tokens, tokens_per_sec=tps)
+        wh = estimate_watt_hours(
+            watts=watts,
+            tokens=tokens,
+            tokens_per_sec=resolve_tokens_per_sec(db),
+        )
 
     cost = compute_cost(
         tokens=tokens,

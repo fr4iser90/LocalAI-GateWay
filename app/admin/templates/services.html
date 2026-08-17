@@ -19,9 +19,11 @@
     <div class="panel-head-text">
       <h2>Live status</h2>
       <p class="panel-sub">
-        Probes against upstreams. llama.cpp: <span class="mono">/health</span> + <span class="mono">/slots</span>.
-        Ollama: <span class="mono">/api/ps</span>. TEI: <span class="mono">/info</span>.
-        Engine ending in <span class="mono">?</span> = soft guess from kind (no unique fingerprint yet).
+    Probes against upstreams. llama.cpp: <span class="mono">/health</span> + <span class="mono">/slots</span>
+    or <span class="mono">/props</span> (router → <span class="mono">llama-router</span>).
+    Ollama: <span class="mono">/api/ps</span>. TEI: <span class="mono">/info</span>.
+    <span class="mono">openai-api</span> = OpenAI-compatible catalog only (no stronger fingerprint).
+    Engine ending in <span class="mono">?</span> = soft guess from kind.
       </p>
     </div>
     <button type="button" class="btn-sm" id="refresh-status">Refresh</button>
@@ -40,8 +42,20 @@
     </thead>
     <tbody>
     {% for s in statuses %}
+      {% set src = sources_by_name.get(s.service) %}
       <tr data-service="{{ s.service }}">
-        <td><span class="badge">{{ s.service }}</span></td>
+        <td>
+          <span class="badge">{{ s.service }}</span>
+          {% if src and src.is_default %}<span class="badge ok">default</span>{% endif %}
+          {% if src and src.isolated %}<span class="badge off">isolated</span>{% endif %}
+          {% if src and src.kind == 'chat' %}
+          <div class="muted hint-micro">
+            {% if src.is_default %}Daily · /v1 merge
+            {% elif src.isolated %}Lab / heavy · /s/{{ src.name }}/ only · keep concurrency low
+            {% else %}Extra chat · merge when granted{% endif %}
+          </div>
+          {% endif %}
+        </td>
         <td class="muted">{{ s.kind }}</td>
         <td class="state-cell">
           <span class="pill state-{{ s.state }}">{{ s.state }}</span>
@@ -112,7 +126,18 @@
     <tbody>
     {% for src, route in rows %}
       <tr>
-        <td><span class="badge">{{ src.name }}</span></td>
+        <td>
+          <span class="badge">{{ src.name }}</span>
+          {% if src.is_default %}<span class="badge ok">default</span>{% endif %}
+          {% if src.isolated %}<span class="badge off">isolated</span>{% endif %}
+          {% if src.kind == 'chat' %}
+          <div class="muted hint-micro">
+            {% if src.is_default %}Daily · /v1 merge
+            {% elif src.isolated %}Lab / heavy · /s/{{ src.name }}/ only · keep concurrency low
+            {% else %}Extra chat · merge when granted{% endif %}
+          </div>
+          {% endif %}
+        </td>
         <td>{{ src.kind }}</td>
         <td class="mono text-xs">{{ route }}</td>
         <td>
@@ -224,8 +249,15 @@
       <tr>
         <td>
           <span class="badge">{{ src.name }}</span>
-          {% if src.is_default %} · default{% endif %}
-          {% if src.isolated %} · separate{% endif %}
+          {% if src.is_default %}<span class="badge ok">default</span>{% endif %}
+          {% if src.isolated %}<span class="badge off">isolated</span>{% endif %}
+          {% if src.kind == 'chat' %}
+          <div class="muted hint-micro">
+            {% if src.is_default %}Daily · /v1 merge
+            {% elif src.isolated %}Lab / heavy · /s/{{ src.name }}/ only · keep concurrency low
+            {% else %}Extra chat · merge when granted{% endif %}
+          </div>
+          {% endif %}
         </td>
         <td>{{ src.kind }}</td>
         <td class="mono cell-sm">{{ route }}</td>

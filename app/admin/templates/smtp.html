@@ -13,6 +13,8 @@
 {% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
 {% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
 
+{% include "_system_subnav.html" %}
+
 <div class="panel">
   <form method="post" action="/smtp">
     <div class="checkboxes checkboxes-block">

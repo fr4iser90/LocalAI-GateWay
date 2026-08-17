@@ -179,6 +179,7 @@ def group_models_vl_pairs(
 
     Used by the admin picker when auto-VL routing is on so text+VL
     siblings show as one coupled row instead of two independent lines.
+    Prefer calling with models from a single source.
     """
     if not models:
         return []
@@ -209,6 +210,29 @@ def group_models_vl_pairs(
         else:
             out.append((m, None))
             seen.add(m.model_id)
+    return out
+
+
+def group_kind_rows_vl_pairs(
+    kind_rows: list[CatalogModel],
+    *,
+    pair: bool,
+) -> list[tuple[CatalogModel, CatalogModel | None]]:
+    """Pair chat text+VL within each source when pair=True; else flat solos."""
+    if not kind_rows:
+        return []
+    if not pair:
+        return [(m, None) for m in kind_rows]
+    by_src: dict[str, list[CatalogModel]] = {}
+    order: list[str] = []
+    for m in kind_rows:
+        if m.source_name not in by_src:
+            order.append(m.source_name)
+            by_src[m.source_name] = []
+        by_src[m.source_name].append(m)
+    out: list[tuple[CatalogModel, CatalogModel | None]] = []
+    for src in order:
+        out.extend(group_models_vl_pairs(by_src[src]))
     return out
 
 

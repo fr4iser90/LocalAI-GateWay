@@ -38,7 +38,8 @@ docker compose up -d --build
 **API dialects:** `api_style` on each source — see `app/data/dialects.py`.  
 **Model catalog:** Admin → Models — sync, disable, tags/notes/docs links.  
 Keys/Teams pick models via checkboxes (empty = all). Favorites pin order in `/v1/models` (key overrides team).  
-`GET /v1/models` returns only enabled models ∩ key/team allowlist (notes → `description` when set).
+`GET /v1/models` returns only enabled models ∩ key/team allowlist (notes → `description` when set).  
+Aliases **`auto`**, **`auto-quality`**, **`auto-long`** are rewritten in Settings → Routing (daily Q4 MoE+MTP / Q5 MoE+MTP / 128k). Enable **Auto-VL** so screenshots follow the text model.
 
 ## Optional reverse proxy
 

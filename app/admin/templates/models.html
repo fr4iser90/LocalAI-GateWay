@@ -5,16 +5,42 @@
   <div>
     <p class="eyebrow">Backends</p>
     <h1>Models</h1>
-    <p class="lede">Catalog synced from sources. Enable/disable, tags, and weights for the pool.</p>
+    <p class="lede">
+      Catalog synced from sources. Enable/disable, tags, notes.
+      {% if auto_vl_routing %}
+      Auto-VL is on — text + <span class="mono">-VL</span> siblings share one row.
+      {% else %}
+      Turn on Auto-VL in <a href="/settings">Settings</a> to pair text + vision siblings.
+      {% endif %}
+    </p>
   </div>
 </header>
 <details class="panel panel-details">
-  <summary class="muted">How meta fields work</summary>
+  <summary class="muted">How meta{% if pool_model_weights_enabled %}, budget factor,{% endif %} and VL pairing work</summary>
   <p class="muted hint-after">
     <strong>ctx_size</strong> comes from upstream <span class="mono">--ctx-size</span> when listed.
     <strong>n_ctx / n_embd / n_params</strong> from upstream <span class="mono">meta</span> while loaded —
     last known values kept after unload (never invented). Tags/notes/docs are admin-owned; sync does not overwrite non-empty tags.
     STT/TTS usually expose no numeric meta.
+  </p>
+  {% if pool_model_weights_enabled %}
+  <p class="muted hint-after">
+    <strong>Budget factor</strong> (optional; enabled in Settings) scales only the grant token budget:
+    <span class="mono">budget_charge = max(min_tokens, estimated_prompt_tokens) × factor</span>.
+    Usage logs keep real tokens unchanged. <span class="mono">factor=1</span> = no scaling.
+  </p>
+  {% else %}
+  <p class="muted hint-after">
+    Per-model budget factors are <strong>off</strong> (Settings → Token budget). Budget charge equals estimated prompt tokens (and min/call). Usage logs are always real tokens.
+  </p>
+  {% endif %}
+  <p class="muted hint-after">
+    <strong>Auto-VL</strong> does not delete the VL model upstream — it groups the pair here and
+    rewrites image chat to the vision sibling at request time.
+  </p>
+  <p class="muted hint-after">
+    <strong>Observed</strong> (7d fleet): mean PP/TG tok/s and watts from gateway-metered OK chats.
+    Empty until traffic hits that model through the gateway.
   </p>
 </details>
 {% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
@@ -33,12 +59,20 @@
 
 {% if groups %}
 <form method="post" action="/models/save">
-  {% for kind, kind_rows in groups %}
+  {% for kind, kind_pairs, kind_count in groups %}
   <div class="panel">
     <div class="panel-head">
       <div class="panel-head-text">
         <h2 class="kind-title">{{ kind }}</h2>
-        <p class="panel-sub panel-sub--tight">{{ kind_rows|length }} model{{ 's' if kind_rows|length != 1 else '' }}</p>
+        <p class="panel-sub panel-sub--tight">
+          {% if auto_vl_routing and kind == 'chat' and kind_pairs|length != kind_count %}
+            {{ kind_pairs|length }} row{{ 's' if kind_pairs|length != 1 else '' }}
+            · {{ kind_count }} model{{ 's' if kind_count != 1 else '' }}
+            (text+VL paired)
+          {% else %}
+            {{ kind_count }} model{{ 's' if kind_count != 1 else '' }}
+          {% endif %}
+        </p>
       </div>
     </div>
     <div class="table-wrap">
@@ -48,21 +82,43 @@
           <th>On</th>
           <th>Model</th>
           <th>Source meta</th>
+          <th>Observed · 7d</th>
           <th>Tags</th>
-          <th>Weight</th>
+          {% if pool_model_weights_enabled %}
+          <th title="budget_charge = tokens × factor; usage logs unchanged">Budget factor</th>
+          {% endif %}
           <th>Note</th>
           <th>Docs URL</th>
         </tr>
       </thead>
       <tbody>
-      {% for m in kind_rows %}
-        <tr>
+      {% for m, vl in kind_pairs %}
+        <tr class="{% if vl %}catalog-row--pair{% endif %}">
           <td>
-            <label class="sr-only" for="en-{{ m.id }}">Enable {{ m.model_id }}</label>
-            <input id="en-{{ m.id }}" type="checkbox" name="enabled" value="{{ m.id }}" {% if m.enabled %}checked{% endif %}>
+            <div class="catalog-on-stack">
+              <label class="catalog-on-item" for="en-{{ m.id }}">
+                <input id="en-{{ m.id }}" type="checkbox" name="enabled" value="{{ m.id }}" {% if m.enabled %}checked{% endif %}>
+                <span class="sr-only">Enable {{ m.model_id }}</span>
+                {% if vl %}<span class="muted catalog-on-hint" aria-hidden="true">text</span>{% endif %}
+              </label>
+              {% if vl %}
+              <label class="catalog-on-item" for="en-{{ vl.id }}">
+                <input id="en-{{ vl.id }}" type="checkbox" name="enabled" value="{{ vl.id }}" {% if vl.enabled %}checked{% endif %}>
+                <span class="sr-only">Enable {{ vl.model_id }}</span>
+                <span class="model-picker-vl-badge" aria-hidden="true">VL</span>
+              </label>
+              {% endif %}
+            </div>
           </td>
           <td>
             <div class="mono">{{ m.model_id }}</div>
+            {% if vl %}
+            <div class="catalog-vl-line">
+              <span class="model-picker-vl-badge">+ VL</span>
+              <span class="mono">{{ vl.model_id }}</span>
+            </div>
+            <div class="muted hint-micro">Image chat → VL sibling</div>
+            {% endif %}
             <div class="muted hint-micro">
               <span class="badge">{{ m.source_name }}</span>
               {% if m.upstream_status %}
@@ -70,11 +126,17 @@
                 {% elif m.upstream_status == 'unloaded' %}<span class="badge off">unloaded</span>
                 {% else %}<span class="badge">{{ m.upstream_status }}</span>{% endif %}
               {% endif %}
+              {% if vl and vl.upstream_status %}
+                · VL
+                {% if vl.upstream_status == 'loaded' %}<span class="badge ok">loaded</span>
+                {% elif vl.upstream_status == 'unloaded' %}<span class="badge off">unloaded</span>
+                {% else %}<span class="badge">{{ vl.upstream_status }}</span>{% endif %}
+              {% endif %}
               · {{ m.last_seen_at or 'never seen' }}
             </div>
           </td>
           <td class="muted meta-cell">
-            {% if m.ctx_size or m.n_ctx or m.n_ctx_train or m.n_embd or m.n_params or m.model_size %}
+            {% if m.ctx_size or m.n_ctx or m.n_ctx_train or m.n_embd or m.n_params or m.model_size or m.modalities_in or (vl and (vl.modalities_in or vl.modalities_out)) %}
               {% if m.ctx_size %}<div><span class="mono">ctx_size</span> {{ m.ctx_size }}</div>{% endif %}
               {% if m.n_ctx %}<div><span class="mono">n_ctx</span> {{ m.n_ctx }}{% if m.upstream_meta_at %} <span title="last known from meta">(last)</span>{% endif %}</div>{% endif %}
               {% if m.n_ctx_train %}<div><span class="mono">n_ctx_train</span> {{ m.n_ctx_train }}</div>{% endif %}
@@ -84,25 +146,76 @@
               {% if m.modalities_in or m.modalities_out %}
               <div>{{ m.modalities_in or '?' }} → {{ m.modalities_out or '?' }}</div>
               {% endif %}
+              {% if vl and (vl.modalities_in or vl.modalities_out) %}
+              <div class="catalog-vl-meta">VL {{ vl.modalities_in or '?' }} → {{ vl.modalities_out or '?' }}</div>
+              {% endif %}
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td class="muted meta-cell">
+            {% set obs = observed.get(m.model_id) %}
+            {% set obs_vl = observed.get(vl.model_id) if vl else none %}
+            {% if obs or obs_vl %}
+              {% if obs %}
+              <div><span class="mono">n</span> {{ obs.n }}</div>
+              {% if obs.pp_tok_s_avg %}<div><span class="mono">PP</span> {{ '%.1f'|format(obs.pp_tok_s_avg) }} t/s</div>{% endif %}
+              {% if obs.tg_tok_s_avg %}<div><span class="mono">TG</span> {{ '%.1f'|format(obs.tg_tok_s_avg) }} t/s</div>{% endif %}
+              {% if gpu_power_enabled and obs.watts_avg %}<div><span class="mono">W</span> {{ '%.0f'|format(obs.watts_avg) }}</div>{% endif %}
+              {% endif %}
+              {% if obs_vl %}
+              <div class="catalog-vl-meta">
+                VL n={{ obs_vl.n }}
+                {% if obs_vl.pp_tok_s_avg %} · PP {{ '%.1f'|format(obs_vl.pp_tok_s_avg) }}{% endif %}
+                {% if obs_vl.tg_tok_s_avg %} · TG {{ '%.1f'|format(obs_vl.tg_tok_s_avg) }}{% endif %}
+                {% if gpu_power_enabled and obs_vl.watts_avg %} · {{ '%.0f'|format(obs_vl.watts_avg) }} W{% endif %}
+              </div>
+              {% endif %}
             {% else %}
               <span class="muted">—</span>
             {% endif %}
           </td>
           <td>
-            <label class="sr-only" for="tags-{{ m.id }}">Tags for {{ m.model_id }}</label>
-            <input id="tags-{{ m.id }}" class="input-tags" type="text" name="tags_{{ m.id }}" value="{{ m.tags }}" placeholder="tools,code,fast">
+            <div class="catalog-field-stack">
+              <label class="sr-only" for="tags-{{ m.id }}">Tags for {{ m.model_id }}</label>
+              <input id="tags-{{ m.id }}" class="input-tags" type="text" name="tags_{{ m.id }}" value="{{ m.tags }}" placeholder="tools,code,fast">
+              {% if vl %}
+              <label class="sr-only" for="tags-{{ vl.id }}">Tags for {{ vl.model_id }}</label>
+              <input id="tags-{{ vl.id }}" class="input-tags" type="text" name="tags_{{ vl.id }}" value="{{ vl.tags }}" placeholder="vision,tools" title="VL tags">
+              {% endif %}
+            </div>
+          </td>
+          {% if pool_model_weights_enabled %}
+          <td>
+            <div class="catalog-field-stack">
+              <label class="sr-only" for="weight-{{ m.id }}">Budget factor for {{ m.model_id }}</label>
+              <input id="weight-{{ m.id }}" class="input-weight" type="number" name="weight_{{ m.id }}" value="{{ m.usage_weight if m.usage_weight is not none else 1 }}" min="0.01" step="0.1" title="budget_charge = tokens × factor (1 = no scaling)">
+              {% if vl %}
+              <label class="sr-only" for="weight-{{ vl.id }}">Budget factor for {{ vl.model_id }}</label>
+              <input id="weight-{{ vl.id }}" class="input-weight" type="number" name="weight_{{ vl.id }}" value="{{ vl.usage_weight if vl.usage_weight is not none else 1 }}" min="0.01" step="0.1" title="VL budget factor">
+              {% endif %}
+            </div>
+          </td>
+          {% endif %}
+          <td>
+            <div class="catalog-field-stack">
+              <label class="sr-only" for="note-{{ m.id }}">Note for {{ m.model_id }}</label>
+              <input id="note-{{ m.id }}" class="input-note" type="text" name="note_{{ m.id }}" value="{{ m.short_note }}" placeholder="Good for coding">
+              {% if vl %}
+              <label class="sr-only" for="note-{{ vl.id }}">Note for {{ vl.model_id }}</label>
+              <input id="note-{{ vl.id }}" class="input-note" type="text" name="note_{{ vl.id }}" value="{{ vl.short_note }}" placeholder="Vision">
+              {% endif %}
+            </div>
           </td>
           <td>
-            <label class="sr-only" for="weight-{{ m.id }}">Weight for {{ m.model_id }}</label>
-            <input id="weight-{{ m.id }}" class="input-weight" type="number" name="weight_{{ m.id }}" value="{{ m.usage_weight if m.usage_weight is not none else 1 }}" min="0.01" step="0.1" title="Usage pool multiplier">
-          </td>
-          <td>
-            <label class="sr-only" for="note-{{ m.id }}">Note for {{ m.model_id }}</label>
-            <input id="note-{{ m.id }}" class="input-note" type="text" name="note_{{ m.id }}" value="{{ m.short_note }}" placeholder="Good for coding">
-          </td>
-          <td>
-            <label class="sr-only" for="docs-{{ m.id }}">Docs URL for {{ m.model_id }}</label>
-            <input id="docs-{{ m.id }}" class="input-docs" type="url" name="docs_{{ m.id }}" value="{{ m.docs_url }}" placeholder="{{ suggest_docs_url(m.model_id) or 'https://huggingface.co/…' }}">
+            <div class="catalog-field-stack">
+              <label class="sr-only" for="docs-{{ m.id }}">Docs URL for {{ m.model_id }}</label>
+              <input id="docs-{{ m.id }}" class="input-docs" type="url" name="docs_{{ m.id }}" value="{{ m.docs_url }}" placeholder="{{ suggest_docs_url(m.model_id) or 'https://huggingface.co/…' }}">
+              {% if vl %}
+              <label class="sr-only" for="docs-{{ vl.id }}">Docs URL for {{ vl.model_id }}</label>
+              <input id="docs-{{ vl.id }}" class="input-docs" type="url" name="docs_{{ vl.id }}" value="{{ vl.docs_url }}" placeholder="{{ suggest_docs_url(vl.model_id) or 'https://huggingface.co/…' }}">
+              {% endif %}
+            </div>
           </td>
         </tr>
       {% endfor %}

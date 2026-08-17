@@ -134,6 +134,13 @@ def fingerprint_engine(
 
     if slots_total is not None or "/slots" in paths:
         return "llama.cpp"
+    # llama.cpp router mode: GET /props → {"role":"router", ...}
+    if "/props" in paths or '"role":"router"' in hints or "role:router" in hints:
+        if "role:router" in hints or '"role":"router"' in hints:
+            return "llama-router"
+        return "llama.cpp"
+    if "llama.cpp" in hints or "llamacpp" in hints or "llama-server" in hints:
+        return "llama.cpp"
     if "/api/ps" in paths or "/api/tags" in paths:
         return "ollama"
     if "/info" in paths or "text-embeddings-inference" in hints or "tei-" in hints:
@@ -247,6 +254,25 @@ def probe_source(src: BackendSource) -> ServiceStatus:
                             status.detail = f"{busy}/{total} slots busy"
                         elif status.state == "ok":
                             status.detail = f"{total} slots, all idle"
+
+                # llama.cpp server (incl. router mode) exposes /props
+                props = _get(client, base + "/props")
+                if props is not None and props.status_code == 200:
+                    header_hints += " " + _headers_hint(props)
+                    try:
+                        pdata = props.json()
+                        if isinstance(pdata, dict):
+                            body_hints += " " + _models_hint(pdata)
+                            role = str(pdata.get("role") or "").lower()
+                            if role:
+                                body_hints += f" role:{role}"
+                            if pdata.get("build_info") or pdata.get("model_alias") or role:
+                                status.probes_ok.append("/props")
+                                body_hints += " llama.cpp"
+                                if role == "router" and status.state == "ok" and "/slots" not in status.probes_ok:
+                                    status.detail = "llama-router /props"
+                    except Exception:
+                        pass
 
             if kind == "chat" and status.state != "down" and not status.models:
                 resp = _get(client, base + "/api/ps")

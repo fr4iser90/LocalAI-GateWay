@@ -1,0 +1,26 @@
+{# Expects: source_chips (list of dicts), selected_services, optional hint_below #}
+{% if source_chips %}
+<div class="source-chips">
+  {% for s in source_chips %}
+  <label class="source-chip">
+    <input type="checkbox" name="services" value="{{ s.name }}" {% if s.name in selected_services %}checked{% endif %}>
+    <span class="source-chip-name mono">{{ s.name }}</span>
+    <span class="source-chip-badges">
+      {% if s.is_default %}<span class="badge ok">default</span>{% endif %}
+      {% if s.isolated %}<span class="badge off">isolated</span>{% endif %}
+      <span class="badge">{{ s.kind }}</span>
+    </span>
+    {% if s.hint %}<span class="source-chip-meta">{{ s.hint }}</span>{% endif %}
+    {% if s.address %}<span class="source-chip-meta mono">{{ s.address }}</span>{% endif %}
+  </label>
+  {% endfor %}
+</div>
+{% if hint_below is defined and hint_below %}
+<p class="muted hint-below">{{ hint_below }}</p>
+{% endif %}
+{% else %}
+<div class="empty-state">
+  <p class="empty-state-title">No sources available</p>
+  <p class="empty-state-text">Ask an admin to grant sources first.</p>
+</div>
+{% endif %}

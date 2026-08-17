@@ -5,11 +5,13 @@
   <div>
     <p class="eyebrow">System</p>
     <h1>Settings</h1>
-    <p class="lede">Registration, privacy, teams, usage pool, and routing.</p>
+    <p class="lede">Registration, privacy, teams, rate limits, and routing. SMTP, alerts, and audit share this System area.</p>
   </div>
 </header>
 {% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
 {% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
+
+{% include "_system_subnav.html" %}
 
 {% if user.is_platform_admin and auth %}
 <div class="panel">
@@ -54,47 +56,70 @@
       <input type="number" name="max_keys_per_user" min="0" max="100" value="{{ auth.max_keys_per_user if auth.max_keys_per_user is not none else 3 }}">
     </div>
 
-    <h3 class="section-label">Usage pool (budget)</h3>
+    <h3 class="section-label">Request rate limits</h3>
     <p class="muted mt-0">
-      A <strong>unit</strong> is not one request — it is a budget point burned by prompt size.
-      Default formula: <span class="mono">max(min cost, tokens ÷ tokens-per-unit) × model weight</span>.
-      Small “hi” still costs the min (often 1). A long / complex prompt with many tokens costs more.
-      Heavier models can cost more via Models → <span class="mono">usage_weight</span>.
-      <span class="mono">0</span> window hours = pools off. Per-user limit: Users → Edit grant.
+      Set these per user under <a href="/users">Users</a> → Edit grant (or on the API key / team):
+      <strong>RPM</strong>, <strong>concurrency</strong>, and <strong>daily requests</strong>.
+      That is the normal way to cap traffic — no token math.
+    </p>
+
+    <h3 class="section-label">Token budget (optional)</h3>
+    <p class="muted mt-0">
+      Extra size cap on estimated <strong>prompt tokens</strong> per rolling window.
+      Leave window at <span class="mono">0</span> if you only want RPM / daily limits.
+      Per-user max tokens: Users → Edit grant.
     </p>
     <p class="muted text-sm">
-      Example with defaults (1000 tokens/unit, min 1, weight 1):
-      ~50 tokens → <strong>1</strong> unit · ~3000 tokens → <strong>3</strong> units.
-      Pool limit <span class="mono">100</span> ≈ one hundred tiny chats or ~33 medium prompts per window — not “100 requests”.
+      Default charge (weights off):
+      <span class="mono">budget_charge = max(min tokens/call, estimated_prompt_tokens)</span>.
+      Usage logs always store real tokens — never rewritten.
+    </p>
+    <p class="muted text-sm">
+      Example: limit <span class="mono">100000</span> tokens / 5h ≈ many short chats or fewer long prompts.
+      Tiny calls still charge at least the minimum below.
     </p>
     <div class="row row--loose">
       <div class="field field--xs">
-        <label>Window (hours)</label>
-        <input type="number" name="pool_window_hours" min="0" max="8760" value="{{ auth.pool_window_hours if auth.pool_window_hours is not none else 5 }}">
+        <label for="pool-window">Window (hours)</label>
+        <input id="pool-window" type="number" name="pool_window_hours" min="0" max="8760" value="{{ auth.pool_window_hours if auth.pool_window_hours is not none else 5 }}">
       </div>
       <div class="field field--xs">
-        <label>Tokens / unit</label>
-        <input type="number" name="pool_tokens_per_unit" min="1" value="{{ auth.pool_tokens_per_unit if auth.pool_tokens_per_unit is not none else 1000 }}">
-      </div>
-      <div class="field field--xs">
-        <label>Min units / call</label>
-        <input type="number" name="pool_min_cost" min="0" step="0.1" value="{{ auth.pool_min_cost if auth.pool_min_cost is not none else 1 }}">
+        <label for="pool-min">Min tokens / call</label>
+        <input id="pool-min" type="number" name="pool_min_cost" min="0" step="1" value="{{ auth.pool_min_cost if auth.pool_min_cost is not none else 1 }}">
       </div>
     </div>
+    <input type="hidden" name="pool_tokens_per_unit" value="1">
+    <div class="checkboxes checkboxes-block field-gap-md">
+      <label>
+        <input type="checkbox" name="pool_model_weights_enabled" {% if auth.pool_model_weights_enabled %}checked{% endif %}>
+        Enable optional per-model budget factors (off by default)
+      </label>
+    </div>
+    <p class="muted text-sm">
+      When enabled, Models shows a <strong>Budget factor</strong> column.
+      Formula then:
+      <span class="mono">budget_charge = max(min tokens/call, estimated_prompt_tokens) × factor</span>
+      (<span class="mono">factor=1</span> = unchanged).
+      Logged usage / billing meters stay at real tokens; only the optional grant budget is scaled.
+      Leave unchecked unless you intentionally weight some models differently.
+    </p>
 
     <h3 class="section-label">GPU energy (optional)</h3>
     {% if gpu_power_enabled %}
     <p class="muted mt-0">
       Sidecar on each source host at <span class="mono">:9105/power</span>
       (same machine as the backend). Services live status shows watts or “sidecar missing”.
-      Chat / embed / STT / TTS meter Wh when it answers. Energy does not change the pool.
+      Chat / embed / STT / TTS meter Wh from wall time × sampled watts when a call finishes.
+      Energy does not change the pool.
     </p>
-    <div class="row row--loose">
-      <div class="field field--xs">
-        <label>Est. tok/s</label>
-        <input type="number" name="pool_tokens_per_sec" min="1" step="1" value="{{ auth.pool_tokens_per_sec if auth.pool_tokens_per_sec is not none else 50 }}">
-      </div>
-    </div>
+    <p class="muted text-sm">
+      Observed throughput (from usage logs)
+      {% if observed_tok_s %}
+      · <span class="mono">~{{ observed_tok_s }} tok/s</span> average — used only for rare auth-time Wh guesses, not entered by hand.
+      {% else %}
+      · not enough metered calls yet (need a few OK requests with tokens + duration).
+      {% endif %}
+    </p>
     <input type="hidden" name="pool_watt_weight" value="0">
     {% else %}
     <p class="muted mt-0">
@@ -102,7 +127,6 @@
       <span class="mono">http://&lt;source-host&gt;:9105/power</span> automatically.
     </p>
     <input type="hidden" name="pool_watt_weight" value="0">
-    <input type="hidden" name="pool_tokens_per_sec" value="{{ auth.pool_tokens_per_sec if auth.pool_tokens_per_sec is not none else 50 }}">
     {% endif %}
 
     <h3 class="section-label">Routing (optional)</h3>
@@ -112,6 +136,23 @@
     </p>
     <div class="checkboxes checkboxes-block">
       <label><input type="checkbox" name="auto_vl_routing" {% if auth.auto_vl_routing %}checked{% endif %}> Auto-route image chat → VL model</label>
+    </div>
+    <p class="muted field-gap-md">
+      Clients may send <span class="mono">auto</span>, <span class="mono">auto-quality</span>, or
+      <span class="mono">auto-long</span>. The gateway rewrites those to a real catalog id before llama-router.
+      Empty fields use the Halo defaults below. Pin <span class="mono">auto</span> as a favorite so IDEs pick it first.
+    </p>
+    <div class="field field-gap-md">
+      <label for="auto-default"><span class="mono">auto</span> → daily (MoE + MTP)</label>
+      <input id="auto-default" type="text" name="auto_model_default" value="{{ auth.auto_model_default or '' }}" placeholder="{{ default_auto_model }}" autocomplete="off">
+    </div>
+    <div class="field field-gap-md">
+      <label for="auto-quality"><span class="mono">auto-quality</span> → Q5 MoE + MTP</label>
+      <input id="auto-quality" type="text" name="auto_model_quality" value="{{ auth.auto_model_quality or '' }}" placeholder="{{ default_auto_quality }}" autocomplete="off">
+    </div>
+    <div class="field field-gap-md">
+      <label for="auto-long"><span class="mono">auto-long</span> → 128k preset</label>
+      <input id="auto-long" type="text" name="auto_model_long" value="{{ auth.auto_model_long or '' }}" placeholder="{{ default_auto_long }}" autocomplete="off">
     </div>
     <button class="primary" type="submit">Save</button>
   </form>

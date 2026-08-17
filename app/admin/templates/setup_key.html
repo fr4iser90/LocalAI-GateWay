@@ -45,15 +45,9 @@
 
       <div class="field field-gap">
         <span class="field-legend" id="setup-sources-label">Sources (required)</span>
-        <div class="source-chips" role="group" aria-labelledby="setup-sources-label">
-          {% for s in sources %}
-          <label class="source-chip">
-            <input type="checkbox" name="services" value="{{ s.name }}" checked>
-            <span class="source-chip-name mono">{{ s.name }}</span>
-            <span class="source-chip-meta">{{ s.kind }} · {{ s.address }}</span>
-          </label>
-          {% endfor %}
-        </div>
+        {% with source_chips=source_chips, selected_services=selected_services, hint_below='' %}
+        {% include "_source_chips.html" %}
+        {% endwith %}
       </div>
     </div>
 

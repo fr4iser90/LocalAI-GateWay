@@ -35,6 +35,45 @@ def source_names(db: Session) -> list[str]:
     return [s.name for s in list_sources(db)]
 
 
+def default_grant_source_names(db: Session) -> list[str]:
+    """Safe defaults for new users/teams: every source except isolated (lab/heavy)."""
+    return [s.name for s in list_sources(db) if not s.isolated]
+
+
+def source_chip_rows(
+    db: Session, names: list[str] | None = None
+) -> list[dict]:
+    """UI rows for source checkboxes: name, badges, one-line hint."""
+    wanted = set(names) if names is not None else None
+    rows: list[dict] = []
+    for s in list_sources(db):
+        if wanted is not None and s.name not in wanted:
+            continue
+        hint = ""
+        if s.kind == "chat":
+            if s.is_default:
+                hint = "Daily · /v1 merge"
+            elif s.isolated:
+                hint = f"Lab / heavy · /s/{s.name}/ only"
+            else:
+                hint = "Extra chat · merge when granted"
+        elif s.isolated:
+            hint = f"Separate · /s/{s.name}/ only"
+        elif s.is_default:
+            hint = f"Default {s.kind}"
+        rows.append(
+            {
+                "name": s.name,
+                "kind": s.kind,
+                "address": s.address or "",
+                "is_default": bool(s.is_default),
+                "isolated": bool(s.isolated),
+                "hint": hint,
+            }
+        )
+    return rows
+
+
 def get_source_by_name(db: Session, name: str) -> BackendSource | None:
     return db.query(BackendSource).filter(BackendSource.name == name.lower()).first()
 

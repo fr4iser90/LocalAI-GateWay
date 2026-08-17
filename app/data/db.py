@@ -79,6 +79,8 @@ def _ensure_columns(eng) -> None:
             ("watt_hours", "FLOAT"),
             ("pool_cost", "FLOAT"),
             ("power_status", "VARCHAR(32) DEFAULT ''"),
+            ("pp_tok_s", "FLOAT"),
+            ("tg_tok_s", "FLOAT"),
         ],
         "usage_daily": [
             ("tokens_in", "INTEGER DEFAULT 0"),
@@ -102,12 +104,16 @@ def _ensure_columns(eng) -> None:
             ("anonymize_client_ip", "BOOLEAN DEFAULT 1"),
             ("retention_days", "INTEGER DEFAULT 30"),
             ("auto_vl_routing", "BOOLEAN DEFAULT 0"),
+            ("auto_model_default", "VARCHAR(256) DEFAULT ''"),
+            ("auto_model_quality", "VARCHAR(256) DEFAULT ''"),
+            ("auto_model_long", "VARCHAR(256) DEFAULT ''"),
             ("max_keys_per_user", "INTEGER DEFAULT 3"),
             ("pool_window_hours", "INTEGER DEFAULT 5"),
-            ("pool_tokens_per_unit", "INTEGER DEFAULT 1000"),
+            ("pool_tokens_per_unit", "INTEGER DEFAULT 1"),
             ("pool_min_cost", "FLOAT DEFAULT 1.0"),
             ("pool_watt_weight", "FLOAT DEFAULT 0"),
             ("pool_tokens_per_sec", "FLOAT DEFAULT 50"),
+            ("pool_model_weights_enabled", "BOOLEAN DEFAULT 0"),
         ],
         "audit_logs": [
             ("prev_hash", "VARCHAR(64) DEFAULT ''"),
@@ -373,12 +379,16 @@ def init_db(settings: Settings) -> None:
                     anonymize_client_ip=True,
                     retention_days=30,
                     auto_vl_routing=False,
+                    auto_model_default="",
+                    auto_model_quality="",
+                    auto_model_long="",
                     max_keys_per_user=3,
                     pool_window_hours=5,
-                    pool_tokens_per_unit=1000,
+                    pool_tokens_per_unit=1,
                     pool_min_cost=1.0,
                     pool_watt_weight=0.0,
                     pool_tokens_per_sec=50.0,
+                    pool_model_weights_enabled=False,
                 )
             )
         from .backends import seed_backends_from_env
@@ -483,12 +493,12 @@ def prune_orphan_default_team(db: Session) -> None:
 
 
 def _ensure_default_team_source_grants(db: Session) -> None:
-    from .backends import source_names
+    from .backends import default_grant_source_names
 
     team = db.query(Team).filter(Team.name == "default").first()
     if team is None:
         return
     existing = {g.service for g in team.service_grants}
-    for name in source_names(db):
+    for name in default_grant_source_names(db):
         if name not in existing:
             db.add(ServiceGrant(team_id=team.id, service=name))

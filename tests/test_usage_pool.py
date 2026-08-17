@@ -70,7 +70,7 @@ def test_pool_exhaust_and_window(tmp_path: Path):
     db = _session(tmp_path)
     auth = AuthSettings(
         pool_window_hours=5,
-        pool_tokens_per_unit=1000,
+        pool_tokens_per_unit=1,
         pool_min_cost=1.0,
     )
     db.add(auth)
@@ -78,7 +78,7 @@ def test_pool_exhaust_and_window(tmp_path: Path):
         username="friend",
         password_hash="x",
         is_platform_admin=False,
-        pool_limit=5,
+        pool_limit=75,
         pool_used=0.0,
     )
     db.add(owner)
@@ -105,7 +105,7 @@ def test_pool_exhaust_and_window(tmp_path: Path):
     key.owner = owner
 
     body = b'{"model":"Qwen","messages":[{"role":"user","content":"hi"}]}'
-    # tiny prompt → min_cost 1.0 each
+    # ~15 estimated tokens each (min_cost 1 does not apply as floor above tokens)
     for _ in range(5):
         d = check_and_consume_pool(
             db, api_key=key, auth=auth, service="chat", model="Qwen", body=body
@@ -124,11 +124,13 @@ def test_pool_exhaust_and_window(tmp_path: Path):
         db, api_key=key, auth=auth, service="chat", model="Qwen", body=body
     )
     assert d.allowed
-    assert owner.pool_used < 5
+    assert owner.pool_used <= 75
 
 
 def test_model_weight_lookup(tmp_path: Path):
     db = _session(tmp_path)
+    auth = AuthSettings(pool_model_weights_enabled=False)
+    db.add(auth)
     db.add(
         CatalogModel(
             source_name="chat",
@@ -139,9 +141,12 @@ def test_model_weight_lookup(tmp_path: Path):
         )
     )
     db.commit()
-    assert model_usage_weight(db, service="chat", model="heavy") == 4.5
-    assert model_usage_weight(db, service="chat", model="missing") == 1.0
-
+    # Default: weights disabled → always 1.0 even if catalog has 4.5
+    assert model_usage_weight(db, service="chat", model="heavy", auth=auth) == 1.0
+    auth.pool_model_weights_enabled = True
+    assert model_usage_weight(db, service="chat", model="heavy", auth=auth) == 4.5
+    assert model_usage_weight(db, service="chat", model="missing", auth=auth) == 1.0
+    assert model_usage_weight(db, service="chat", model="heavy", auth=None) == 1.0
 
 def test_probe_url_from_source_address():
     from types import SimpleNamespace
@@ -163,3 +168,55 @@ def test_probe_url_from_source_address():
     )
     assert probe_url_for_source(None) == ""
     assert probe_url_for_source(SimpleNamespace(address="")) == ""
+
+
+def test_migrate_pool_to_token_budget(tmp_path: Path):
+    from app.usage_pool import migrate_pool_to_token_budget
+
+    db = _session(tmp_path)
+    auth = AuthSettings(pool_tokens_per_unit=1000, pool_min_cost=1.0)
+    db.add(auth)
+    u = AdminUser(
+        username="u",
+        password_hash="x",
+        pool_limit=100,
+        pool_used=2.5,
+    )
+    db.add(u)
+    db.commit()
+
+    assert migrate_pool_to_token_budget(db, auth) is True
+    assert auth.pool_tokens_per_unit == 1
+    assert u.pool_limit == 100_000
+    assert u.pool_used == 2500.0
+    assert migrate_pool_to_token_budget(db, auth) is False
+
+
+def test_observed_tokens_per_sec(tmp_path: Path):
+    from app.data.models import UsageEvent
+    from app.usage_pool import observed_tokens_per_sec, resolve_tokens_per_sec
+
+    db = _session(tmp_path)
+    assert observed_tokens_per_sec(db) is None
+    assert resolve_tokens_per_sec(db) == 50.0
+
+    for _ in range(5):
+        db.add(
+            UsageEvent(
+                key_label="k",
+                team_name="",
+                service="chat",
+                method="POST",
+                path="/v1/chat/completions",
+                host="h",
+                client_ip="1.1.1.1",
+                status=200,
+                result="ok",
+                duration_ms=1000.0,
+                tokens_in=40,
+                tokens_out=60,
+            )
+        )
+    db.commit()
+    assert observed_tokens_per_sec(db) == 100.0
+    assert resolve_tokens_per_sec(db) == 100.0

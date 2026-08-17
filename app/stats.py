@@ -200,6 +200,87 @@ def usage_stats(
     }
 
 
+def model_perf_averages(
+    db: Session,
+    *,
+    key_ids: list[int] | None = None,
+    lookback_days: int = 7,
+    min_samples: int = 1,
+) -> list[dict]:
+    """Per-model averages from OK usage events (W, Wh, PP, TG, latency).
+
+    ``key_ids=None`` → fleet (all keys). ``key_ids=[]`` → empty. Otherwise filter.
+    """
+    since = utcnow() - timedelta(days=max(1, int(lookback_days)))
+    q = db.query(UsageEvent).filter(
+        UsageEvent.created_at >= since,
+        UsageEvent.result == "ok",
+        UsageEvent.model.isnot(None),
+        UsageEvent.model != "",
+    )
+    if key_ids is not None:
+        if not key_ids:
+            return []
+        q = q.filter(UsageEvent.api_key_id.in_(key_ids))
+
+    buckets: dict[str, dict[str, list[float]]] = {}
+    counts: dict[str, int] = {}
+    for e in q.all():
+        model = (e.model or "").strip()
+        if not model:
+            continue
+        counts[model] = counts.get(model, 0) + 1
+        b = buckets.setdefault(
+            model,
+            {
+                "watts": [],
+                "watt_hours": [],
+                "pp_tok_s": [],
+                "tg_tok_s": [],
+                "duration_ms": [],
+            },
+        )
+        if e.watts is not None:
+            b["watts"].append(float(e.watts))
+        if e.watt_hours is not None and float(e.watt_hours) > 0:
+            b["watt_hours"].append(float(e.watt_hours))
+        if getattr(e, "pp_tok_s", None) is not None:
+            b["pp_tok_s"].append(float(e.pp_tok_s))
+        if getattr(e, "tg_tok_s", None) is not None:
+            b["tg_tok_s"].append(float(e.tg_tok_s))
+        if e.duration_ms is not None:
+            b["duration_ms"].append(float(e.duration_ms))
+
+    def _avg(vals: list[float]) -> float | None:
+        return round(sum(vals) / len(vals), 3) if vals else None
+
+    rows: list[dict] = []
+    for model, n in counts.items():
+        if n < min_samples:
+            continue
+        b = buckets[model]
+        rows.append(
+            {
+                "model": model,
+                "n": n,
+                "watts_avg": _avg(b["watts"]),
+                "watt_hours_avg": _avg(b["watt_hours"]),
+                "pp_tok_s_avg": _avg(b["pp_tok_s"]),
+                "tg_tok_s_avg": _avg(b["tg_tok_s"]),
+                "duration_ms_avg": _avg(b["duration_ms"]),
+            }
+        )
+    rows.sort(key=lambda r: (-r["n"], r["model"]))
+    return rows
+
+
+def model_perf_by_id(
+    rows: list[dict],
+) -> dict[str, dict]:
+    """Index averages by model_id for catalog templates."""
+    return {str(r["model"]): r for r in rows}
+
+
 def bar_chart_svg(
     rows: list[tuple[str, float | int]],
     *,

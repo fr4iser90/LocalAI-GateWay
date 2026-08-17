@@ -32,15 +32,9 @@
 
     <div class="field field-gap-lg">
       <label>Grant · sources</label>
-      <div class="source-chips">
-        {% for s in services %}
-        <label class="source-chip">
-          <input type="checkbox" name="services" value="{{ s }}" {% if s in selected_services %}checked{% endif %}>
-          <span class="source-chip-name mono">{{ s }}</span>
-        </label>
-        {% endfor %}
-      </div>
-      <p class="muted hint-below">None checked = members have no API sources.</p>
+      {% with source_chips=source_chips, selected_services=selected_services, hint_below='None checked = members have no API sources. Isolated (lab) sources are opt-in.' %}
+      {% include "_source_chips.html" %}
+      {% endwith %}
     </div>
 
     <div class="field field-gap-lg">
