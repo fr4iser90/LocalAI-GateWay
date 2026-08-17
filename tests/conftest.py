@@ -28,3 +28,23 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "integration: hits real sources from env (CHAT_SOURCE etc.); skipped in CI",
     )
+    config.addinivalue_line(
+        "markers",
+        "security: HTTP authz / escalation checks against the full app",
+    )
+
+
+@pytest.fixture()
+def gateway_client(data_dir: Path):
+    """FastAPI app + TestClient on an isolated DATA_DIR (no LAN backends)."""
+    from starlette.testclient import TestClient
+
+    from app.config import get_settings
+    from app.main import create_app
+
+    get_settings.cache_clear()
+    app = create_app()
+    with TestClient(app) as client:
+        yield client
+    get_settings.cache_clear()
+

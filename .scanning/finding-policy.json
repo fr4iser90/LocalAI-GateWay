@@ -1,0 +1,122 @@
+{
+  "semgrep": {
+    "accepted_findings": [
+      {
+        "rule_id": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
+        "path_regex": "app/data/db\\.py",
+        "message_regex": "sqlalchemy\\.text",
+        "reason": "Schema migrations in _ensure_columns() use sql text() with table/column names from a hardcoded specs dict and compile-time DDL fragments only; no user-controlled SQL fragments."
+      },
+      {
+        "rule_id": "dockerfile.security.missing-user.missing-user",
+        "path_regex": "^Dockerfile$",
+        "message_regex": "missing a USER",
+        "reason": "Homelab gateway image: non-root USER requires writable /data volume ownership; accepted risk in isolated compose stack. Hardening tracked separately."
+      },
+      {
+        "rule_id": "dockerfile.security.missing-user.missing-user",
+        "path_regex": "services/gpu-power/Dockerfile",
+        "message_regex": "missing a USER",
+        "reason": "GPU sidecar runs on trusted host network namespace; needs host /sys and nvidia-smi. Non-root USER deferred for sidecar deployment model."
+      }
+    ]
+  },
+  "checkov": {
+    "accepted_findings": [
+      {
+        "rule_id": "CKV_DOCKER_3",
+        "path_regex": "^Dockerfile$",
+        "message_regex": "user for the container",
+        "reason": "Same as Semgrep missing-user: auth-gateway needs /data volume write access in default compose; non-root user planned with entrypoint chown."
+      },
+      {
+        "rule_id": "CKV_DOCKER_3",
+        "path_regex": "services/gpu-power/Dockerfile",
+        "message_regex": "user for the container",
+        "reason": "GPU power sidecar is an optional host-adjacent probe service, not internet-facing multi-tenant API."
+      },
+      {
+        "rule_id": "CKV_DOCKER_2",
+        "path_regex": "^Dockerfile$",
+        "message_regex": "HEALTHCHECK",
+        "reason": "Health is enforced externally (compose restart, optional reverse proxy, manual curl /healthz). Minimal alpine image avoids redundant in-image healthcheck."
+      },
+      {
+        "rule_id": "CKV_DOCKER_2",
+        "path_regex": "services/gpu-power/Dockerfile",
+        "message_regex": "HEALTHCHECK",
+        "reason": "Sidecar exposes a simple HTTP /power endpoint; liveness is optional and monitored by the gateway probe caller, not orchestrator HEALTHCHECK."
+      }
+    ]
+  },
+  "bandit": {
+    "accepted_findings": [
+      {
+        "rule_id": "B101",
+        "path_regex": "^tests/",
+        "message_regex": "Use of assert detected",
+        "reason": "Pytest and layout tests intentionally use assert; not production code paths."
+      },
+      {
+        "rule_id": "B101",
+        "path_regex": "^app/(data/db\\.py|mailer\\.py|admin/(accounts|routes)\\.py)$",
+        "message_regex": "Use of assert detected",
+        "reason": "Narrowing asserts after smtp_ready()/config checks for type checkers; invariants already guarded by preceding conditionals."
+      },
+      {
+        "rule_id": "B107",
+        "path_regex": "^app/admin/accounts\\.py$",
+        "message_regex": "hardcoded password",
+        "reason": "False match on reset_page query param default token='' (empty string), not a credential."
+      },
+      {
+        "rule_id": "B110",
+        "path_regex": "^app/(audit\\.py|data/(probe|source_load)\\.py)$",
+        "message_regex": "Try, Except, Pass detected",
+        "reason": "Best-effort probes and audit helpers: upstream/network/format failures are expected and must not break admin UI or routing."
+      },
+      {
+        "rule_id": "B110",
+        "path_regex": "^(scripts/probe_lan_sources\\.py|tests/integration_helpers\\.py)$",
+        "message_regex": "Try, Except, Pass detected",
+        "reason": "Developer/integration scripts tolerate unreachable LAN sources; failures are non-fatal by design."
+      },
+      {
+        "rule_id": "B311",
+        "path_regex": "^app/demo_seed\\.py$",
+        "message_regex": "random",
+        "reason": "DEMO_TOOLS-only synthetic usage charts; randomness is not used for tokens, sessions, or crypto."
+      },
+      {
+        "rule_id": "B104",
+        "path_regex": "^services/(gpu-power/main\\.py|temp-guard/main\\.py)$",
+        "message_regex": "binding to all interfaces",
+        "reason": "Sidecars listen on 0.0.0.0 inside container/host network by design; not exposed beyond trusted LAN/compose."
+      },
+      {
+        "rule_id": "B108",
+        "path_regex": "^scripts/probe_lan_sources\\.py$",
+        "message_regex": "insecure usage of temp file",
+        "reason": "Local dev script writes probe artifact to /tmp; not part of runtime gateway."
+      },
+      {
+        "rule_id": "B404",
+        "path_regex": "^services/gpu-power/main\\.py$",
+        "message_regex": "subprocess module",
+        "reason": "Sidecar reads GPU metrics via fixed nvidia-smi/rocm-smi commands; no user-controlled shell input."
+      },
+      {
+        "rule_id": "B603",
+        "path_regex": "^services/gpu-power/main\\.py$",
+        "message_regex": "subprocess call",
+        "reason": "subprocess invoked with static argv lists for vendor GPU tools only."
+      },
+      {
+        "rule_id": "B607",
+        "path_regex": "^services/gpu-power/main\\.py$",
+        "message_regex": "partial executable path",
+        "reason": "nvidia-smi/rocm-smi resolved from PATH inside dedicated GPU sidecar image."
+      }
+    ]
+  }
+}
