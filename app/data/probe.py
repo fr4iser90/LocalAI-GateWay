@@ -307,7 +307,7 @@ def probe_source(src: BackendSource) -> ServiceStatus:
                             pass
 
             # OpenAI /v1/models — also used for vLLM / LocalAI / LM Studio hints
-            if kind in MODEL_CHECK_KINDS | {"stt", "tts"} and status.state not in (
+            if kind in MODEL_CHECK_KINDS and status.state not in (
                 "down",
                 "unset",
             ):

@@ -1,0 +1,72 @@
+<section class="panel">
+  <h2>Default access (new users)</h2>
+  <p class="muted mt-0">
+    Checked sources and models are what <strong>new</strong> users get automatically.
+    Rate limits are set per user under <a href="/users">Users</a> — not here.
+    Everything starts checked until you save — uncheck what they should not get.
+  </p>
+  {% if source_chips is defined %}
+  <form method="post" action="/settings/default-grant">
+    <div class="field field-gap-lg">
+      <label>Sources</label>
+      {% with source_chips=source_chips, selected_services=selected_services, hint_below='Everything checked = full default for new users.', chips_for_picker='settings-default-grant' %}
+      {% include "_source_chips.html" %}
+      {% endwith %}
+    </div>
+    {% if catalog_groups %}
+    <div class="field field-gap-lg">
+      <label>Models (optional)</label>
+      {% with catalog_groups=catalog_groups, selected=selected_models, input_name='models', picker_id='settings-default-grant', hint='All checked = every ON model/voice for the sources above.' %}
+      {% include "partials/model_picker.html" %}
+      {% endwith %}
+    </div>
+    {% endif %}
+    <input class="primary" type="submit" value="Save default access">
+  </form>
+  {% endif %}
+
+  <h3 class="section-label field-gap-xl">Registration &amp; teams</h3>
+  <form method="post" action="/settings/access">
+    <div class="checkboxes checkboxes-block">
+      <label><input type="checkbox" name="allow_self_registration" {% if auth.allow_self_registration %}checked{% endif %}> Allow self-registration</label>
+      <label><input type="checkbox" name="require_email" {% if auth.require_email %}checked{% endif %}> Require email on register</label>
+    </div>
+
+    <h3 class="section-label">Teams (optional)</h3>
+    <p class="muted mt-0">Off by default. Turn on only if people should share a key pool.</p>
+    <div class="checkboxes checkboxes-block">
+      <label><input type="checkbox" name="teams_enabled" id="teams_enabled" {% if auth.teams_enabled %}checked{% endif %}> Enable teams</label>
+    </div>
+    <div class="field field-gap-md field--sm" id="default_team_wrap">
+      <label>Default team for new registrations</label>
+      <select name="default_team_id" {% if not auth.teams_enabled %}disabled{% endif %}>
+        <option value="">— none —</option>
+        {% for t in teams %}
+        <option value="{{ t.id }}" {% if auth.default_team_id == t.id %}selected{% endif %}>{{ t.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <h3 class="section-label">API keys</h3>
+    <p class="muted mt-0">
+      Max active keys per non-admin user. Platform admins are unlimited.
+      <span class="mono">0</span> = unlimited for everyone.
+    </p>
+    <div class="field field-gap-md field--sm">
+      <label>Max keys per user</label>
+      <input type="number" name="max_keys_per_user" min="0" max="100" value="{{ auth.max_keys_per_user if auth.max_keys_per_user is not none else 3 }}">
+    </div>
+    <button class="primary" type="submit">Save access &amp; registration</button>
+  </form>
+</section>
+
+<script>
+(function () {
+  var cb = document.getElementById('teams_enabled');
+  var sel = document.querySelector('select[name="default_team_id"]');
+  if (!cb || !sel) return;
+  function sync() { sel.disabled = !cb.checked; }
+  cb.addEventListener('change', sync);
+  sync();
+})();
+</script>

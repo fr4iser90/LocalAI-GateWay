@@ -114,6 +114,10 @@ def _ensure_columns(eng) -> None:
             ("pool_watt_weight", "FLOAT DEFAULT 0"),
             ("pool_tokens_per_sec", "FLOAT DEFAULT 50"),
             ("pool_model_weights_enabled", "BOOLEAN DEFAULT 0"),
+            ("preflight_upstream", "BOOLEAN DEFAULT 1"),
+            ("load_aware_routing", "BOOLEAN DEFAULT 1"),
+            ("default_grant_sources", "TEXT DEFAULT ''"),
+            ("default_grant_models", "TEXT DEFAULT ''"),
         ],
         "audit_logs": [
             ("prev_hash", "VARCHAR(64) DEFAULT ''"),
@@ -125,7 +129,6 @@ def _ensure_columns(eng) -> None:
         ],
         "backend_sources": [
             ("route_models", "TEXT DEFAULT ''"),
-            ("isolated", "BOOLEAN DEFAULT 0"),
             ("api_style", "VARCHAR(32) DEFAULT 'auto'"),
             ("gpu_power_url", "VARCHAR(512) DEFAULT ''"),
         ],
@@ -162,8 +165,12 @@ def _ensure_columns(eng) -> None:
                 if name not in existing:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
-        # Rename logical services: llm/ollama → chat
+        # Retired: source.isolated (grants decide access; do not re-add).
         tables = set(inspect(eng).get_table_names())
+        if "backend_sources" in tables:
+            src_cols = {c["name"] for c in inspect(eng).get_columns("backend_sources")}
+            if "isolated" in src_cols:
+                conn.execute(text("ALTER TABLE backend_sources DROP COLUMN isolated"))
         if "backend_config" in tables:
             cols = {c["name"] for c in inspect(eng).get_columns("backend_config")}
             if "chat" in cols:
@@ -389,6 +396,8 @@ def init_db(settings: Settings) -> None:
                     pool_watt_weight=0.0,
                     pool_tokens_per_sec=50.0,
                     pool_model_weights_enabled=False,
+                    preflight_upstream=True,
+                    load_aware_routing=True,
                 )
             )
         from .backends import seed_backends_from_env
@@ -493,12 +502,12 @@ def prune_orphan_default_team(db: Session) -> None:
 
 
 def _ensure_default_team_source_grants(db: Session) -> None:
-    from .backends import default_grant_source_names
+    from .grants import configured_default_sources
 
     team = db.query(Team).filter(Team.name == "default").first()
     if team is None:
         return
     existing = {g.service for g in team.service_grants}
-    for name in default_grant_source_names(db):
+    for name in configured_default_sources(db):
         if name not in existing:
             db.add(ServiceGrant(team_id=team.id, service=name))

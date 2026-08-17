@@ -55,7 +55,7 @@ def test_disabled_model_hidden_and_blocked(tmp_path: Path):
     assert {m.model_id for m in visible} == {"alpha"}
     assert is_model_globally_enabled(db, "chat", "beta") is False
     assert is_model_globally_enabled(db, "chat", "alpha") is True
-    assert is_model_globally_enabled(db, "chat", "unknown") is True
+    assert is_model_globally_enabled(db, "chat", "unknown") is False
 
     payload = openai_models_payload(visible)
     assert [x["id"] for x in payload["data"]] == ["alpha"]

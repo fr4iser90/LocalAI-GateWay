@@ -12,7 +12,15 @@ from sqlalchemy.orm import Session, joinedload
 from ..config import MODEL_CHECK_KINDS
 from .backends import source_names
 from .catalog import list_catalog
-from .models import AdminUser, ApiKey, CatalogModel, ModelAllowlist, ServiceGrant, Team
+from .models import (
+    AdminUser,
+    ApiKey,
+    AuthSettings,
+    CatalogModel,
+    ModelAllowlist,
+    ServiceGrant,
+    Team,
+)
 
 
 @dataclass
@@ -217,6 +225,153 @@ def sync_user_models(
     db.query(ModelAllowlist).filter(ModelAllowlist.user_id == user.id).delete()
     for svc, name in models:
         db.add(ModelAllowlist(user_id=user.id, service=svc, model_name=name))
+
+
+def sync_user_models_for_service(
+    db: Session, user: AdminUser, service: str, model_names: list[str] | None
+) -> None:
+    """Replace allowlist for one source only. None = all models (no rows)."""
+    db.query(ModelAllowlist).filter(
+        ModelAllowlist.user_id == user.id,
+        ModelAllowlist.service == service,
+    ).delete()
+    if model_names is None:
+        return
+    for name in model_names:
+        db.add(ModelAllowlist(user_id=user.id, service=service, model_name=name))
+
+
+def _auth_row(db: Session) -> AuthSettings | None:
+    return db.query(AuthSettings).first()
+
+
+def parse_source_model_lines(raw: str) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for line in (raw or "").splitlines():
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        svc, name = line.split(":", 1)
+        svc, name = svc.strip(), name.strip()
+        if not svc or not name:
+            continue
+        pair = (svc, name)
+        if pair in seen:
+            continue
+        seen.add(pair)
+        out.append(pair)
+    return out
+
+
+# Explicit "new users get nothing". Empty DB column used to mean "fall back to
+# kind-default sources"; that mixed routing with grants. '-' cannot be a source name.
+DEFAULT_GRANT_NONE = "-"
+
+
+def configured_default_sources(db: Session) -> list[str]:
+    """Sources new non-admin users get. Unset or none → []. Never uses routing is_default."""
+    auth = _auth_row(db)
+    raw = (getattr(auth, "default_grant_sources", None) or "").strip() if auth else ""
+    if not raw or raw == DEFAULT_GRANT_NONE:
+        return []
+    names = source_names(db)
+    wanted = {
+        p.strip()
+        for p in raw.split(",")
+        if p.strip() and p.strip() != DEFAULT_GRANT_NONE
+    }
+    return [n for n in names if n in wanted]
+
+
+def default_grant_was_saved(db: Session) -> bool:
+    """True once default access was saved (including explicit none)."""
+    auth = _auth_row(db)
+    raw = (getattr(auth, "default_grant_sources", None) or "").strip() if auth else ""
+    return bool(raw)
+
+
+def display_default_sources(db: Session) -> list[str]:
+    """Sources to show checked in default-access UI (opt-out until first save)."""
+    if not default_grant_was_saved(db):
+        return source_names(db)
+    return configured_default_sources(db)
+
+
+def configured_default_models(db: Session) -> list[tuple[str, str]]:
+    """Optional model ceiling for new users. Empty = all ON models."""
+    auth = _auth_row(db)
+    raw = (getattr(auth, "default_grant_models", None) or "") if auth else ""
+    allowed = set(configured_default_sources(db))
+    return [(s, m) for s, m in parse_source_model_lines(raw) if s in allowed]
+
+
+def _enabled_catalog_models_for_services(
+    db: Session, services: set[str]
+) -> set[tuple[str, str]]:
+    out: set[tuple[str, str]] = set()
+    for row in list_catalog(db):
+        if not row.enabled or row.kind not in MODEL_CHECK_KINDS:
+            continue
+        if row.source_name in services:
+            out.add((row.source_name, row.model_id))
+    return out
+
+
+def display_default_models(db: Session) -> set[str]:
+    """Model keys (source:model) checked in default-access UI."""
+    configured = configured_default_models(db)
+    if configured:
+        return {f"{s}:{m}" for s, m in configured}
+    services = set(display_default_sources(db))
+    if not services:
+        return set()
+    return display_enabled_models_for_services(db, list(services))
+
+
+def display_enabled_models_for_services(db: Session, services: list[str]) -> set[str]:
+    """All enabled catalog models for sources — opt-out UI default."""
+    names = set(services)
+    if not names:
+        return set()
+    return {f"{s}:{m}" for s, m in _enabled_catalog_models_for_services(db, names)}
+
+
+def normalize_model_allowlist(
+    db: Session, services: list[str], models: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """Empty list = unrestricted (all ON models) when every enabled model is selected."""
+    service_set = set(services)
+    kept = [(s, m) for s, m in models if s in service_set]
+    all_enabled = _enabled_catalog_models_for_services(db, service_set)
+    if kept and set(kept) == all_enabled:
+        return []
+    return kept
+
+
+def save_default_grant(
+    db: Session, services: list[str], models: list[tuple[str, str]]
+) -> None:
+    from .models import AuthSettings as _AS
+
+    auth = _auth_row(db)
+    if auth is None:
+        auth = _AS()
+        db.add(auth)
+        db.flush()
+    names = set(source_names(db))
+    services = [s for s in services if s in names]
+    auth.default_grant_sources = ",".join(services) if services else DEFAULT_GRANT_NONE
+    kept = normalize_model_allowlist(db, services, models)
+    auth.default_grant_models = "\n".join(f"{s}:{m}" for s, m in kept)
+
+
+def apply_default_grant(db: Session, user: AdminUser) -> None:
+    services = configured_default_sources(db)
+    sync_user_grants(db, user, services)
+    models = configured_default_models(db)
+    if models:
+        sync_user_models(db, user, models)
 
 
 def grant_summary(ceil: AccessCeiling) -> str:

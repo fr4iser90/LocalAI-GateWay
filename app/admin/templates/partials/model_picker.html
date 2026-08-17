@@ -2,10 +2,24 @@
    Params: catalog_groups, selected, input_name, picker_id, hint
    Optional: catalog_vl_groups — list of (source, [(primary, vl_or_none), …])
              when set, flat↔paired toggles with [data-vl-couple] checkbox
+   Optional: enable_favorites, favorite_selected — ★ inside each card → name="favorites"
 #}
+{% macro fav_controls(mid) %}
+{% if enable_favorites is defined and enable_favorites %}
+{% set fav_sel = favorite_selected if favorite_selected is defined else [] %}
+<button type="button"
+        class="model-picker-fav{% if mid in fav_sel %} is-on{% endif %}"
+        data-favorite-toggle
+        aria-label="Pin to top of /v1/models"
+        aria-pressed="{{ 'true' if mid in fav_sel else 'false' }}"
+        title="Favorite">★</button>
+<input type="checkbox" name="favorites" value="{{ mid }}" class="model-picker-fav-cb" hidden
+       {% if mid in fav_sel %}checked{% endif %}>
+{% endif %}
+{% endmacro %}
 {% if catalog_groups %}
 {% set vl_groups = catalog_vl_groups if catalog_vl_groups is defined else none %}
-<div class="model-picker is-split{% if vl_groups %} has-vl-couple{% endif %}"
+<div class="model-picker is-split{% if vl_groups %} has-vl-couple{% endif %}{% if enable_favorites is defined and enable_favorites %} has-favorites{% endif %}"
      id="picker-{{ picker_id }}"
      data-picker
      {% if vl_groups %}data-vl-picker{% endif %}>
@@ -44,8 +58,7 @@
               {% set mid = source ~ ':' ~ primary.model_id %}
               {% if vl %}
                 {% set vid = source ~ ':' ~ vl.model_id %}
-                {# Flat: two independent rows #}
-                <label class="model-picker-item" data-mode="flat"
+                <label class="model-picker-item" data-mode="flat" data-kind="{{ primary.kind }}"
                        data-search="{{ (source ~ ' ' ~ primary.model_id ~ ' ' ~ (primary.tags or '') ~ ' ' ~ (primary.short_note or ''))|lower }}">
                   <input type="checkbox" name="{{ input_name }}" value="{{ mid }}" {% if mid in selected %}checked{% endif %}>
                   <span class="model-picker-label">
@@ -57,8 +70,9 @@
                       {%- if primary.tags %}{% if primary.ctx_size or primary.n_ctx_train or primary.n_embd %} · {% endif %}{{ primary.tags }}{% endif -%}
                     </span>
                   </span>
+                  {{ fav_controls(mid) }}
                 </label>
-                <label class="model-picker-item" data-mode="flat"
+                <label class="model-picker-item" data-mode="flat" data-kind="{{ vl.kind }}"
                        data-search="{{ (source ~ ' ' ~ vl.model_id ~ ' ' ~ (vl.tags or '') ~ ' ' ~ (vl.short_note or ''))|lower }}">
                   <input type="checkbox" name="{{ input_name }}" value="{{ vid }}" {% if vid in selected %}checked{% endif %}>
                   <span class="model-picker-label">
@@ -69,9 +83,9 @@
                       {%- if vl.tags %}{% if vl.ctx_size or vl.n_ctx_train %} · {% endif %}{{ vl.tags }}{% endif -%}
                     </span>
                   </span>
+                  {{ fav_controls(vid) }}
                 </label>
-                {# Paired: one row, both allowlisted together #}
-                <label class="model-picker-item model-picker-item--pair" data-mode="paired" data-pair
+                <label class="model-picker-item model-picker-item--pair" data-mode="paired" data-pair data-kind="{{ primary.kind }}"
                        data-search="{{ (source ~ ' ' ~ primary.model_id ~ ' ' ~ vl.model_id ~ ' ' ~ (primary.tags or '') ~ ' ' ~ (vl.tags or '') ~ ' vl vision')|lower }}">
                   <input type="checkbox" data-pair-toggle
                          {% if mid in selected or vid in selected %}checked{% endif %}>
@@ -89,9 +103,10 @@
                       {%- if primary.ctx_size %} · ctx {{ primary.ctx_size }}{% endif -%}
                     </span>
                   </span>
+                  {{ fav_controls(mid) }}
                 </label>
               {% else %}
-                <label class="model-picker-item" data-mode="both"
+                <label class="model-picker-item" data-mode="both" data-kind="{{ primary.kind }}"
                        data-search="{{ (source ~ ' ' ~ primary.model_id ~ ' ' ~ (primary.tags or '') ~ ' ' ~ (primary.short_note or ''))|lower }}">
                   <input type="checkbox" name="{{ input_name }}" value="{{ mid }}" {% if mid in selected %}checked{% endif %}>
                   <span class="model-picker-label">
@@ -103,6 +118,7 @@
                       {%- if primary.tags %}{% if primary.ctx_size or primary.n_ctx_train or primary.n_embd %} · {% endif %}{{ primary.tags }}{% endif -%}
                     </span>
                   </span>
+                  {{ fav_controls(mid) }}
                 </label>
               {% endif %}
             {% endfor %}
@@ -110,7 +126,7 @@
         {% else %}
           {% for m in models %}
           {% set mid = source ~ ':' ~ m.model_id %}
-          <label class="model-picker-item"
+          <label class="model-picker-item" data-kind="{{ m.kind }}"
                  data-search="{{ (source ~ ' ' ~ m.model_id ~ ' ' ~ (m.tags or '') ~ ' ' ~ (m.short_note or ''))|lower }}">
             <input type="checkbox" name="{{ input_name }}" value="{{ mid }}" {% if mid in selected %}checked{% endif %}>
             <span class="model-picker-label">
@@ -122,6 +138,7 @@
                 {%- if m.tags %}{% if m.ctx_size or m.n_ctx_train or m.n_embd %} · {% endif %}{{ m.tags }}{% endif -%}
               </span>
             </span>
+            {{ fav_controls(mid) }}
           </label>
           {% endfor %}
         {% endif %}
@@ -133,5 +150,5 @@
 </div>
 {% if hint %}<p class="muted picker-hint">{{ hint }}</p>{% endif %}
 {% else %}
-<p class="muted">No chat/embed models yet — sync under <a href="/models">Models</a>.</p>
+<p class="muted">No models yet — sync under <a href="/models">Models</a> (or add STT/TTS backends first).</p>
 {% endif %}

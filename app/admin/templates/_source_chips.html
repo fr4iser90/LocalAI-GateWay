@@ -1,13 +1,11 @@
-{# Expects: source_chips (list of dicts), selected_services, optional hint_below #}
+{# Expects: source_chips (list of dicts), selected_services, optional hint_below, chips_for_picker #}
 {% if source_chips %}
-<div class="source-chips">
+<div class="source-chips"{% if chips_for_picker is defined and chips_for_picker %} data-source-chips-for="{{ chips_for_picker }}"{% endif %}>
   {% for s in source_chips %}
-  <label class="source-chip">
+  <label class="source-chip" id="source-{{ s.name }}" data-source-chip="{{ s.name }}">
     <input type="checkbox" name="services" value="{{ s.name }}" {% if s.name in selected_services %}checked{% endif %}>
     <span class="source-chip-name mono">{{ s.name }}</span>
     <span class="source-chip-badges">
-      {% if s.is_default %}<span class="badge ok">default</span>{% endif %}
-      {% if s.isolated %}<span class="badge off">isolated</span>{% endif %}
       <span class="badge">{{ s.kind }}</span>
     </span>
     {% if s.hint %}<span class="source-chip-meta">{{ s.hint }}</span>{% endif %}

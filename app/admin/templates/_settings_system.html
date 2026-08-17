@@ -1,0 +1,50 @@
+<section class="panel">
+  <h2>Admin</h2>
+  <table>
+    <tr><th>Domain</th><td class="mono">{{ settings.domain }}</td></tr>
+    <tr><th>Public API host</th><td class="mono">{{ settings.public_host or '(local gateway port / any Host)' }}</td></tr>
+    <tr><th>Bootstrap user</th><td class="mono">{{ settings.admin_bootstrap_user }}</td></tr>
+    <tr><th>Session max age</th><td>{{ session_max_age }} s</td></tr>
+    <tr><th>Data dir</th><td class="mono">{{ settings.data_dir }}</td></tr>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Local access (this compose)</h2>
+  <table>
+    <tr><th>Admin UI</th><td class="mono"><a href="{{ admin_url }}">{{ admin_url }}</a></td></tr>
+    <tr><th>API gateway</th><td class="mono">{{ gateway_url }}</td></tr>
+  </table>
+  <p class="muted hint-after">
+    Example:
+    <span class="mono">curl -H "X-Api-Key: …" {{ gateway_url }}/v1/chat/completions -d '…'</span>
+  </p>
+</section>
+
+<section class="panel">
+  <h2>API routes</h2>
+  <p class="muted mt-0">Upstreams under <a href="/services">Services</a>.</p>
+  <table>
+    <thead><tr><th>Source</th><th>Path</th><th>Address</th></tr></thead>
+    <tbody>
+    {% for src, route in backend_rows %}
+      <tr>
+        <td><span class="badge">{{ src.name }}</span>{% if src.is_default %} · {{ src.kind }} fallback{% endif %}</td>
+        <td class="mono cell-sm">{{ route }}</td>
+        <td class="mono">{{ src.address if src.address else '— (disabled)' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Temp guard</h2>
+  <table>
+    <tr><th>Disabled</th><td class="mono">{{ 'yes' if temp_guard_disabled else 'no' }}</td></tr>
+    <tr><th>Max °C</th><td class="mono">{{ temp_max_c }}</td></tr>
+    <tr><th>URL</th><td class="mono">{{ settings.temp_guard_url }}</td></tr>
+  </table>
+</section>
+
+<p class="muted settings-footnote">Secrets (API keys, session secret, bootstrap password) are not shown here.</p>

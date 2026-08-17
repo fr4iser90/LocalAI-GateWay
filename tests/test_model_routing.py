@@ -50,8 +50,8 @@ def test_resolve_by_catalog_model(tmp_path: Path):
     assert resolve_source_for_kind(db, "chat", model="llama3.2:latest").name == "ollama"
     assert resolve_source_for_kind(db, "chat", model="qwen2.5").name == "ollama"
     assert resolve_source_for_kind(db, "chat", model="mistral").name == "gpu2"
-    assert resolve_source_for_kind(db, "chat", model="unknown-model").name == "chat"
-    assert resolve_source_for_kind(db, "chat", model=None).name == "chat"
+    assert resolve_source_for_kind(db, "chat", model="unknown-model") is None
+    assert resolve_source_for_kind(db, "chat", model=None) is None
 
 
 def test_disabled_catalog_not_routed(tmp_path: Path):
@@ -60,23 +60,16 @@ def test_disabled_catalog_not_routed(tmp_path: Path):
     upsert_source(db, name="other", kind="chat", address="a:2", is_default=False)
     _cat(db, "other", "llama3.2", enabled=False)
     db.commit()
-    assert resolve_source_for_kind(db, "chat", model="llama3.2").name == "chat"
+    assert resolve_source_for_kind(db, "chat", model="llama3.2") is None
 
 
-def test_isolated_skipped_in_merge(tmp_path: Path):
+def test_extra_chat_merges_by_catalog(tmp_path: Path):
     db = _session(tmp_path)
     upsert_source(db, name="chat", kind="chat", address="a:1", is_default=True)
-    upsert_source(
-        db,
-        name="secret",
-        kind="chat",
-        address="a:2",
-        is_default=False,
-        isolated=True,
-    )
+    upsert_source(db, name="secret", kind="chat", address="a:2", is_default=False)
     _cat(db, "secret", "llama3.2")
     db.commit()
-    assert resolve_source_for_kind(db, "chat", model="llama3.2").name == "chat"
+    assert resolve_source_for_kind(db, "chat", model="llama3.2").name == "secret"
 
 
 def test_tts_catalog_merge(tmp_path: Path):
@@ -88,6 +81,8 @@ def test_tts_catalog_merge(tmp_path: Path):
             source_name="piper2", kind="tts", model_id="tts-1-hd", enabled=True
         )
     )
+    db.add(CatalogModel(source_name="tts", kind="tts", model_id="tts-1", enabled=True))
     db.commit()
     assert resolve_source_for_kind(db, "tts", model="tts-1-hd").name == "piper2"
     assert resolve_source_for_kind(db, "tts", model="tts-1").name == "tts"
+    assert resolve_source_for_kind(db, "tts", model="nope") is None

@@ -1,4 +1,4 @@
-"""Source chip helpers + default grant (non-isolated)."""
+"""Source chip helpers + default grant (kind-default sources)."""
 
 from __future__ import annotations
 
@@ -18,11 +18,11 @@ def _session(tmp_path: Path):
     return make_session_factory(eng)()
 
 
-def test_default_grant_skips_isolated(tmp_path: Path):
+def test_default_grant_uses_is_default(tmp_path: Path):
     db = _session(tmp_path)
     upsert_source(db, name="chat", kind="chat", address="10.0.0.1:1", is_default=True)
     upsert_source(
-        db, name="chat2", kind="chat", address="10.0.0.1:2", is_default=False, isolated=True
+        db, name="chat2", kind="chat", address="10.0.0.1:2", is_default=False
     )
     upsert_source(db, name="embed", kind="embed", address="10.0.0.1:3", is_default=True)
     db.commit()
@@ -32,18 +32,16 @@ def test_default_grant_skips_isolated(tmp_path: Path):
     assert "chat2" not in names
 
 
-def test_source_chip_rows_hints(tmp_path: Path):
+def test_source_chip_rows_are_equal_sources(tmp_path: Path):
     db = _session(tmp_path)
     upsert_source(db, name="chat", kind="chat", address="h:1", is_default=True)
-    upsert_source(
-        db, name="lab", kind="chat", address="h:2", is_default=False, isolated=True
-    )
+    upsert_source(db, name="lab", kind="chat", address="h:2", is_default=False)
     db.commit()
     rows = source_chip_rows(db)
     by = {r["name"]: r for r in rows}
-    assert by["chat"]["is_default"]
-    assert "Daily" in by["chat"]["hint"]
-    assert by["lab"]["isolated"]
-    assert "Lab" in by["lab"]["hint"]
+    assert by["chat"]["kind"] == "chat"
+    assert by["lab"]["kind"] == "chat"
+    assert "extra" not in (by["lab"]["hint"] or "").lower()
+    assert "fallback" not in (by["chat"]["hint"] or "").lower()
     filtered = source_chip_rows(db, ["chat"])
     assert [r["name"] for r in filtered] == ["chat"]

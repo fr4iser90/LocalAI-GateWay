@@ -10,12 +10,12 @@
     {% if created_models_n %}
     · {{ created_models_n }} model(s) allowlisted
     {% else %}
-    · all ON models for those sources
+    · all ON models/voices for those sources
     {% endif %}
   </p>
   {% endif %}
   <p class="muted text-sm mt-block">
-    This key is yours (admin). Friends get their own keys later under Users / API Keys.
+    Your first admin key — enough to test the gateway. More keys later under <strong>API Keys</strong>.
   </p>
   <p class="muted text-sm mt-half">
     Client base URL (OpenAI-compatible):
@@ -34,7 +34,8 @@
   <form method="post" action="/setup/key" class="wizard-form wizard-form--fill">
     <div class="wizard-top">
       <p class="muted mb-1">
-        Pick sources for this key. Optionally restrict models (unchecked = all ON).
+        Your first key for testing the gateway. Everything starts checked — uncheck sources or
+        models this key should not use. Vision routing is under <a href="/settings">Settings</a>.
       </p>
       <div class="row row--end">
         <div class="field field--label">
@@ -44,38 +45,24 @@
       </div>
 
       <div class="field field-gap">
-        <span class="field-legend" id="setup-sources-label">Sources (required)</span>
-        {% with source_chips=source_chips, selected_services=selected_services, hint_below='' %}
+        <span class="field-legend" id="setup-sources-label">Sources</span>
+        {% with source_chips=source_chips, selected_services=selected_services, hint_below='', chips_for_picker='setup-key' %}
         {% include "_source_chips.html" %}
         {% endwith %}
       </div>
     </div>
 
-    <div class="field field--shrink">
-      <span class="muted label-strong" id="setup-vl-label">Optional · Vision routing</span>
-      <div class="checkboxes checkboxes-tight" role="group" aria-labelledby="setup-vl-label">
-        <label>
-          <input type="checkbox" name="auto_vl_routing" data-vl-couple {% if auto_vl_routing %}checked{% endif %}>
-          Auto-route image chat → VL model
-        </label>
-      </div>
-      <p class="muted m-0 text-xs">
-        When on, text + <span class="mono">-VL</span> siblings merge into one row below
-        (one check = both allowed). Image requests rewrite to the VL sibling.
-      </p>
-    </div>
-
     {% if catalog_groups %}
     <div class="field wizard-grow">
-      <label>Models (optional) <span class="muted label-normal">— nothing checked = all ON</span></label>
-      {% with catalog_groups=catalog_groups, catalog_vl_groups=catalog_vl_groups, selected=selected_models|default([]), input_name='models', picker_id='setup-key', hint='' %}
+      <label>Models (optional) <span class="muted label-normal">— all checked = every ON model/voice for the sources above</span></label>
+      {% with catalog_groups=catalog_groups, catalog_vl_groups=catalog_vl_groups, selected=selected_models, input_name='models', picker_id='setup-key', hint='' %}
       {% include "partials/model_picker.html" %}
       {% endwith %}
     </div>
     {% endif %}
 
     <div class="actions wizard-actions wizard-actions--sticky">
-      <a class="btn" href="/setup/models">← Models</a>
+      <a class="btn" href="/setup/access">← Default access</a>
       <button class="primary" type="submit">Create API key</button>
     </div>
   </form>

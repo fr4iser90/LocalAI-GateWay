@@ -1,0 +1,32 @@
+{% extends "setup_base.html" %}
+{% block wizard_body %}
+<div class="panel panel--fill">
+  <form method="post" action="/setup/access" class="wizard-form wizard-form--fill">
+    <div class="wizard-top">
+      <p class="muted mt-0">
+        This is what <strong>new non-admin users</strong> get (create user + self-register).
+        You (admin) keep full access. Everything starts checked — uncheck sources or models
+        they should not have. Click a source above to jump to its models below.
+      </p>
+      <div class="field field-gap-lg">
+        <label>Sources for new users</label>
+        {% with source_chips=source_chips, selected_services=selected_services, hint_below='', chips_for_picker='setup-access' %}
+        {% include "_source_chips.html" %}
+        {% endwith %}
+      </div>
+    </div>
+    {% if catalog_groups %}
+    <div class="field wizard-grow">
+      <label>Models (optional) <span class="muted label-normal">— all checked = every ON model/voice for the sources above</span></label>
+      {% with catalog_groups=catalog_groups, selected=selected_models, input_name='models', picker_id='setup-access', hint='' %}
+      {% include "partials/model_picker.html" %}
+      {% endwith %}
+    </div>
+    {% endif %}
+    <div class="actions wizard-actions wizard-actions--sticky">
+      <a class="btn" href="/setup/sources">← Backends</a>
+      <button class="primary" type="submit">Save and continue</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -107,10 +107,25 @@
     }
   }
 
+  function linkSourceChips(root) {
+    var pickerId = root.id.replace(/^picker-/, "");
+    if (!pickerId) return;
+    var chipRoot = document.querySelector('[data-source-chips-for="' + pickerId + '"]');
+    if (!chipRoot) return;
+    chipRoot.querySelectorAll("[data-source-chip]").forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        var source = chip.getAttribute("data-source-chip");
+        if (source) setActiveSource(root, source);
+      });
+    });
+  }
+
   function bindPicker(root) {
     var filter = root.querySelector(".model-picker-filter");
     var allBtn = root.querySelector("[data-picker-all]");
     var noneBtn = root.querySelector("[data-picker-none]");
+
+    linkSourceChips(root);
 
     root.querySelectorAll("[data-nav-source]").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -193,13 +208,33 @@
         applyVlCouple(root, false);
       }
     }
+
+    root.querySelectorAll("[data-favorite-toggle]").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var item = btn.closest(".model-picker-item");
+        var cb = item && item.querySelector(".model-picker-fav-cb");
+        if (!cb) return;
+        cb.checked = !cb.checked;
+        btn.classList.toggle("is-on", cb.checked);
+        btn.setAttribute("aria-pressed", cb.checked ? "true" : "false");
+      });
+    });
   }
 
-  function init() {
-    document.querySelectorAll("[data-picker]").forEach(bindPicker);
+  function init(scope) {
+    (scope || document).querySelectorAll("[data-picker]").forEach(function (el) {
+      if (el.getAttribute("data-picker-bound") === "1") return;
+      el.setAttribute("data-picker-bound", "1");
+      bindPicker(el);
+    });
   }
+  window.initModelPickers = init;
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
+    document.addEventListener("DOMContentLoaded", function () {
+      init();
+    });
   } else {
     init();
   }

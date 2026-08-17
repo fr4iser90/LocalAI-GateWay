@@ -1,0 +1,33 @@
+{# Add sources inline. Expects: target, source_chips (ungranted only). #}
+<tr class="grant-expand-row grant-sources-row" id="grant-sources-editor" data-grant-for="{{ target.id }}">
+  <td colspan="6">
+    <div class="grant-expand grant-expand--slim">
+      <div class="grant-expand-head">
+        <p class="grant-expand-title mt-0">
+          Add sources · <span class="mono">{{ target.username }}</span>
+        </p>
+        <button type="button" class="btn btn-sm" data-grant-collapse>Collapse</button>
+      </div>
+      {% if source_chips %}
+      <form method="post" action="/users/{{ target.id }}/grant/sources/add">
+        <div class="source-chips source-chips--compact">
+          {% for s in source_chips %}
+          <label class="source-chip source-chip--compact">
+            <input type="checkbox" name="services" value="{{ s.name }}">
+            <span class="source-chip-name mono">{{ s.name }}</span>
+            <span class="source-chip-badges"><span class="badge">{{ s.kind }}</span></span>
+          </label>
+          {% endfor %}
+        </div>
+        <p class="muted hint-micro mt-half">Check sources to grant, then Add. Models stay unrestricted until you click a badge.</p>
+        <div class="actions mt-half">
+          <button class="primary btn-sm" type="submit">Add selected</button>
+          <button type="button" class="btn btn-sm" data-grant-collapse>Collapse</button>
+        </div>
+      </form>
+      {% else %}
+      <p class="muted mt-0 text-sm">This user already has every source.</p>
+      {% endif %}
+    </div>
+  </td>
+</tr>

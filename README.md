@@ -27,14 +27,14 @@ docker compose up -d --build
 
 | Path | Resolves to |
 |------|-------------|
-| `/v1/chat/completions` (etc.) | Source chosen by request **`model`** among chat sources; else **default** chat |
+| `/v1/chat/completions` (etc.) | Source chosen by request **`model`** among **enabled** catalog rows. Unknown / disabled / missing model → error (no dump onto another box) |
 | `/v1/embeddings` | Same for embed sources + `model` |
-| `/api/…` | Default chat (no body model routing for native Ollama paths unless you use `/v1`) |
-| `/s/{name}/v1/…` | Force source `{name}` (escape hatch) |
-| `/v1/audio/transcriptions` | Default stt |
-| `/v1/audio/speech` | Default tts |
+| `/api/…` | Named or chat paths as configured — still only enabled models on `/v1` |
+| `/s/{name}/v1/…` | Force source `{name}`; model must still be enabled on that source |
+| `/v1/audio/transcriptions` | STT source for the requested enabled model |
+| `/v1/audio/speech` | TTS source for the requested enabled model |
 
-**Model merge:** list models per source in Services; unmatched → default. **Separate** = out of `/v1` merge.  
+**Model merge:** `/v1` picks a source by request `model` from the **enabled** catalog. No match → 404 `unknown_model` (or 400 `missing_model`). Who may call a source is the **user/key grant**. `/s/{name}/` still forces a source, but disabled/unknown models are rejected.  
 **API dialects:** `api_style` on each source — see `app/data/dialects.py`.  
 **Model catalog:** Admin → Models — sync, disable, tags/notes/docs links.  
 Keys/Teams pick models via checkboxes (empty = all). Favorites pin order in `/v1/models` (key overrides team).  

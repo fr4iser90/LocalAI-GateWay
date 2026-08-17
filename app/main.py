@@ -15,12 +15,13 @@ from .admin.accounts import get_auth_settings, router as accounts_router
 from .admin.routes import router as admin_router
 from .admin.ops import router as ops_router
 from .auto_route import auto_alias_list_entries, rewrite_auto_model
-from .auth.check import authorize, extract_model
+from .auth.check import authorize, extract_model, extract_request_model
+from .auth.concurrency import ConcurrencyLease, release_concurrency_lease
 from .data.backends import (
     address_for_source,
     get_source_by_name,
-    resolve_source_for_kind,
 )
+from .routing import resolve_routed_source
 from .config import (
     MODEL_ROUTE_KINDS,
     get_settings,
@@ -38,6 +39,56 @@ from .vision_route import (
     rewrite_json_model,
 )
 
+
+def _unresolved_model_response(kind: str, model: str | None) -> JSONResponse:
+    """No enabled catalog match — do not dump the request on a kind-default box."""
+    if not (model or "").strip():
+        return JSONResponse({"error": "missing_model", "kind": kind}, status_code=400)
+    return JSONResponse(
+        {"error": "unknown_model", "kind": kind, "model": model},
+        status_code=404,
+    )
+
+
+def _lease_from_ticket(payload: dict) -> ConcurrencyLease | None:
+    kid = payload.get("kid")
+    if kid is None:
+        return None
+    try:
+        key_id = int(kid)
+    except (TypeError, ValueError):
+        return None
+    owner = payload.get("owner")
+    try:
+        user_id = int(owner) if owner is not None else None
+    except (TypeError, ValueError):
+        user_id = None
+    mdl = str(payload.get("mdl") or "").strip() or None
+    return ConcurrencyLease(key_id=key_id, user_id=user_id, model=mdl)
+
+
+def _preflight_block(
+    *,
+    auth_cfg,
+    backend: str,
+    kind: str,
+    model: str | None,
+    service: str,
+    lease: ConcurrencyLease | None,
+) -> JSONResponse | None:
+    if auth_cfg is None or not getattr(auth_cfg, "preflight_upstream", False):
+        return None
+    from .upstream_preflight import preflight_upstream
+
+    pf = preflight_upstream(backend=backend, kind=kind, model=model)
+    if pf.ok:
+        return None
+    release_concurrency_lease(lease)
+    return JSONResponse(
+        {"error": pf.reason, "service": service, "retry_after": pf.retry_after},
+        status_code=503,
+        headers={"Retry-After": str(pf.retry_after)},
+    )
 
 def create_app() -> FastAPI:
     settings = get_settings()
@@ -225,13 +276,17 @@ def create_app() -> FastAPI:
                 )
                 if auto_to:
                     vl_rewrite = auto_to
-            model = extract_model(body, content_type) if body else None
-            src = resolve_source_for_kind(db, kind, model=model)
+            model = extract_request_model(kind, body, content_type) if body else None
+            auth_cfg = get_auth_settings(db)
+            src = resolve_routed_source(
+                db,
+                kind,
+                model=model,
+                raw_key=raw_key,
+                load_aware=bool(getattr(auth_cfg, "load_aware_routing", True)),
+            )
             if src is None:
-                return JSONResponse(
-                    {"error": "backend_not_configured", "kind": kind},
-                    status_code=503,
-                )
+                return _unresolved_model_response(kind, model)
             service = src.name
 
         # Optional VL: detect image parts → authorize + forward as vision sibling
@@ -277,6 +332,7 @@ def create_app() -> FastAPI:
 
         backend = address_for_source(db, service)
         if not backend:
+            release_concurrency_lease(result.concurrency_lease)
             return JSONResponse(
                 {"error": "backend_not_configured", "service": service},
                 status_code=503,
@@ -296,6 +352,16 @@ def create_app() -> FastAPI:
         # VL-only: body rewrite needs a second hop (stock nginx cannot patch JSON).
         # Chat metering uses /v1/gateway/entry (see nginx) — not auth_request+forward.
         if vl_rewrite:
+            pf_block = _preflight_block(
+                auth_cfg=get_auth_settings(db),
+                backend=backend,
+                kind=kind,
+                model=result.model,
+                service=service,
+                lease=result.concurrency_lease,
+            )
+            if pf_block is not None:
+                return pf_block
             headers["X-Gateway-Proxy"] = "1"
             headers["X-Gateway-Ticket"] = mint_forward_ticket(
                 secret=settings.session_secret,
@@ -304,6 +370,7 @@ def create_app() -> FastAPI:
                 rewrite_uri=rewrite_uri,
                 rewrite_model=vl_rewrite,
                 usage_id=result.usage_event_id,
+                concurrency_lease=result.concurrency_lease,
             )
             headers["X-Auth-Reason"] = f"ok;vl={vl_rewrite}"
 
@@ -317,6 +384,7 @@ def create_app() -> FastAPI:
         body: bytes,
         usage_id: int | None,
         probe_url: str = "",
+        concurrency_lease: ConcurrencyLease | None = None,
     ):
         """Shared streaming proxy + per-source GPU sample → finalize UsageEvent."""
         import asyncio
@@ -357,6 +425,7 @@ def create_app() -> FastAPI:
             )
         except Exception as exc:
             await client.aclose()
+            release_concurrency_lease(concurrency_lease)
             duration_ms = (time_mod.perf_counter() - t0) * 1000.0
             if usage_id is not None and SessionLocal is not None:
                 avg_w, wh = watt_hours_from_samples(
@@ -416,6 +485,7 @@ def create_app() -> FastAPI:
             finally:
                 await upstream.aclose()
                 await client.aclose()
+                release_concurrency_lease(concurrency_lease)
                 await _sample()
                 duration_ms = (time_mod.perf_counter() - t0) * 1000.0
                 if usage_id is not None and SessionLocal is not None:
@@ -503,13 +573,16 @@ def create_app() -> FastAPI:
                 body, auto_rewrite = rewrite_auto_model(
                     body, asked=asked, auth=auth_cfg
                 )
-            model = extract_model(body, content_type)
-            src = resolve_source_for_kind(db, kind, model=model)
+            model = extract_request_model(kind, body, content_type)
+            src = resolve_routed_source(
+                db,
+                kind,
+                model=model,
+                raw_key=raw_key,
+                load_aware=bool(getattr(auth_cfg, "load_aware_routing", True)),
+            )
             if src is None:
-                return JSONResponse(
-                    {"error": "backend_not_configured", "kind": kind},
-                    status_code=503,
-                )
+                return _unresolved_model_response(kind, model)
             service = src.name
 
         vl_rewrite: str | None = None
@@ -539,6 +612,7 @@ def create_app() -> FastAPI:
             defer_metering=True,
         )
         if result.status != 204:
+            release_concurrency_lease(result.concurrency_lease)
             return JSONResponse(
                 {"error": result.reason, "service": service},
                 status_code=result.status,
@@ -546,7 +620,19 @@ def create_app() -> FastAPI:
 
         backend = address_for_source(db, service)
         if not backend:
+            release_concurrency_lease(result.concurrency_lease)
             return JSONResponse({"error": "backend_not_configured"}, status_code=503)
+
+        pf_block = _preflight_block(
+            auth_cfg=auth_cfg,
+            backend=backend,
+            kind=kind,
+            model=result.model,
+            service=service,
+            lease=result.concurrency_lease,
+        )
+        if pf_block is not None:
+            return pf_block
         src_row = get_source_by_name(db, service)
         api_style = getattr(src_row, "api_style", None) if src_row is not None else None
         rewrite_uri = map_upstream_path(upstream_uri, kind=kind, api_style=api_style)
@@ -581,6 +667,7 @@ def create_app() -> FastAPI:
             body=body,
             usage_id=result.usage_event_id,
             probe_url=probe_url_for_source(src_row),
+            concurrency_lease=result.concurrency_lease,
         )
 
     @app.api_route("/v1/gateway/forward", methods=["POST", "PUT", "PATCH"])
@@ -596,11 +683,13 @@ def create_app() -> FastAPI:
         rewrite_uri = str(payload.get("uri") or "/").strip() or "/"
         rewrite_model = str(payload.get("model") or "").strip()
         usage_id = payload.get("uid")
+        lease = _lease_from_ticket(payload)
         try:
             usage_id_int = int(usage_id) if usage_id is not None else None
         except (TypeError, ValueError):
             usage_id_int = None
         if not backend:
+            release_concurrency_lease(lease)
             return JSONResponse({"error": "invalid_gateway_ticket"}, status_code=403)
 
         body = await request.body()
@@ -632,13 +721,30 @@ def create_app() -> FastAPI:
         from .usage_pool import probe_url_for_source
 
         probe = ""
+        kind = "chat"
+        auth_cfg = None
+        service_name = str(payload.get("service") or "")
         if SessionLocal is not None:
             pdb = SessionLocal()
             try:
-                src = get_source_by_name(pdb, str(payload.get("service") or ""))
+                src = get_source_by_name(pdb, service_name)
                 probe = probe_url_for_source(src)
+                if src is not None:
+                    kind = src.kind or "chat"
+                auth_cfg = get_auth_settings(pdb)
             finally:
                 pdb.close()
+
+        pf_block = _preflight_block(
+            auth_cfg=auth_cfg,
+            backend=backend,
+            kind=kind,
+            model=rewrite_model or str(payload.get("mdl") or "") or None,
+            service=service_name,
+            lease=lease,
+        )
+        if pf_block is not None:
+            return pf_block
 
         return await _stream_upstream_metered(
             method=request.method,
@@ -647,6 +753,7 @@ def create_app() -> FastAPI:
             body=body,
             usage_id=usage_id_int,
             probe_url=probe,
+            concurrency_lease=lease,
         )
 
     app.include_router(admin_router)

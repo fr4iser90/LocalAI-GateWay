@@ -37,16 +37,16 @@ APP_PAGES = sorted(
         "reset.html",
         # wizard bodies are partials included by setup_base
         "setup_key.html",
-        "setup_models.html",
         "setup_sources.html",
+        "setup_access.html",
     }
 )
 
 # Setup partials are OK without their own page-head (parent provides it)
 PARTIALS = {
     "setup_key.html",
-    "setup_models.html",
     "setup_sources.html",
+    "setup_access.html",
     "_pw_rules.html",
 }
 
@@ -192,9 +192,13 @@ def test_field_max_tokens():
 
 
 def test_settings_uses_section_labels_not_inline_h3():
-    text = (TEMPLATES / "settings.html").read_text(encoding="utf-8")
-    assert "section-label" in text
-    assert "h3 style=" not in text
+    for path in sorted(TEMPLATES.glob("_settings_*.html")):
+        if path.name == "_settings_subnav.html":
+            continue
+        text = path.read_text(encoding="utf-8")
+        assert "h3 style=" not in text, path.name
+        if re.search(r"<h3[\s>]", text):
+            assert "section-label" in text, f"{path.name} missing section-label"
 
 
 def test_core_pages_inline_style_budget():
@@ -317,8 +321,8 @@ def test_core_ops_pages_inline_budget_tight():
         "user_grant.html": 0,
         "key_form.html": 0,
         "setup_done.html": 0,
-        "setup_models.html": 0,
         "setup_sources.html": 0,
+        "setup_access.html": 0,
         "_pw_rules.html": 0,
     }
     over = []
@@ -328,3 +332,51 @@ def test_core_ops_pages_inline_budget_tight():
         if n > max_n:
             over.append(f"{name}: {n} > {max_n}")
     assert not over, "Inline style budget exceeded: " + "; ".join(over)
+
+
+def test_users_grant_expand_clicks_are_not_intercepted():
+    """Checkboxes in the grant expand row must not hit the badge click handler."""
+    js = (ROOT / "app" / "admin" / "static" / "users_grant.js").read_text(encoding="utf-8")
+    assert 'closest(".grant-expand-row")' in js
+    assert "a[data-grant-user][data-grant-source]" in js
+    expand = (TEMPLATES / "_user_grant_expand.html").read_text(encoding="utf-8")
+    assert 'name="models"' in expand
+    assert 'type="checkbox"' in expand
+    assert "data-grant-collapse" in expand
+    users = (TEMPLATES / "users.html").read_text(encoding="utf-8")
+    assert "data-grant-add-user" in users
+    assert "grant/source/remove" in users
+    assert "data-grant-disable-all" in expand
+    assert "data-grant-enable-all" in expand
+    assert "data-grant-disable-all" in js
+
+
+def test_setup_sources_has_per_row_delete():
+    text = (TEMPLATES / "setup_sources.html").read_text(encoding="utf-8")
+    assert 'action="/setup/sources/{{ s.id }}/delete"' in text
+    assert "btn-icon-del" in text
+    assert 'form="setup-del-{{ s.id }}"' in text
+
+
+def test_wizard_access_keeps_actions_visible_and_picker_grids():
+    access = (TEMPLATES / "setup_access.html").read_text(encoding="utf-8")
+    key = (TEMPLATES / "setup_key.html").read_text(encoding="utf-8")
+    chips = (TEMPLATES / "_source_chips.html").read_text(encoding="utf-8")
+    js = (ROOT / "app" / "admin" / "static" / "picker.js").read_text(encoding="utf-8")
+    css = STYLE.read_text(encoding="utf-8")
+    assert "wizard-form--fill" in access and "wizard-grow" in access
+    assert "wizard-actions--sticky" in access
+    assert "wizard-actions--sticky" in key
+    assert 'chips_for_picker=\'setup-access\'' in access
+    assert 'chips_for_picker=\'setup-key\'' in key
+    assert "auto_vl_routing" not in key
+    assert "Everything starts checked" in key
+    assert "data-source-chips-for" in chips
+    assert "data-source-chip" in chips
+    assert "linkSourceChips" in js
+    assert "repeat(auto-fill, minmax(" in css
+    assert ".wizard-actions--sticky" in css
+    picker = (TEMPLATES / "partials" / "model_picker.html").read_text(encoding="utf-8")
+    assert 'data-kind="{{ m.kind }}"' in picker
+    assert "--card-chat-bg" in css
+    assert ".model-picker-item[data-kind=\"chat\"]" in css

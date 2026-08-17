@@ -171,11 +171,27 @@ def get_catalog_entry(db: Session, source_name: str, model_id: str) -> CatalogMo
 
 
 def is_model_globally_enabled(db: Session, source_name: str, model_id: str) -> bool:
-    """Unknown models (not yet synced) are allowed; explicit disabled entries are not."""
-    row = get_catalog_entry(db, source_name, model_id)
-    if row is None:
-        return True
-    return bool(row.enabled)
+    """True only if an enabled catalog row on this source matches the request model."""
+    from .backends import model_match_score
+
+    mid = (model_id or "").strip()
+    if not mid:
+        return False
+    rows = (
+        db.query(CatalogModel)
+        .filter(CatalogModel.source_name == source_name)
+        .all()
+    )
+    best: int | None = None
+    enabled_best = False
+    for row in rows:
+        score = model_match_score(row.model_id, mid)
+        if score is None:
+            continue
+        if best is None or score > best:
+            best = score
+            enabled_best = bool(row.enabled)
+    return bool(best is not None and enabled_best)
 
 
 def set_model_enabled(db: Session, catalog_id: int, enabled: bool) -> CatalogModel | None:

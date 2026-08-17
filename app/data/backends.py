@@ -36,39 +36,30 @@ def source_names(db: Session) -> list[str]:
 
 
 def default_grant_source_names(db: Session) -> list[str]:
-    """Safe defaults for new users/teams: every source except isolated (lab/heavy)."""
-    return [s.name for s in list_sources(db) if not s.isolated]
+    """Kind-default sources (routing fallback). Not used for new-user grants."""
+    return [
+        s.name
+        for s in list_sources(db)
+        if s.is_default and (s.address or "").strip()
+    ]
 
 
 def source_chip_rows(
     db: Session, names: list[str] | None = None
 ) -> list[dict]:
-    """UI rows for source checkboxes: name, badges, one-line hint."""
+    """UI rows for source checkboxes: name, kind, address. All sources are equal."""
     wanted = set(names) if names is not None else None
     rows: list[dict] = []
     for s in list_sources(db):
         if wanted is not None and s.name not in wanted:
             continue
-        hint = ""
-        if s.kind == "chat":
-            if s.is_default:
-                hint = "Daily · /v1 merge"
-            elif s.isolated:
-                hint = f"Lab / heavy · /s/{s.name}/ only"
-            else:
-                hint = "Extra chat · merge when granted"
-        elif s.isolated:
-            hint = f"Separate · /s/{s.name}/ only"
-        elif s.is_default:
-            hint = f"Default {s.kind}"
         rows.append(
             {
                 "name": s.name,
                 "kind": s.kind,
                 "address": s.address or "",
                 "is_default": bool(s.is_default),
-                "isolated": bool(s.isolated),
-                "hint": hint,
+                "hint": "",
             }
         )
     return rows
@@ -151,13 +142,17 @@ def resolve_source_for_kind(
     kind: str,
     *,
     model: str | None = None,
+    allowed_services: set[str] | None = None,
+    load_aware: bool = True,
 ) -> BackendSource | None:
-    """Pick upstream for a default-path (/v1) request — merge by model.
+    """Pick upstream for a /v1 request by enabled catalog model.
 
-    Sources with ``isolated=True`` never win merge (use /s/{name}/ instead).
-    Patterns = enabled catalog models for the source (after Models → Sync).
-    Unmatched / missing model → non-isolated default of that kind.
+    No kind fallback: unknown, disabled, or missing model → None.
+    When several sources tie on pattern score, optional load-aware pick
+    (idle slots / model loaded) among allowed_services.
     """
+    if not (model or "").strip():
+        return None
     sources = (
         db.query(BackendSource)
         .filter(BackendSource.kind == kind)
@@ -167,35 +162,41 @@ def resolve_source_for_kind(
     if not sources:
         return None
 
-    if model:
-        ranked: list[tuple[int, int, str, BackendSource]] = []
-        for src in sources:
-            if src.isolated:
-                continue
-            patterns = route_patterns_for_source(db, src)
-            if not patterns:
-                continue
-            best_score = None
-            for pat in patterns:
-                s = model_match_score(pat, model)
-                if s is not None and (best_score is None or s > best_score):
-                    best_score = s
-            if best_score is None:
-                continue
-            ranked.append((best_score, 0 if not src.is_default else 1, src.name, src))
-        if ranked:
-            ranked.sort(key=lambda t: (-t[0], t[1], t[2]))
-            return ranked[0][3]
+    ranked: list[tuple[int, int, str, BackendSource]] = []
+    for src in sources:
+        if allowed_services is not None and src.name not in allowed_services:
+            continue
+        if not (src.address or "").strip():
+            continue
+        patterns = route_patterns_for_source(db, src)
+        if not patterns:
+            continue
+        best_score = None
+        for pat in patterns:
+            s = model_match_score(pat, model)
+            if s is not None and (best_score is None or s > best_score):
+                best_score = s
+        if best_score is None:
+            continue
+        ranked.append((best_score, 0 if not src.is_default else 1, src.name, src))
+    if not ranked:
+        return None
 
-    # Default fallback: prefer non-isolated default
-    for src in sources:
-        if src.is_default and not src.isolated:
-            return src
-    for src in sources:
-        if not src.isolated:
-            return src
-    # All isolated — still need something for /v1 (first default or first)
-    return default_source_for_kind(db, kind)
+    ranked.sort(key=lambda t: (-t[0], t[1], t[2]))
+    top_score = ranked[0][0]
+    tied = [t for t in ranked if t[0] == top_score]
+    if len(tied) == 1 or not load_aware:
+        return tied[0][3]
+
+    from .source_load import load_cache, load_sort_key
+
+    def _pick_key(t: tuple[int, int, str, BackendSource]) -> tuple:
+        src = t[3]
+        snap = load_cache.snapshot_for(src, kind=kind, model=model)
+        return (load_sort_key(snap), t[1], t[2])
+
+    tied.sort(key=_pick_key)
+    return tied[0][3]
 
 
 def address_for_source(db: Session, name: str) -> str:
@@ -232,6 +233,114 @@ def validate_source_name(name: str) -> str | None:
     return None
 
 
+def rename_source(db: Session, src: BackendSource, new_name: str) -> str | None:
+    """Rename a box. Kind stays. Rewrites grants/catalog/usage that stored the slug."""
+    err = validate_source_name(new_name)
+    if err:
+        return err
+    new_name = new_name.strip().lower()
+    old = src.name
+    if new_name == old:
+        return None
+    if get_source_by_name(db, new_name) is not None:
+        return f"Source '{new_name}' already exists"
+
+    from .models import (
+        AuthSettings,
+        CatalogModel,
+        ModelAllowlist,
+        ModelFavorite,
+        ModelLimit,
+        ServiceGrant,
+        UsageDaily,
+        UsageEvent,
+    )
+
+    def _swap(model, col) -> None:
+        db.query(model).filter(col == old).update({col: new_name}, synchronize_session=False)
+
+    _swap(CatalogModel, CatalogModel.source_name)
+    _swap(ServiceGrant, ServiceGrant.service)
+    _swap(ModelAllowlist, ModelAllowlist.service)
+    _swap(ModelFavorite, ModelFavorite.service)
+    _swap(ModelLimit, ModelLimit.service)
+    _swap(UsageEvent, UsageEvent.service)
+    _swap(UsageDaily, UsageDaily.service)
+
+    auth = db.query(AuthSettings).first()
+    if auth is not None:
+        raw = (auth.default_grant_sources or "").strip()
+        if raw and raw != "-":
+            parts = [
+                new_name if p.strip() == old else p.strip()
+                for p in raw.split(",")
+                if p.strip()
+            ]
+            auth.default_grant_sources = ",".join(parts)
+        prefix = old + ":"
+        auth.default_grant_models = "\n".join(
+            (new_name + ":" + line[len(prefix) :]) if line.startswith(prefix) else line
+            for line in (auth.default_grant_models or "").splitlines()
+        )
+    src.name = new_name
+    db.flush()
+    return None
+
+
+def apply_source_row_edits(
+    db: Session, edits: list[tuple[BackendSource, str, str]]
+) -> str | None:
+    """Apply name+address edits for several boxes. Two-phase rename avoids unique clashes."""
+    prepared: list[tuple[BackendSource, str, str]] = []
+    seen: set[str] = set()
+    for src, raw_name, raw_addr in edits:
+        err = validate_source_name(raw_name) or validate_backend(raw_addr)
+        if err:
+            return f"{src.name}: {err}"
+        name = raw_name.strip().lower()
+        addr = normalize_backend(raw_addr)
+        if name in seen:
+            return f"Duplicate name '{name}'"
+        seen.add(name)
+        prepared.append((src, name, addr))
+
+    occupied = {
+        s.name
+        for s in list_sources(db)
+        if s.id not in {row.id for row, _, _ in prepared}
+    }
+    for _, name, _ in prepared:
+        if name in occupied:
+            return f"Source '{name}' already exists"
+
+    for src, _, addr in prepared:
+        src.address = addr
+    db.flush()
+
+    need_rename = [(src, name) for src, name, _ in prepared if src.name != name]
+    if not need_rename:
+        return None
+
+    parked: list[tuple[BackendSource, str]] = []
+    used = {s.name for s in list_sources(db)} | seen
+    n = 0
+    for src, final in need_rename:
+        temp = None
+        while temp is None or temp in used:
+            temp = f"zz{n}"
+            n += 1
+        used.add(temp)
+        err = rename_source(db, src, temp)
+        if err:
+            return err
+        parked.append((src, final))
+    for src, final in parked:
+        err = rename_source(db, src, final)
+        if err:
+            return err
+    return None
+
+
 def validate_kind(kind: str) -> str | None:
     if kind not in KINDS:
         return f"Kind must be one of: {', '.join(KINDS)}"
@@ -256,7 +365,6 @@ def upsert_source(
     address: str,
     is_default: bool,
     route_models: str = "",
-    isolated: bool = False,
     api_style: str = "auto",
     gpu_power_url: str = "",
 ) -> BackendSource:
@@ -277,7 +385,6 @@ def upsert_source(
         existing.address = address
         existing.is_default = is_default
         existing.route_models = models
-        existing.isolated = isolated
         existing.api_style = style
         existing.gpu_power_url = gpu
         return existing
@@ -291,7 +398,6 @@ def upsert_source(
         address=address,
         is_default=is_default,
         route_models=models,
-        isolated=isolated,
         api_style=style,
         gpu_power_url=gpu,
     )
@@ -337,9 +443,10 @@ def migrate_backend_config_to_sources(db: Session) -> None:
 
 
 def seed_backends_from_env(db: Session, settings: Settings) -> None:
-    """Migrate legacy config, then fill missing sources from env."""
+    """One-time bootstrap: legacy migration, then env seeds only on an empty DB."""
     migrate_backend_config_to_sources(db)
-
+    if db.query(BackendSource).count() > 0:
+        return
     seeds: list[tuple[str, str, str, bool]] = [
         (
             "chat",

@@ -1,0 +1,37 @@
+{# Slim expand: models for ONE source. Expects target, source, models, selected (set of model_ids). #}
+<tr class="grant-expand-row" id="grant-editor" data-grant-for="{{ target.id }}" data-grant-source="{{ source }}">
+  <td colspan="6">
+    <div class="grant-expand grant-expand--slim">
+      <div class="grant-expand-head">
+        <p class="grant-expand-title mt-0"><span class="mono">{{ source }}</span> <span class="muted text-sm">· models</span></p>
+        <div class="grant-expand-actions">
+          <button type="button" class="btn btn-sm" data-grant-enable-all>Enable all</button>
+          <button type="button" class="btn btn-sm" data-grant-disable-all>Disable all</button>
+          <button type="button" class="btn btn-sm" data-grant-collapse>Collapse</button>
+        </div>
+      </div>
+      {% if models %}
+      <form method="post" action="/users/{{ target.id }}/grant/source">
+        <input type="hidden" name="source" value="{{ source }}">
+        <div class="model-picker-list grant-expand-list">
+          {% for m in models %}
+          <label class="model-picker-item" data-kind="{{ m.kind }}">
+            <input type="checkbox" name="models" value="{{ source }}:{{ m.model_id }}" {% if m.model_id in selected %}checked{% endif %}>
+            <span class="model-picker-label">
+              <span class="mono model-picker-id">{{ m.model_id }}</span>
+            </span>
+          </label>
+          {% endfor %}
+        </div>
+        <p class="muted hint-micro mt-half">Uncheck to deny. All checked (or none) = no extra restriction.</p>
+        <div class="actions mt-half">
+          <input class="primary btn-sm" type="submit" value="Save">
+          <button type="button" class="btn btn-sm" data-grant-collapse>Collapse</button>
+        </div>
+      </form>
+      {% else %}
+      <p class="muted mt-0 text-sm">No model list for <span class="mono">{{ source }}</span> — granted as a whole.</p>
+      {% endif %}
+    </div>
+  </td>
+</tr>

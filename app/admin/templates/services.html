@@ -7,7 +7,9 @@
     <h1>Services</h1>
     <p class="lede">
       Upstream sources for chat / embed / STT / TTS.
-      Merge via model id on <span class="mono">/v1/…</span>; separate sources use <span class="mono">/s/{name}/…</span>.
+      <span class="mono">/v1/…</span> picks a source by <strong>enabled catalog model</strong>.
+      Unknown or disabled models are rejected — they are not sent to another box.
+      Who may use a source is the user grant — set new-user defaults under <a href="/settings">Settings</a>.
     </p>
   </div>
 </header>
@@ -46,14 +48,9 @@
       <tr data-service="{{ s.service }}">
         <td>
           <span class="badge">{{ s.service }}</span>
-          {% if src and src.is_default %}<span class="badge ok">default</span>{% endif %}
-          {% if src and src.isolated %}<span class="badge off">isolated</span>{% endif %}
-          {% if src and src.kind == 'chat' %}
-          <div class="muted hint-micro">
-            {% if src.is_default %}Daily · /v1 merge
-            {% elif src.isolated %}Lab / heavy · /s/{{ src.name }}/ only · keep concurrency low
-            {% else %}Extra chat · merge when granted{% endif %}
-          </div>
+          {% if src and src.is_default %}<span class="badge ok">fallback</span>{% endif %}
+          {% if src and src.is_default %}
+          <div class="muted hint-micro">/v1 URL for this kind — still only enabled models</div>
           {% endif %}
         </td>
         <td class="muted">{{ s.kind }}</td>
@@ -128,14 +125,9 @@
       <tr>
         <td>
           <span class="badge">{{ src.name }}</span>
-          {% if src.is_default %}<span class="badge ok">default</span>{% endif %}
-          {% if src.isolated %}<span class="badge off">isolated</span>{% endif %}
-          {% if src.kind == 'chat' %}
-          <div class="muted hint-micro">
-            {% if src.is_default %}Daily · /v1 merge
-            {% elif src.isolated %}Lab / heavy · /s/{{ src.name }}/ only · keep concurrency low
-            {% else %}Extra chat · merge when granted{% endif %}
-          </div>
+          {% if src.is_default %}<span class="badge ok">fallback</span>{% endif %}
+          {% if src.is_default %}
+          <div class="muted hint-micro">/v1 URL for this kind — still only enabled models</div>
           {% endif %}
         </td>
         <td>{{ src.kind }}</td>
@@ -143,14 +135,14 @@
         <td>
           <form method="post" action="/services/{{ src.id }}/save">
             <div class="svc-editor">
+              <label class="sr-only" for="name-{{ src.id }}">Name for this box</label>
+              <input id="name-{{ src.id }}" class="mono svc-name" type="text" name="name" required
+                     pattern="[a-z][a-z0-9_-]{0,31}" value="{{ src.name }}" title="Box name">
               <label class="sr-only" for="addr-{{ src.id }}">Address for {{ src.name }}</label>
               <input id="addr-{{ src.id }}" class="mono svc-address" type="text" name="address" value="{{ src.address }}"
                      placeholder="192.168.1.10:8080">
               <label class="svc-check">
-                <input type="checkbox" name="is_default" value="1" {% if src.is_default %}checked{% endif %}> default
-              </label>
-              <label class="svc-check" title="Out of /v1 merge — only /s/{{ src.name }}/ + key grant">
-                <input type="checkbox" name="isolated" value="1" {% if src.isolated %}checked{% endif %}> separate
+                <input type="checkbox" name="is_default" value="1" {% if src.is_default %}checked{% endif %}> /v1 URL
               </label>
               <label class="svc-dialect" title="Path rewrite for this upstream — Auto picks by kind, not a live scan">
                 Dialect
@@ -172,7 +164,7 @@
             {% set cats = catalog_by_source.get(src.name, []) %}
             <div class="svc-models">
               <div class="svc-models-label">
-                Models for /v1 merge (from <a href="/models">catalog sync</a>{% if src.isolated %}; inactive while separate{% endif %})
+                Models for /v1 merge (from <a href="/models">catalog sync</a>)
               </div>
               {% if cats %}
               <div class="tag-row">
@@ -202,7 +194,7 @@
     <div class="row">
       <div class="field">
         <label>Name</label>
-        <input class="mono" type="text" name="name" required placeholder="ollama" pattern="[a-z][a-z0-9_-]{0,31}">
+        <input class="mono" type="text" name="name" required placeholder="gpu-main" pattern="[a-z][a-z0-9_-]{0,31}">
       </div>
       <div class="field">
         <label>Kind</label>
@@ -218,8 +210,7 @@
       </div>
     </div>
     <div class="checkboxes checkboxes-block">
-      <label><input type="checkbox" name="is_default" value="1"> Default for kind</label>
-      <label><input type="checkbox" name="isolated" value="1"> Separate (not in /v1 merge)</label>
+      <label><input type="checkbox" name="is_default" value="1"> Primary /v1 URL for this kind (unknown models are still rejected)</label>
       <label>Dialect
         <select name="api_style">
           {% for st in api_styles %}
@@ -249,14 +240,9 @@
       <tr>
         <td>
           <span class="badge">{{ src.name }}</span>
-          {% if src.is_default %}<span class="badge ok">default</span>{% endif %}
-          {% if src.isolated %}<span class="badge off">isolated</span>{% endif %}
-          {% if src.kind == 'chat' %}
-          <div class="muted hint-micro">
-            {% if src.is_default %}Daily · /v1 merge
-            {% elif src.isolated %}Lab / heavy · /s/{{ src.name }}/ only · keep concurrency low
-            {% else %}Extra chat · merge when granted{% endif %}
-          </div>
+          {% if src.is_default %}<span class="badge ok">fallback</span>{% endif %}
+          {% if src.is_default %}
+          <div class="muted hint-micro">/v1 URL for this kind — still only enabled models</div>
           {% endif %}
         </td>
         <td>{{ src.kind }}</td>

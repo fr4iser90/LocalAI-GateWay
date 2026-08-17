@@ -1,0 +1,65 @@
+<section class="panel">
+  <h2>Limits &amp; budget</h2>
+  <div class="setup-hint field-gap-md">
+    <p class="m-0">
+      <strong>Per-user RPM, concurrency, daily requests, token budget</strong> →
+      <a class="btn btn-sm primary" href="/users">Users</a>
+      (Limits on each row, or Edit grant).
+    </p>
+    <p class="muted mt-half mb-0">This page only sets global token-budget rules. Default for new users: no caps (∞).</p>
+  </div>
+
+  <form method="post" action="/settings/limits">
+    <h3 class="section-label">Token budget (optional)</h3>
+    <p class="muted mt-0">
+      Extra cap on estimated <strong>prompt tokens</strong> per rolling window.
+      Leave window at <span class="mono">0</span> if you only use RPM / daily limits on Users.
+    </p>
+    <p class="muted text-sm">
+      Charge (weights off):
+      <span class="mono">max(min tokens/call, estimated_prompt_tokens)</span>.
+      Real tokens in logs are never rewritten.
+    </p>
+    <div class="row row--loose">
+      <div class="field field--xs">
+        <label for="pool-window">Window (hours)</label>
+        <input id="pool-window" type="number" name="pool_window_hours" min="0" max="8760" value="{{ auth.pool_window_hours if auth.pool_window_hours is not none else 5 }}">
+      </div>
+      <div class="field field--xs">
+        <label for="pool-min">Min tokens / call</label>
+        <input id="pool-min" type="number" name="pool_min_cost" min="0" step="1" value="{{ auth.pool_min_cost if auth.pool_min_cost is not none else 1 }}">
+      </div>
+    </div>
+    <div class="checkboxes checkboxes-block field-gap-md" id="pool-weights">
+      <label>
+        <input type="checkbox" name="pool_model_weights_enabled" {% if auth.pool_model_weights_enabled %}checked{% endif %}>
+        Enable optional per-model budget factors (off by default)
+      </label>
+    </div>
+    {% if weight_status is defined and weight_status.ready and not auth.pool_model_weights_enabled %}
+    <p class="flash flash-inline mt-half">
+      {{ weight_status.message }}
+      Enable the checkbox above, then <a href="/models">Models → Apply suggested weights</a>.
+    </p>
+    {% elif weight_status is defined and not weight_status.ready %}
+    <p class="muted text-sm mt-half">Budget weight suggestions: {{ weight_status.message }}</p>
+    {% endif %}
+
+    <h3 class="section-label field-gap-md">GPU energy (display)</h3>
+    {% if gpu_power_enabled %}
+    <p class="muted mt-0">
+      Sidecar at <span class="mono">:9105/power</span> per source host. Chat/embed/STT/TTS meter Wh when a call finishes.
+      Does not change the token budget.
+    </p>
+    {% if observed_tok_s %}
+    <p class="muted text-sm">Observed ~<span class="mono">{{ observed_tok_s }} tok/s</span> from usage logs.</p>
+    {% else %}
+    <p class="muted text-sm">Not enough metered calls yet for throughput estimate.</p>
+    {% endif %}
+    {% else %}
+    <p class="muted mt-0">Configure sources under <a href="/services">Services</a> for GPU probe URLs.</p>
+    {% endif %}
+
+    <button class="primary field-gap-md" type="submit">Save limits &amp; budget</button>
+  </form>
+</section>

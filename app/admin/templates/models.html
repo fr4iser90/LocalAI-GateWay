@@ -10,7 +10,7 @@
       {% if auto_vl_routing %}
       Auto-VL is on — text + <span class="mono">-VL</span> siblings share one row.
       {% else %}
-      Turn on Auto-VL in <a href="/settings">Settings</a> to pair text + vision siblings.
+      Turn on Auto-VL in <a href="/settings/routing">Settings → Routing</a> to pair text + vision siblings.
       {% endif %}
     </p>
   </div>
@@ -45,11 +45,25 @@
 </details>
 {% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
 {% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
+{% if weight_status is defined and weight_status.ready and not pool_model_weights_enabled %}
+<div class="flash">
+  {{ weight_status.message }}
+  <a href="/settings/limits#pool-weights">Enable budget factors in Settings</a> to apply suggestions — until then all factors stay 1.0.
+</div>
+{% elif weight_status is defined and not weight_status.ready %}
+<p class="muted">Budget weight suggestions: {{ weight_status.message }}</p>
+{% endif %}
 
 <div class="panel panel-toolbar">
   <form method="post" action="/models/sync">
     <button class="primary" type="submit">Sync from sources</button>
   </form>
+  {% if pool_model_weights_enabled and weight_status is defined and weight_status.ready %}
+  <form method="post" action="/models/apply-suggested-weights"
+        onsubmit="return confirm('Apply suggested budget factors from 7d usage? You can still edit manually after.');">
+    <button class="btn" type="submit">Apply suggested weights</button>
+  </form>
+  {% endif %}
   <label class="sr-only" for="model-catalog-filter">Filter models</label>
   <input type="search" id="model-catalog-filter" class="catalog-filter" placeholder="Filter table…" autocomplete="off">
   <span class="muted tag-row text-sm">

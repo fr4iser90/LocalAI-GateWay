@@ -385,8 +385,6 @@ class BackendSource(Base):
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     # Newline-separated model patterns for /v1 routing (exact, prefix*, or name → name:tag)
     route_models: Mapped[str] = mapped_column(Text, default="")
-    # True = not in /v1 merge; only /s/{name}/… + explicit API-key grant
-    isolated: Mapped[bool] = mapped_column(Boolean, default=False)
     # auto|openai|piper|whisper_cpp — how to map /v1 client paths to upstream
     api_style: Mapped[str] = mapped_column(String(32), default="auto")
     # Optional gpu-power sidecar is always co-located: http://<address-host>:9105/power
@@ -466,6 +464,14 @@ class AuthSettings(Base):
     pool_tokens_per_sec: Mapped[float] = mapped_column(Float, default=50.0)
     # Off by default: budget charge = tokens. On: Models → factor may scale charge only.
     pool_model_weights_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Before proxy: quick upstream check → 503 model_initializing / backend_busy (fail-open).
+    preflight_upstream: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Among tied catalog matches: pick source with most idle capacity (cached probe).
+    load_aware_routing: Mapped[bool] = mapped_column(Boolean, default=True)
+    # New users (and self-register): comma source names; empty = sources marked default.
+    default_grant_sources: Mapped[str] = mapped_column(Text, default="")
+    # Newline "source:model"; empty = all ON models for those sources.
+    default_grant_models: Mapped[str] = mapped_column(Text, default="")
 
 
 class PasswordResetToken(Base):

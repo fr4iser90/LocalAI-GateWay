@@ -7,14 +7,21 @@ from pathlib import Path
 from app.data.backends import upsert_source
 from app.data.db import hash_api_key
 from app.data.grants import (
+    apply_default_grant,
     clamp_models,
     clamp_services,
+    configured_default_sources,
+    display_default_models,
+    display_default_sources,
+    display_enabled_models_for_services,
     effective_models,
     effective_services,
     ceiling_from_team,
     ceiling_from_user,
+    save_default_grant,
     sync_user_grants,
     sync_user_models,
+    sync_user_models_for_service,
 )
 from app.data.models import (
     AdminUser,
@@ -168,3 +175,147 @@ def test_platform_admin_unrestricted(tmp_path: Path):
     db.flush()
     key.owner = admin
     assert "chat" in effective_services(db, key)
+
+
+def test_configured_default_grant_template(tmp_path: Path):
+    db = _session(tmp_path)
+    upsert_source(db, name="chat", kind="chat", address="127.0.0.1:1", is_default=True)
+    upsert_source(db, name="chat2", kind="chat", address="127.0.0.1:2", is_default=False)
+    db.commit()
+    assert configured_default_sources(db) == []
+    assert display_default_sources(db) == ["chat", "chat2"]
+    assert display_default_models(db) == set()
+    save_default_grant(db, [], [])
+    db.commit()
+    assert configured_default_sources(db) == []
+    assert display_default_sources(db) == []
+    save_default_grant(db, ["chat", "chat2"], [("chat", "only-this")])
+    db.commit()
+    assert configured_default_sources(db) == ["chat", "chat2"]
+    user = AdminUser(
+        username="bob",
+        password_hash="x",
+        is_platform_admin=False,
+        is_active=True,
+    )
+    db.add(user)
+    db.flush()
+    apply_default_grant(db, user)
+    db.commit()
+    db.refresh(user)
+    assert {g.service for g in user.service_grants} == {"chat", "chat2"}
+    assert {(m.service, m.model_name) for m in user.model_allowlists} == {
+        ("chat", "only-this")
+    }
+
+    save_default_grant(db, [], [])
+    db.commit()
+    user2 = AdminUser(
+        username="empty",
+        password_hash="x",
+        is_platform_admin=False,
+        is_active=True,
+    )
+    db.add(user2)
+    db.flush()
+    apply_default_grant(db, user2)
+    db.commit()
+    db.refresh(user2)
+    assert user2.service_grants == []
+
+
+def test_catalog_groups_include_stt_tts(tmp_path: Path):
+    from app.data.grants import AccessCeiling, catalog_groups_for_ceiling
+
+    db = _session(tmp_path)
+    upsert_source(db, name="tts", kind="tts", address="127.0.0.1:1", is_default=True)
+    upsert_source(db, name="stt", kind="stt", address="127.0.0.1:2", is_default=True)
+    db.add(
+        CatalogModel(
+            source_name="tts",
+            kind="tts",
+            model_id="de_DE-thorsten-high",
+            enabled=True,
+        )
+    )
+    db.add(
+        CatalogModel(source_name="stt", kind="stt", model_id="stt", enabled=True)
+    )
+    db.commit()
+    groups = dict(
+        catalog_groups_for_ceiling(db, AccessCeiling(unrestricted=True))
+    )
+    assert "tts" in groups
+    assert [m.model_id for m in groups["tts"]] == ["de_DE-thorsten-high"]
+    assert "stt" in groups
+    assert [m.model_id for m in groups["stt"]] == ["stt"]
+
+
+def test_display_default_models_all_checked_when_unset(tmp_path: Path):
+    from app.data.grants import configured_default_models
+
+    db = _session(tmp_path)
+    upsert_source(db, name="chat", kind="chat", address="127.0.0.1:1", is_default=True)
+    db.add(
+        CatalogModel(source_name="chat", kind="chat", model_id="a", enabled=True),
+    )
+    db.add(
+        CatalogModel(source_name="chat", kind="chat", model_id="b", enabled=True),
+    )
+    db.commit()
+    assert display_default_models(db) == {"chat:a", "chat:b"}
+    save_default_grant(db, ["chat"], [("chat", "a"), ("chat", "b")])
+    db.commit()
+    assert configured_default_models(db) == []
+
+
+def test_display_enabled_models_for_services(tmp_path: Path):
+    db = _session(tmp_path)
+    upsert_source(db, name="tts", kind="tts", address="127.0.0.1:1", is_default=True)
+    db.add(
+        CatalogModel(source_name="tts", kind="tts", model_id="voice-a", enabled=True),
+    )
+    db.commit()
+    assert display_enabled_models_for_services(db, ["tts"]) == {"tts:voice-a"}
+
+
+def test_normalize_model_allowlist_all_selected_is_empty(tmp_path: Path):
+    from app.data.grants import normalize_model_allowlist
+
+    db = _session(tmp_path)
+    upsert_source(db, name="chat", kind="chat", address="127.0.0.1:1", is_default=True)
+    db.add(CatalogModel(source_name="chat", kind="chat", model_id="a", enabled=True))
+    db.add(CatalogModel(source_name="chat", kind="chat", model_id="b", enabled=True))
+    db.commit()
+    assert normalize_model_allowlist(db, ["chat"], [("chat", "a"), ("chat", "b")]) == []
+    assert normalize_model_allowlist(db, ["chat"], [("chat", "a")]) == [("chat", "a")]
+
+
+def test_sync_user_models_for_service_keeps_other_sources(tmp_path: Path):
+    db = _session(tmp_path)
+    upsert_source(db, name="chat", kind="chat", address="127.0.0.1:1", is_default=True)
+    upsert_source(db, name="chat2", kind="chat", address="127.0.0.1:2", is_default=False)
+    user = AdminUser(
+        username="cara",
+        password_hash="x",
+        is_platform_admin=False,
+        is_active=True,
+    )
+    db.add(user)
+    db.flush()
+    sync_user_grants(db, user, ["chat", "chat2"])
+    sync_user_models(db, user, [("chat", "a"), ("chat", "b"), ("chat2", "x")])
+    db.commit()
+
+    sync_user_models_for_service(db, user, "chat", ["a"])
+    db.commit()
+    db.refresh(user)
+    assert {(m.service, m.model_name) for m in user.model_allowlists} == {
+        ("chat", "a"),
+        ("chat2", "x"),
+    }
+
+    sync_user_models_for_service(db, user, "chat2", None)
+    db.commit()
+    db.refresh(user)
+    assert {(m.service, m.model_name) for m in user.model_allowlists} == {("chat", "a")}

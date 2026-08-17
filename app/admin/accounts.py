@@ -265,10 +265,9 @@ def register_submit(
         if team:
             db.add(TeamMember(team_id=team.id, user_id=user.id, role="member"))
     elif not auth.teams_enabled:
-        from ..data.backends import default_grant_source_names
-        from ..data.grants import sync_user_grants
+        from ..data.grants import apply_default_grant
 
-        sync_user_grants(db, user, default_grant_source_names(db))
+        apply_default_grant(db, user)
     write_audit(
         db,
         actor=user,
@@ -482,7 +481,7 @@ async def account_timezone_auto(
             raw = ""
     else:
         form = await request.form()
-        raw = str(form.get("timezone") or "").strip()
+        raw = str(form.get("timezone") or form.get("tz") or "").strip()
 
     if not is_valid_timezone(raw):
         return JSONResponse({"ok": False, "error": "invalid"}, status_code=400)

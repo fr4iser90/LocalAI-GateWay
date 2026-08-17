@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session, joinedload
 
 from ..data.backends import list_sources
-from ..data.models import AdminUser, ApiKey, CatalogModel, Team
+from ..data.models import AdminUser, ApiKey, AuthSettings, CatalogModel, Team
 from .accounts import teams_feature_enabled
 
-# Wizard only: sources → models → key (grants are post-setup).
-WIZARD_STEP_IDS = ("sources", "models", "key")
+# Wizard: sources → default access → admin API key (catalog syncs on Save backends)
+WIZARD_STEP_IDS = ("sources", "access", "key")
 
 
 @dataclass
@@ -35,6 +35,8 @@ def wizard_progress(db: Session) -> dict:
     active_keys = db.query(ApiKey).filter(ApiKey.is_active.is_(True)).count()
     has_sources = bool(addressed)
     has_models = catalog_n > 0
+    auth = db.query(AuthSettings).first()
+    has_access = bool(auth and (auth.default_grant_sources or "").strip())
     has_keys = active_keys > 0
     steps = [
         {
@@ -45,11 +47,11 @@ def wizard_progress(db: Session) -> dict:
             "path": "/setup/sources",
         },
         {
-            "id": "models",
+            "id": "access",
             "num": 2,
-            "title": "Models",
-            "done": has_models,
-            "path": "/setup/models",
+            "title": "Default access",
+            "done": has_access,
+            "path": "/setup/access",
         },
         {
             "id": "key",
@@ -64,10 +66,11 @@ def wizard_progress(db: Session) -> dict:
         "steps": steps,
         "has_sources": has_sources,
         "has_models": has_models,
+        "has_access": has_access,
         "has_keys": has_keys,
         "catalog_n": catalog_n,
         "source_count": len(addressed),
-        "complete": has_sources and has_models and has_keys,
+        "complete": has_sources and has_keys,
         "next": next_step,
         "sources": addressed,
     }
@@ -146,11 +149,11 @@ def setup_status(db: Session) -> dict:
             detail=(
                 f"{catalog_n} model(s) in catalog."
                 if catalog_n
-                else "Sync from sources so keys can allowlist models."
+                else "Sync from Services later, or wait — wizard syncs on Save backends."
             ),
-            href="/setup/models" if not wiz["has_models"] else "/models",
+            href="/models",
             done=catalog_n > 0,
-            cta="Sync models",
+            cta="Open models",
         ),
         SetupStep(
             id="keys",

@@ -57,21 +57,14 @@
 
     <div class="field field-gap-lg">
       <label>Sources for this key</label>
-      {% with source_chips=source_chips, selected_services=selected_services, hint_below='None checked = use all sources from your grant (usually daily defaults). Isolated lab sources stay opt-in.' %}
+      {% with source_chips=source_chips, selected_services=selected_services, hint_below='Everything starts checked — uncheck sources this key should not use.', chips_for_picker='key-models' %}
       {% include "_source_chips.html" %}
       {% endwith %}
     </div>
 
     <div class="field field-gap-lg">
-      <label>Further restrict models (optional)</label>
-      {% with catalog_groups=catalog_groups, selected=selected_models, input_name='models', picker_id='key-models', hint='None checked = all models allowed by your grant (chat/embed). STT/TTS need only a source grant.' %}
-      {% include "partials/model_picker.html" %}
-      {% endwith %}
-    </div>
-
-    <div class="field field-gap-lg">
-      <label>Favorites (pin to top of <span class="mono">/v1/models</span>)</label>
-      {% with catalog_groups=catalog_groups, selected=selected_favorites, input_name='favorites', picker_id='key-favs', hint='UX only — does not grant access.' %}
+      <label>Models <span class="muted label-normal">— ★ pins to top of <span class="mono">/v1/models</span> (UX only)</span></label>
+      {% with catalog_groups=catalog_groups, selected=selected_models, input_name='models', picker_id='key-models', hint='All checked = every ON model/voice for the sources above. Uncheck to restrict. Star = IDE favorite.', enable_favorites=true, favorite_selected=selected_favorites %}
       {% include "partials/model_picker.html" %}
       {% endwith %}
     </div>

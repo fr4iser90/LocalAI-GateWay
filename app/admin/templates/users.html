@@ -9,8 +9,9 @@
       {% if teams_enabled %}
       Teams mode is on — grants live on <a href="/teams">Teams</a>.
       {% else %}
-      Create users, pick <strong>which sources</strong> they may use, then they mint keys under API Keys.
-      Default = daily sources only (not isolated lab). Uncheck to deny; <strong>Disable</strong> blocks login + API.
+      Create users, pick <strong>which sources</strong> they may use. That is their ceiling.
+      They mint API keys under API Keys and can put only some sources/models on each key.
+      Pre-checked = <a href="/settings/access">Settings → Default access</a>. <strong>Disable</strong> blocks login + API.
       {% endif %}
     </p>
   </div>
@@ -21,13 +22,22 @@
 <div class="banner-info">Teams mode is on — access grants live on <a href="/teams">Teams</a> (add users as members). Per-user grants are disabled.</div>
 {% endif %}
 {% if not smtp_ok %}<p class="muted">SMTP not ready — password-reset emails won’t send until you configure <a href="/smtp">SMTP</a>.</p>{% endif %}
+{% if not teams_enabled and weight_status is defined and weight_status.ready and not pool_model_weights_enabled %}
+<div class="flash">
+  Enough 7d usage for <strong>optional</strong> budget weighting
+  ({{ weight_status.model_count }} models, baseline TG ~{{ weight_status.baseline_tg_tok_s }} tok/s).
+  Nothing changes until you enable it:
+  <a href="/settings/limits#pool-weights">Settings → budget factors</a>, then
+  <a href="/models">Models → Apply suggested weights</a>.
+</div>
+{% endif %}
 
 {% if not teams_enabled %}
 <div class="panel">
   <div class="panel-head">
     <div class="panel-head-text">
       <h2>Create user</h2>
-      <p class="panel-sub">Sources below are the ceiling — keys can only use what you check. Isolated lab stays off unless you opt in.</p>
+      <p class="panel-sub">Ceiling for this account. Pre-checked from Settings → Default access; check any other sources this person should have.</p>
     </div>
   </div>
   <form method="post" action="/users/new">
@@ -51,10 +61,20 @@
     </div>
     <div class="field field-gap-lg" id="new-user-grants">
       <label>Sources for this user</label>
-      {% with source_chips=source_chips, selected_services=selected_services, hint_below='Pre-checked: non-isolated (daily). Leave isolated lab unchecked for normal friends.' %}
+      {% with source_chips=source_chips, selected_services=selected_services, hint_below='Pre-checked from Settings → Default access. Check any source this person should have.' %}
       {% include "_source_chips.html" %}
       {% endwith %}
     </div>
+    {% if catalog_groups %}
+    <details class="details-edit field-gap-lg">
+      <summary class="btn-sm">Optional · restrict models</summary>
+      <div class="details-edit-body">
+        {% with catalog_groups=catalog_groups, selected=selected_models, input_name='models', picker_id='new-user-models', hint='Nothing checked = all ON models for the sources above.' %}
+        {% include "partials/model_picker.html" %}
+        {% endwith %}
+      </div>
+    </details>
+    {% endif %}
     <input class="primary" type="submit" value="Add user">
   </form>
 </div>
@@ -62,10 +82,13 @@
 
 <div class="panel">
   <div class="panel-head">
-    <div class="panel-head-text"><h2>Users</h2></div>
+    <div class="panel-head-text">
+      <h2>Users</h2>
+      <p class="panel-sub">Badges = sources · <strong>+</strong> add · <strong>×</strong> remove · click badge for models · click limits for RPM/budget.</p>
+    </div>
   </div>
   <div class="table-wrap">
-  <table>
+  <table class="users-table">
     <thead>
       <tr>
         <th>User</th>
@@ -78,7 +101,7 @@
     </thead>
     <tbody>
     {% for u in users %}
-      <tr class="{% if not u.is_active %}row-muted{% endif %}">
+      <tr id="user-row-{{ u.id }}" class="{% if not u.is_active %}row-muted{% endif %}">
         <td>
           <strong>{{ u.username }}</strong>
           {% if u.must_change_password %}<span class="badge rate">must change pw</span>{% endif %}
@@ -92,17 +115,35 @@
           <span class="badge ok">full access</span>
           {% else %}
             {% set srcs = grant_sources.get(u.id, []) %}
-            {% if srcs %}
-            <div class="tag-row">
+            {% set ungranted = ungranted_sources.get(u.id, []) %}
+            <div class="tag-row grant-source-badges" title="Click a badge for models · + to add sources">
               {% for s in srcs %}
-              <span class="badge">{{ s }}</span>
+              <span class="grant-source-chip">
+                <a class="badge badge-link" href="/users/{{ u.id }}/grant" data-grant-user="{{ u.id }}" data-grant-source="{{ s }}">{{ s }}</a>
+                <form method="post" action="/users/{{ u.id }}/grant/source/remove" class="grant-source-revoke-form"
+                      onsubmit="return confirm('Remove source {{ s }} from {{ u.username }}?');">
+                  <input type="hidden" name="source" value="{{ s }}">
+                  <button type="submit" class="grant-source-revoke" title="Remove {{ s }}">×</button>
+                </form>
+              </span>
               {% endfor %}
+              {% if ungranted %}
+              <button type="button" class="badge badge-add" data-grant-add-user="{{ u.id }}" title="Add source">+</button>
+              {% endif %}
             </div>
+            {% if srcs %}
             <div class="muted hint-micro">{{ grant_labels.get(u.id, '') }}</div>
-            {% else %}
-            <span class="badge off">no sources</span>
             {% endif %}
-            <div class="mt-third"><a href="/users/{{ u.id }}/grant">Edit grant</a></div>
+            <div class="grant-limits-line mt-third">
+              <button type="button" class="grant-limits-btn" data-grant-limits-user="{{ u.id }}"
+                      title="Edit RPM, concurrency, daily quota, token budget">
+                {{ limit_summaries.get(u.id, 'No limits (∞)') }}
+              </button>
+            </div>
+            <div class="mt-third">
+              <a href="/users/{{ u.id }}/grant">Edit grant</a>
+              <span class="muted"> · all sources &amp; models</span>
+            </div>
           {% endif %}
         </td>
         <td>
@@ -170,4 +211,5 @@
   sync();
 })();
 </script>
+<script src="/static/users_grant.js"></script>
 {% endblock %}

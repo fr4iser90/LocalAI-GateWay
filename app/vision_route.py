@@ -277,6 +277,7 @@ def mint_forward_ticket(
     rewrite_uri: str,
     rewrite_model: str = "",
     usage_id: int | None = None,
+    concurrency_lease=None,
 ) -> str:
     """Ticket for nginx → /v1/gateway/forward (VL rewrite and/or usage metering)."""
     ts = int(time.time())
@@ -289,6 +290,12 @@ def mint_forward_ticket(
     }
     if usage_id is not None:
         payload["uid"] = int(usage_id)
+    if concurrency_lease is not None:
+        payload["kid"] = int(concurrency_lease.key_id)
+        if concurrency_lease.user_id is not None:
+            payload["owner"] = int(concurrency_lease.user_id)
+        if concurrency_lease.model:
+            payload["mdl"] = concurrency_lease.model
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     sig = hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
     return base64.urlsafe_b64encode(raw).decode("ascii") + "." + sig

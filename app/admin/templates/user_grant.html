@@ -6,9 +6,11 @@
     <p class="eyebrow">Access</p>
     <h1>Grant · {{ target.username }}</h1>
     <p class="lede">
-      Ceiling for this user — their API keys can only use what you check here.
-      Empty model list = all enabled chat/embed models for the granted sources.
+      User ceiling for this account — sources, models, and rate limits.
     </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/users">← Users</a>
   </div>
 </header>
 {% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
@@ -16,65 +18,7 @@
 {% if target.is_platform_admin %}
 <div class="banner-info">Platform admins already have full access; this grant is ignored for them.</div>
 {% endif %}
-
 <div class="panel">
-  <p class="muted mt-0">Current: {{ grant_summary }}</p>
-  <form method="post" action="/users/{{ target.id }}/grant">
-    <div class="field field-gap-lg">
-      <label>Sources</label>
-      {% with source_chips=source_chips, selected_services=selected_services, hint_below='None checked = no API access for this user. New users get non-isolated (daily) sources by default.' %}
-      {% include "_source_chips.html" %}
-      {% endwith %}
-    </div>
-
-    <div class="field field-gap-lg">
-      <label>Model set (chat / embed)</label>
-      {% with catalog_groups=catalog_groups, selected=selected_models, input_name='models', picker_id='user-grant', hint='None checked = all ON models for granted sources. Sync under Models first if empty.' %}
-      {% include "partials/model_picker.html" %}
-      {% endwith %}
-    </div>
-
-    <h3 class="section-label">Rate ceiling (this user)</h3>
-    <p class="muted mt-0 text-sm">
-      This is how you set rate limits: caps across <strong>all</strong> of this user’s API keys
-      (empty = no user-level cap). Key-level limits still apply on top. Platform admins ignore this.
-    </p>
-    <div class="row row--loose">
-      <div class="field field--xs">
-        <label>RPM</label>
-        <input type="number" name="rpm_limit" min="0" placeholder="∞" value="{{ target.rpm_limit if target.rpm_limit is not none else '' }}">
-      </div>
-      <div class="field field--xs">
-        <label>Concurrency</label>
-        <input type="number" name="concurrency_limit" min="0" placeholder="∞" value="{{ target.concurrency_limit if target.concurrency_limit is not none else '' }}">
-      </div>
-      <div class="field field--xs">
-        <label>Daily requests</label>
-        <input type="number" name="daily_quota" min="0" placeholder="∞" value="{{ target.daily_quota if target.daily_quota is not none else '' }}">
-      </div>
-    </div>
-
-    <h3 class="section-label">Token budget (optional)</h3>
-    <p class="muted mt-0 text-sm">
-      Max estimated <strong>prompt tokens</strong> per Settings window — not request count, not watts.
-      Empty = off (use RPM / daily only). Used now:
-      <span class="mono">{{ '%.0f'|format(target.pool_used or 0) }}</span>
-      {% if target.pool_limit %} / {{ target.pool_limit }} tokens{% endif %}
-    </p>
-    <div class="row row--loose">
-      <div class="field field--sm">
-        <label for="pool-limit">Max tokens / window</label>
-        <input id="pool-limit" type="number" name="pool_limit" min="0" placeholder="off" value="{{ target.pool_limit if target.pool_limit is not none else '' }}">
-      </div>
-      <div class="field field--sm field--end">
-        <label><input type="checkbox" name="pool_reset_now"> Reset used → 0 now</label>
-      </div>
-    </div>
-
-    <div class="actions">
-      <input class="primary" type="submit" value="Save grant">
-      <a class="btn" href="/users">Back to users</a>
-    </div>
-  </form>
+  {% include "_user_grant_form.html" %}
 </div>
 {% endblock %}

@@ -1,50 +1,82 @@
 {% extends "setup_base.html" %}
 {% block wizard_body %}
-<div class="panel">
+<div class="panel panel--fill">
   <p class="muted mt-0">
-    Add at least one upstream (usually <span class="mono">chat</span>).
-    Path mapping is Auto (chat/embed → OpenAI, STT → whisper.cpp, TTS → Piper).
-    GPU Wh is automatic later: sidecar on that host at <span class="mono">:9105</span> — no extra setup step.
+    <strong>Kind</strong> is the API (<span class="mono">chat</span> / <span class="mono">embed</span> /
+    <span class="mono">stt</span> / <span class="mono">tts</span>) — leave that.
+    <strong>Name</strong> is your label for this box (rename freely:
+    <span class="mono">gpu-main</span>, <span class="mono">lab</span>, …).
   </p>
 
   {% if wizard.sources %}
-  <h2 class="section-label">Configured</h2>
-  <ul class="setup-source-list">
-    {% for s in wizard.sources %}
-    <li><span class="badge">{{ s.name }}</span> · {{ s.kind }} · <span class="mono">{{ s.address }}</span></li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-
-  <h2 class="section-label">{% if wizard.sources %}Add another{% else %}Add source{% endif %}</h2>
-  <form method="post" action="/setup/sources" class="wizard-form wizard-source-form">
-    <input type="hidden" name="api_style" value="auto">
-    <div class="wizard-grid">
-      <div class="field">
-        <label for="src-name">Name</label>
-        <input id="src-name" class="mono" type="text" name="name" required placeholder="chat"
-               pattern="[a-z][a-z0-9_-]{0,31}" value="{{ preset_name or 'chat' }}">
-      </div>
-      <div class="field">
-        <label for="src-kind">Kind</label>
-        <select id="src-kind" name="kind">
-          {% for k in kinds %}
-          <option value="{{ k }}" {% if k == (preset_kind or 'chat') %}selected{% endif %}>{{ k }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label for="src-addr">Address</label>
-        <input id="src-addr" class="mono" type="text" name="address" required
-               placeholder="192.168.178.25:11535" value="{{ preset_address or '' }}">
+  <form method="post" action="/setup/sources/save-all" class="wizard-form wizard-form--fill">
+    <div class="wizard-grow">
+      <h2 class="section-label">Your boxes</h2>
+      <div class="setup-source-table">
+        <div class="setup-source-head" aria-hidden="true">
+          <span>Name</span>
+          <span>Kind</span>
+          <span>Address</span>
+          <span class="sr-only">Delete</span>
+        </div>
+        {% for s in wizard.sources %}
+        <div class="setup-source-row">
+          <label class="sr-only" for="edit-name-{{ s.id }}">Name</label>
+          <input id="edit-name-{{ s.id }}" class="mono" type="text" name="name_{{ s.id }}" required
+                 pattern="[a-z][a-z0-9_-]{0,31}" value="{{ s.name }}">
+          <span class="badge" title="API kind — not a label">{{ s.kind }}</span>
+          <label class="sr-only" for="edit-addr-{{ s.id }}">Address</label>
+          <input id="edit-addr-{{ s.id }}" class="mono" type="text" name="address_{{ s.id }}" required
+                 value="{{ s.address }}">
+          <button type="submit" form="setup-del-{{ s.id }}" class="btn-icon-del"
+                  title="Delete {{ s.name }}" aria-label="Delete {{ s.name }}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M4 7h16M9 7V5h6v2M18 7l-1 14H7L6 7"/>
+              <path d="M10 11v6M14 11v6"/>
+            </svg>
+          </button>
+        </div>
+        {% endfor %}
       </div>
     </div>
-    <div class="actions wizard-actions">
-      <button class="primary" type="submit">Save source</button>
-      {% if wizard.has_sources %}
-      <a class="btn primary" href="/setup/models">Continue to models →</a>
-      {% endif %}
+    <div class="actions wizard-actions wizard-actions--sticky">
+      <button class="primary" type="submit">Save and continue</button>
     </div>
   </form>
+  {% for s in wizard.sources %}
+  <form id="setup-del-{{ s.id }}" method="post" action="/setup/sources/{{ s.id }}/delete"
+        onsubmit="return confirm('Delete source {{ s.name }}?');" hidden></form>
+  {% endfor %}
+  {% endif %}
+
+  <details class="setup-add"{% if not wizard.sources %} open{% endif %}>
+    <summary>{{ 'Add a source' if not wizard.sources else 'Add another' }}</summary>
+    <form method="post" action="/setup/sources" class="setup-add-form">
+      <input type="hidden" name="api_style" value="auto">
+      <div class="wizard-grid">
+        <div class="field">
+          <label for="src-name">Name</label>
+          <input id="src-name" class="mono" type="text" name="name" required placeholder="gpu-main"
+                 pattern="[a-z][a-z0-9_-]{0,31}" value="{{ preset_name or '' }}">
+        </div>
+        <div class="field">
+          <label for="src-kind">Kind</label>
+          <select id="src-kind" name="kind">
+            {% for k in kinds %}
+            <option value="{{ k }}" {% if k == (preset_kind or 'chat') %}selected{% endif %}>
+              {{ k }}{% if k == 'chat' %} — completions{% elif k == 'embed' %} — embeddings{% elif k == 'stt' %} — speech-to-text{% elif k == 'tts' %} — text-to-speech{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="src-addr">Address</label>
+          <input id="src-addr" class="mono" type="text" name="address" required
+                 placeholder="192.168.178.25:11535" value="{{ preset_address or '' }}">
+        </div>
+      </div>
+      <button class="btn-sm primary" type="submit">Add</button>
+    </form>
+  </details>
 </div>
 {% endblock %}

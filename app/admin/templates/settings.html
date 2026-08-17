@@ -5,221 +5,25 @@
   <div>
     <p class="eyebrow">System</p>
     <h1>Settings</h1>
-    <p class="lede">Registration, privacy, teams, rate limits, and routing. SMTP, alerts, and audit share this System area.</p>
+    <p class="lede">Access templates, limits, routing, and privacy. SMTP, alerts, and audit are in the subnav.</p>
   </div>
 </header>
 {% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
 {% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
 
-{% include "_system_subnav.html" %}
-
 {% if user.is_platform_admin and auth %}
-<div class="panel">
-  <h2>Users &amp; registration</h2>
-  <form method="post" action="/settings/auth">
-    <div class="checkboxes checkboxes-block">
-      <label><input type="checkbox" name="allow_self_registration" {% if auth.allow_self_registration %}checked{% endif %}> Allow self-registration</label>
-      <label><input type="checkbox" name="require_email" {% if auth.require_email %}checked{% endif %}> Require email on register</label>
-    </div>
-
-    <h3 class="section-label">Privacy</h3>
-    <div class="checkboxes checkboxes-block">
-      <label><input type="checkbox" name="anonymize_client_ip" {% if auth.anonymize_client_ip %}checked{% endif %}> Anonymize client IPs in usage logs</label>
-    </div>
-    <div class="field field-gap-md field--sm">
-      <label>Usage retention (days, 0 = keep forever)</label>
-      <input type="number" name="retention_days" min="0" max="3650" value="{{ auth.retention_days }}">
-    </div>
-
-    <h3 class="section-label">Teams (optional)</h3>
-    <p class="muted mt-0">Off by default. Users only see their own keys. Turn on only if people should share a key pool.</p>
-    <div class="checkboxes checkboxes-block">
-      <label><input type="checkbox" name="teams_enabled" id="teams_enabled" {% if auth.teams_enabled %}checked{% endif %}> Enable teams</label>
-    </div>
-    <div class="field field-gap-md field--sm" id="default_team_wrap">
-      <label>Default team for new registrations</label>
-      <select name="default_team_id" {% if not auth.teams_enabled %}disabled{% endif %}>
-        <option value="">— none —</option>
-        {% for t in teams %}
-        <option value="{{ t.id }}" {% if auth.default_team_id == t.id %}selected{% endif %}>{{ t.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <h3 class="section-label">API keys</h3>
-    <p class="muted mt-0">
-      Global cap on active keys per non-admin user (stops limit bypass via many keys).
-      Platform admins are unlimited. <span class="mono">0</span> = unlimited for everyone.
-    </p>
-    <div class="field field-gap-md field--sm">
-      <label>Max keys per user</label>
-      <input type="number" name="max_keys_per_user" min="0" max="100" value="{{ auth.max_keys_per_user if auth.max_keys_per_user is not none else 3 }}">
-    </div>
-
-    <h3 class="section-label">Request rate limits</h3>
-    <p class="muted mt-0">
-      Set these per user under <a href="/users">Users</a> → Edit grant (or on the API key / team):
-      <strong>RPM</strong>, <strong>concurrency</strong>, and <strong>daily requests</strong>.
-      That is the normal way to cap traffic — no token math.
-    </p>
-
-    <h3 class="section-label">Token budget (optional)</h3>
-    <p class="muted mt-0">
-      Extra size cap on estimated <strong>prompt tokens</strong> per rolling window.
-      Leave window at <span class="mono">0</span> if you only want RPM / daily limits.
-      Per-user max tokens: Users → Edit grant.
-    </p>
-    <p class="muted text-sm">
-      Default charge (weights off):
-      <span class="mono">budget_charge = max(min tokens/call, estimated_prompt_tokens)</span>.
-      Usage logs always store real tokens — never rewritten.
-    </p>
-    <p class="muted text-sm">
-      Example: limit <span class="mono">100000</span> tokens / 5h ≈ many short chats or fewer long prompts.
-      Tiny calls still charge at least the minimum below.
-    </p>
-    <div class="row row--loose">
-      <div class="field field--xs">
-        <label for="pool-window">Window (hours)</label>
-        <input id="pool-window" type="number" name="pool_window_hours" min="0" max="8760" value="{{ auth.pool_window_hours if auth.pool_window_hours is not none else 5 }}">
-      </div>
-      <div class="field field--xs">
-        <label for="pool-min">Min tokens / call</label>
-        <input id="pool-min" type="number" name="pool_min_cost" min="0" step="1" value="{{ auth.pool_min_cost if auth.pool_min_cost is not none else 1 }}">
-      </div>
-    </div>
-    <input type="hidden" name="pool_tokens_per_unit" value="1">
-    <div class="checkboxes checkboxes-block field-gap-md">
-      <label>
-        <input type="checkbox" name="pool_model_weights_enabled" {% if auth.pool_model_weights_enabled %}checked{% endif %}>
-        Enable optional per-model budget factors (off by default)
-      </label>
-    </div>
-    <p class="muted text-sm">
-      When enabled, Models shows a <strong>Budget factor</strong> column.
-      Formula then:
-      <span class="mono">budget_charge = max(min tokens/call, estimated_prompt_tokens) × factor</span>
-      (<span class="mono">factor=1</span> = unchanged).
-      Logged usage / billing meters stay at real tokens; only the optional grant budget is scaled.
-      Leave unchecked unless you intentionally weight some models differently.
-    </p>
-
-    <h3 class="section-label">GPU energy (optional)</h3>
-    {% if gpu_power_enabled %}
-    <p class="muted mt-0">
-      Sidecar on each source host at <span class="mono">:9105/power</span>
-      (same machine as the backend). Services live status shows watts or “sidecar missing”.
-      Chat / embed / STT / TTS meter Wh from wall time × sampled watts when a call finishes.
-      Energy does not change the pool.
-    </p>
-    <p class="muted text-sm">
-      Observed throughput (from usage logs)
-      {% if observed_tok_s %}
-      · <span class="mono">~{{ observed_tok_s }} tok/s</span> average — used only for rare auth-time Wh guesses, not entered by hand.
-      {% else %}
-      · not enough metered calls yet (need a few OK requests with tokens + duration).
-      {% endif %}
-    </p>
-    <input type="hidden" name="pool_watt_weight" value="0">
-    {% else %}
-    <p class="muted mt-0">
-      Add sources under <a href="/services">Services</a>. GPU probe uses
-      <span class="mono">http://&lt;source-host&gt;:9105/power</span> automatically.
-    </p>
-    <input type="hidden" name="pool_watt_weight" value="0">
-    {% endif %}
-
-    <h3 class="section-label">Routing (optional)</h3>
-    <p class="muted mt-0">
-      When enabled, chat JSON with image content parts is rewritten to a vision / <span class="mono">-VL</span>
-      sibling on the same source (catalog tag or id match). No match → request unchanged.
-    </p>
-    <div class="checkboxes checkboxes-block">
-      <label><input type="checkbox" name="auto_vl_routing" {% if auth.auto_vl_routing %}checked{% endif %}> Auto-route image chat → VL model</label>
-    </div>
-    <p class="muted field-gap-md">
-      Clients may send <span class="mono">auto</span>, <span class="mono">auto-quality</span>, or
-      <span class="mono">auto-long</span>. The gateway rewrites those to a real catalog id before llama-router.
-      Empty fields use the Halo defaults below. Pin <span class="mono">auto</span> as a favorite so IDEs pick it first.
-    </p>
-    <div class="field field-gap-md">
-      <label for="auto-default"><span class="mono">auto</span> → daily (MoE + MTP)</label>
-      <input id="auto-default" type="text" name="auto_model_default" value="{{ auth.auto_model_default or '' }}" placeholder="{{ default_auto_model }}" autocomplete="off">
-    </div>
-    <div class="field field-gap-md">
-      <label for="auto-quality"><span class="mono">auto-quality</span> → Q5 MoE + MTP</label>
-      <input id="auto-quality" type="text" name="auto_model_quality" value="{{ auth.auto_model_quality or '' }}" placeholder="{{ default_auto_quality }}" autocomplete="off">
-    </div>
-    <div class="field field-gap-md">
-      <label for="auto-long"><span class="mono">auto-long</span> → 128k preset</label>
-      <input id="auto-long" type="text" name="auto_model_long" value="{{ auth.auto_model_long or '' }}" placeholder="{{ default_auto_long }}" autocomplete="off">
-    </div>
-    <button class="primary" type="submit">Save</button>
-  </form>
-</div>
-<script>
-(function () {
-  var cb = document.getElementById('teams_enabled');
-  var sel = document.querySelector('select[name="default_team_id"]');
-  if (!cb || !sel) return;
-  function sync() { sel.disabled = !cb.checked; }
-  cb.addEventListener('change', sync);
-  sync();
-})();
-</script>
+{% include "_settings_subnav.html" %}
 {% endif %}
 
-<div class="panel">
-  <h2>Admin</h2>
-  <table>
-    <tr><th>Domain</th><td class="mono">{{ settings.domain }}</td></tr>
-    <tr><th>Public API host</th><td class="mono">{{ settings.public_host or '(local gateway port / any Host)' }}</td></tr>
-    <tr><th>Bootstrap user</th><td class="mono">{{ settings.admin_bootstrap_user }}</td></tr>
-    <tr><th>Session max age</th><td>{{ session_max_age }} s</td></tr>
-    <tr><th>Data dir</th><td class="mono">{{ settings.data_dir }}</td></tr>
-  </table>
-</div>
-
-<div class="panel">
-  <h2>Local access (this compose)</h2>
-  <table>
-    <tr><th>Admin UI</th><td class="mono"><a href="{{ admin_url }}">{{ admin_url }}</a></td></tr>
-    <tr><th>API gateway</th><td class="mono">{{ gateway_url }}</td></tr>
-  </table>
-  <p class="muted hint-after">
-    Path selects the service. Example:
-    <span class="mono">curl -H "X-Api-Key: …" {{ gateway_url }}/v1/chat/completions -d '…'</span>
-  </p>
-</div>
-
-<div class="panel">
-  <h2>API routes</h2>
-  <p class="muted mt-0">
-    One base URL + API key. Configure upstreams under <a href="/services">Services</a>.
-    Reverse proxy optional — point one hostname at the API gateway.
-  </p>
-  <table>
-    <thead><tr><th>Source</th><th>Path</th><th>Address</th></tr></thead>
-    <tbody>
-    {% for src, route in backend_rows %}
-      <tr>
-        <td><span class="badge">{{ src.name }}</span>{% if src.is_default %} · {{ src.kind }} default{% endif %}</td>
-        <td class="mono cell-sm">{{ route }}</td>
-        <td class="mono">{{ src.address if src.address else '— (disabled)' }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<div class="panel">
-  <h2>Temp guard</h2>
-  <table>
-    <tr><th>Disabled</th><td class="mono">{{ 'yes' if temp_guard_disabled else 'no' }}</td></tr>
-    <tr><th>Max °C</th><td class="mono">{{ temp_max_c }}</td></tr>
-    <tr><th>URL</th><td class="mono">{{ settings.temp_guard_url }}</td></tr>
-  </table>
-</div>
-
-<p class="muted">Secrets (API keys, session secret, bootstrap password) are not shown here.</p>
+{% if settings_tab == 'access' %}
+{% include "_settings_access.html" %}
+{% elif settings_tab == 'limits' %}
+{% include "_settings_limits.html" %}
+{% elif settings_tab == 'routing' %}
+{% include "_settings_routing.html" %}
+{% elif settings_tab == 'privacy' %}
+{% include "_settings_privacy.html" %}
+{% elif settings_tab == 'system' %}
+{% include "_settings_system.html" %}
+{% endif %}
 {% endblock %}

@@ -13,12 +13,12 @@ from sqlalchemy.orm import Session, joinedload
 from ..audit import write_audit
 from ..config import API_STYLES, KINDS, MODEL_CHECK_KINDS, Settings, dialect_choices
 from ..data.backends import (
-    default_grant_source_names,
     get_source_by_name,
     list_sources,
     source_chip_rows,
     source_names,
 )
+from ..data.grants import configured_default_sources
 from ..data.catalog import list_catalog
 from ..data.dialects import dialect_blurb_for_kind
 from ..data.db import (
@@ -278,6 +278,7 @@ def _key_form_context(
 ) -> dict:
     from ..data.grants import (
         catalog_groups_for_ceiling,
+        display_enabled_models_for_services,
         grant_summary,
         services_for_ceiling,
     )
@@ -296,12 +297,16 @@ def _key_form_context(
     services = services_for_ceiling(db, ceil)
     if selected_services is None:
         if api_key is not None:
-            selected_services = [g.service for g in api_key.service_grants]
+            key_svcs = [g.service for g in api_key.service_grants]
+            selected_services = key_svcs if key_svcs else list(services)
         else:
-            selected_services = []  # empty = inherit grant
-    selected_models = (
-        _selected_model_keys(list(api_key.model_allowlists)) if api_key else set()
-    )
+            selected_services = list(services)
+    if api_key is not None:
+        selected_models = _selected_model_keys(list(api_key.model_allowlists))
+        if not selected_models:
+            selected_models = display_enabled_models_for_services(db, selected_services)
+    else:
+        selected_models = display_enabled_models_for_services(db, selected_services)
     selected_favorites = (
         _selected_model_keys(list(api_key.model_favorites)) if api_key else set()
     )
@@ -402,6 +407,28 @@ def _wizard_or_next(db: Session, user: AdminUser):
 # ---- First-run setup wizard ----
 
 
+def _wizard_sync_catalog(db: Session, request: Request, user: AdminUser) -> None:
+    from ..data.catalog import sync_catalog_from_sources
+
+    stats = sync_catalog_from_sources(db)
+    write_audit(
+        db,
+        actor=user,
+        action="setup.catalog.sync",
+        entity_type="catalog_models",
+        detail=str(stats),
+    )
+    db.commit()
+    seen = int(stats.get("seen") or 0)
+    if seen == 0:
+        request.session["flash_err"] = (
+            "Sync found 0 models — check source addresses. Retry later under Models."
+        )
+    else:
+        created = int(stats.get("created") or 0)
+        request.session["flash_ok"] = f"Synced {seen} models ({created} new)."
+
+
 @router.get("/setup", response_class=HTMLResponse)
 def setup_root(
     request: Request,
@@ -485,7 +512,6 @@ def setup_sources_save(
         address=address,
         is_default=not has_kind,
         route_models="",
-        isolated=False,
         api_style="auto",
     )
     write_audit(
@@ -501,32 +527,80 @@ def setup_sources_save(
     return RedirectResponse("/setup/sources", status_code=303)
 
 
+@router.post("/setup/sources/save-all")
+async def setup_sources_save_all(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
+    from ..data.backends import apply_source_row_edits, list_sources
+    from ..data.models import BackendSource
+
+    form = await request.form()
+    sources = [s for s in list_sources(db) if (s.address or "").strip()]
+    edits: list[tuple[BackendSource, str, str]] = []
+    for src in sources:
+        name = str(form.get(f"name_{src.id}") or src.name)
+        address = str(form.get(f"address_{src.id}") or src.address)
+        edits.append((src, name, address))
+    err = apply_source_row_edits(db, edits)
+    if err:
+        request.session["flash_err"] = err
+        return RedirectResponse("/setup/sources", status_code=303)
+    write_audit(
+        db,
+        actor=user,
+        action="setup.sources.save",
+        entity_type="backend_source",
+        detail=f"n={len(edits)}",
+    )
+    db.commit()
+    _wizard_sync_catalog(db, request, user)
+    return RedirectResponse("/setup/access", status_code=303)
+
+
+@router.post("/setup/sources/{source_id}/delete")
+def setup_sources_delete(
+    source_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
+    from ..data.backends import delete_source
+    from ..data.models import BackendSource
+
+    src = db.get(BackendSource, source_id)
+    if src is None:
+        request.session["flash_err"] = "Source not found"
+        return RedirectResponse("/setup/sources", status_code=303)
+    name = src.name
+    delete_source(db, src)
+    write_audit(
+        db,
+        actor=user,
+        action="source.delete",
+        entity_type="backend_source",
+        entity_id=source_id,
+        detail=name,
+    )
+    db.commit()
+    request.session["flash_ok"] = f"Source '{name}' deleted."
+    return RedirectResponse("/setup/sources", status_code=303)
+
+
 @router.get("/setup/models", response_class=HTMLResponse)
 def setup_models_page(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_platform_admin)],
 ):
+    """Old wizard step — catalog now syncs from Backends → Default access."""
     from .setup import wizard_progress
 
-    wiz = wizard_progress(db)
-    if not wiz["has_sources"]:
+    if not wizard_progress(db)["has_sources"]:
         return RedirectResponse("/setup/sources", status_code=303)
-    return templates.TemplateResponse(
-        request,
-        "setup_models.html",
-        {
-            "user": user,
-            "nav": "setup",
-            "wizard": wiz,
-            "step_id": "models",
-            "step_title": "Step 2 · Sync models",
-            "step_lede": "Discover models from each backend into the catalog.",
-            "flash_ok": request.session.pop("flash_ok", None),
-            "flash_err": request.session.pop("flash_err", None),
-            "is_admin": True,
-        },
-    )
+    _wizard_sync_catalog(db, request, user)
+    return RedirectResponse("/setup/access", status_code=303)
 
 
 @router.post("/setup/models")
@@ -535,28 +609,77 @@ def setup_models_sync(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_platform_admin)],
 ):
-    from ..data.catalog import sync_catalog_from_sources
+    return setup_models_page(request, db, user)
+
+
+@router.get("/setup/access", response_class=HTMLResponse)
+def setup_access_page(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
+    from ..data.grants import (
+        AccessCeiling,
+        catalog_groups_for_ceiling,
+        display_default_models,
+        display_default_sources,
+    )
     from .setup import wizard_progress
 
-    if not wizard_progress(db)["has_sources"]:
+    wiz = wizard_progress(db)
+    if not wiz["has_sources"]:
         return RedirectResponse("/setup/sources", status_code=303)
-    stats = sync_catalog_from_sources(db)
+    ceil = AccessCeiling(unrestricted=True, label="setup")
+    return templates.TemplateResponse(
+        request,
+        "setup_access.html",
+        {
+            "user": user,
+            "nav": "setup",
+            "wizard": wiz,
+            "step_id": "access",
+            "step_title": "Step 2 · Default access",
+            "step_lede": "What new (non-admin) users get automatically. Everything starts checked — uncheck what they should not get.",
+            "source_chips": source_chip_rows(db),
+            "selected_services": display_default_sources(db),
+            "catalog_groups": catalog_groups_for_ceiling(db, ceil),
+            "selected_models": display_default_models(db),
+            "flash_ok": request.session.pop("flash_ok", None),
+            "flash_err": request.session.pop("flash_err", None),
+            "is_admin": True,
+        },
+    )
+
+
+@router.post("/setup/access")
+async def setup_access_save(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
+    from ..data.grants import save_default_grant
+    from .setup import wizard_progress
+
+    wiz = wizard_progress(db)
+    if not wiz["has_sources"]:
+        return RedirectResponse("/setup/sources", status_code=303)
+    form = await request.form()
+    names = source_names(db)
+    services = _parse_services(form.getlist("services"), names)
+    models = [(s, m) for s, m in _collect_models_from_form(form, db) if s in services]
+    save_default_grant(db, services, models)
     write_audit(
         db,
         actor=user,
-        action="setup.catalog.sync",
-        entity_type="catalog_models",
-        detail=str(stats),
+        action="setup.default_grant",
+        entity_type="auth_settings",
+        detail=f"services={services} models={len(models)}",
     )
     db.commit()
-    if stats.get("seen", 0) == 0:
-        request.session["flash_err"] = (
-            "Sync found 0 models — check source addresses are reachable, then try again."
-        )
-        return RedirectResponse("/setup/models", status_code=303)
-    request.session["flash_ok"] = (
-        f"Synced {stats['seen']} models ({stats.get('created', 0)} new)."
-    )
+    if services:
+        request.session["flash_ok"] = "Default access saved for new users."
+    else:
+        request.session["flash_ok"] = "Saved: new users get no sources until you grant them."
     return RedirectResponse("/setup/key", status_code=303)
 
 
@@ -569,7 +692,11 @@ def setup_key_page(
     import os
 
     from ..config import public_api_base
-    from ..data.grants import AccessCeiling, catalog_groups_for_ceiling
+    from ..data.grants import (
+        AccessCeiling,
+        catalog_groups_for_ceiling,
+        display_enabled_models_for_services,
+    )
     from ..vision_route import group_models_vl_pairs
     from .accounts import get_auth_settings
     from .setup import wizard_progress
@@ -577,17 +704,18 @@ def setup_key_page(
     wiz = wizard_progress(db)
     if not wiz["has_sources"]:
         return RedirectResponse("/setup/sources", status_code=303)
-    if not wiz["has_models"]:
-        return RedirectResponse("/setup/models", status_code=303)
     created = request.session.pop("flash_key", None)
     created_summary = request.session.pop("flash_key_services", None)
     created_models_n = request.session.pop("flash_key_models_n", None)
     ceil = AccessCeiling(unrestricted=True, label="setup")
     auth = get_auth_settings(db)
     catalog_groups = catalog_groups_for_ceiling(db, ceil)
-    catalog_vl_groups = [
-        (src, group_models_vl_pairs(models)) for src, models in catalog_groups
-    ]
+    catalog_vl_groups = (
+        [(src, group_models_vl_pairs(models)) for src, models in catalog_groups]
+        if auth.auto_vl_routing
+        else None
+    )
+    service_names = [s.name for s in wiz["sources"]] if wiz.get("sources") else []
     gw_port = os.getenv("GATEWAY_PORT", "9081")
     return templates.TemplateResponse(
         request,
@@ -598,20 +726,16 @@ def setup_key_page(
             "wizard": wiz,
             "step_id": "key",
             "step_title": "Step 3 · Your API key",
-            "step_lede": "Choose which sources (and optionally models) this key may use.",
+            "step_lede": "One admin key to verify the gateway works. Uncheck only what this key should not use.",
             "created_key": created,
             "created_summary": created_summary,
             "created_models_n": created_models_n,
             "sources": wiz["sources"],
             "source_chips": source_chip_rows(db),
-            "selected_services": (
-                [s.name for s in wiz["sources"] if not getattr(s, "isolated", False)]
-                if wiz.get("sources")
-                else []
-            ),
+            "selected_services": service_names,
+            "selected_models": display_enabled_models_for_services(db, service_names),
             "catalog_groups": catalog_groups,
             "catalog_vl_groups": catalog_vl_groups,
-            "auto_vl_routing": bool(auth.auto_vl_routing),
             "gateway_port": gw_port,
             "api_base": public_api_base(gateway_port=gw_port),
             "flash_ok": request.session.pop("flash_ok", None),
@@ -627,15 +751,12 @@ async def setup_key_create(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_platform_admin)],
 ):
-    from ..data.grants import AccessCeiling, clamp_models, clamp_services
-    from .accounts import get_auth_settings
+    from ..data.grants import AccessCeiling, clamp_models, clamp_services, normalize_model_allowlist
     from .setup import wizard_progress
 
     wiz = wizard_progress(db)
     if not wiz["has_sources"]:
         return RedirectResponse("/setup/sources", status_code=303)
-    if not wiz["has_models"]:
-        return RedirectResponse("/setup/models", status_code=303)
 
     form = await request.form()
     label = str(form.get("label") or "").strip() or "main"
@@ -649,11 +770,8 @@ async def setup_key_create(
         return RedirectResponse("/setup/key", status_code=303)
 
     models = clamp_models(_collect_models_from_form(form, db), ceil)
-    # Only keep model rows for selected sources
     models = [(s, m) for s, m in models if s in services]
-
-    auth = get_auth_settings(db)
-    auth.auto_vl_routing = str(form.get("auto_vl_routing") or "") == "on"
+    models = normalize_model_allowlist(db, services, models)
 
     raw = generate_api_key()
     api_key = ApiKey(
@@ -674,10 +792,7 @@ async def setup_key_create(
         action="setup.key",
         entity_type="api_key",
         entity_id=api_key.id,
-        detail=(
-            f"{api_key.label} services={services} models={len(models)} "
-            f"auto_vl={auth.auto_vl_routing}"
-        ),
+        detail=f"{api_key.label} services={services} models={len(models)}",
     )
     db.commit()
     request.session["flash_key"] = raw
@@ -1041,7 +1156,7 @@ async def keys_create(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_user)],
 ):
-    from ..data.grants import clamp_models, clamp_services
+    from ..data.grants import clamp_models, clamp_services, normalize_model_allowlist
     from .accounts import assert_can_create_key
 
     teams_on = _teams_on(db)
@@ -1081,6 +1196,7 @@ async def keys_create(
         _parse_services(form.getlist("services"), names), ceil, db
     )
     models = clamp_models(_collect_models_from_form(form, db), ceil)
+    models = normalize_model_allowlist(db, services, models)
     favorites = clamp_models(
         [(s, m) for s, m, _ in _collect_favorites_from_form(form, db)], ceil
     )
@@ -1184,7 +1300,7 @@ async def keys_update(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_user)],
 ):
-    from ..data.grants import clamp_models, clamp_services
+    from ..data.grants import clamp_models, clamp_services, normalize_model_allowlist
 
     teams_on = _teams_on(db)
     api_key = db.get(ApiKey, key_id)
@@ -1252,6 +1368,7 @@ async def keys_update(
         _parse_services(form.getlist("services"), names), ceil, db
     )
     models = clamp_models(_collect_models_from_form(form, db), ceil)
+    models = normalize_model_allowlist(db, services, models)
     favorites = clamp_models(
         [(s, m) for s, m, _ in _collect_favorites_from_form(form, db)], ceil
     )
@@ -1370,7 +1487,7 @@ def teams_new(
             "team": None,
             "services": names,
             "source_chips": source_chip_rows(db),
-            "selected_services": default_grant_source_names(db),
+            "selected_services": configured_default_sources(db),
             "catalog_groups": catalog_groups_for_ceiling(
                 db, AccessCeiling(unrestricted=True)
             ),
@@ -1553,8 +1670,18 @@ def users_list(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_platform_admin)],
 ):
-    from ..data.grants import ceiling_from_user, grant_summary
-    from ..mailer import smtp_ready, get_smtp
+    from ..data.grants import (
+        AccessCeiling,
+        catalog_groups_for_ceiling,
+        ceiling_from_user,
+        display_default_models,
+        display_default_sources,
+        grant_summary,
+    )
+    from ..data.usage_weights import catalog_weight_suggestions
+    from .accounts import get_auth_settings
+    from ..mailer import get_smtp, smtp_ready
+    from .user_limits import user_limits_summary
 
     users = (
         db.query(AdminUser)
@@ -1567,12 +1694,22 @@ def users_list(
     )
     flash = request.session.pop("flash_ok", None)
     err = request.session.pop("flash_err", None)
-    grant_labels = {
-        u.id: grant_summary(ceiling_from_user(u)) for u in users
-    }
+    grant_labels = {u.id: grant_summary(ceiling_from_user(u)) for u in users}
     grant_sources = {
         u.id: sorted({g.service for g in u.service_grants}) for u in users
     }
+    all_names = source_names(db)
+    ungranted_sources = {
+        u.id: [n for n in all_names if n not in set(grant_sources.get(u.id, []))]
+        for u in users
+    }
+    auth = get_auth_settings(db)
+    pool_window = int(getattr(auth, "pool_window_hours", 0) or 0)
+    limit_summaries = {
+        u.id: user_limits_summary(u, pool_window_hours=pool_window) for u in users
+    }
+    weight_status = catalog_weight_suggestions(db)
+
     return templates.TemplateResponse(
         request,
         "users.html",
@@ -1587,21 +1724,232 @@ def users_list(
             "teams_enabled": _teams_on(db),
             "grant_labels": grant_labels,
             "grant_sources": grant_sources,
+            "ungranted_sources": ungranted_sources,
+            "limit_summaries": limit_summaries,
+            "weight_status": weight_status,
+            "pool_model_weights_enabled": bool(auth.pool_model_weights_enabled),
             "source_chips": source_chip_rows(db),
-            "selected_services": default_grant_source_names(db),
+            "selected_services": display_default_sources(db),
+            "catalog_groups": catalog_groups_for_ceiling(
+                db, AccessCeiling(unrestricted=True)
+            ),
+            "selected_models": display_default_models(db),
         },
     )
 
 
-@router.get("/users/{user_id}/grant", response_class=HTMLResponse)
-def users_grant_edit(
+def _user_grant_panel(db: Session, target: AdminUser) -> dict:
+    from ..data.grants import AccessCeiling, catalog_groups_for_ceiling, ceiling_from_user, grant_summary
+
+    selected_services = [g.service for g in target.service_grants]
+    if not selected_services:
+        selected_services = configured_default_sources(db)
+    return {
+        "source_chips": source_chip_rows(db),
+        "selected_services": selected_services,
+        "catalog_groups": catalog_groups_for_ceiling(db, AccessCeiling(unrestricted=True)),
+        "selected_models": _selected_model_keys(target.model_allowlists),
+        "grant_summary": grant_summary(ceiling_from_user(target)),
+    }
+
+
+def _load_grant_target(db: Session, user_id: int) -> AdminUser | None:
+    return (
+        db.query(AdminUser)
+        .options(
+            joinedload(AdminUser.service_grants),
+            joinedload(AdminUser.model_allowlists),
+        )
+        .filter(AdminUser.id == user_id)
+        .first()
+    )
+
+
+@router.get("/users/{user_id}/grant/sources/partial", response_class=HTMLResponse)
+def users_grant_sources_partial(
     user_id: int,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_platform_admin)],
 ):
-    from ..data.grants import AccessCeiling, catalog_groups_for_ceiling, ceiling_from_user, grant_summary
+    """HTML fragment: pick ungranted sources to add under the user row."""
+    if _teams_on(db):
+        return HTMLResponse("Teams mode — edit grants on Teams.", status_code=400)
+    target = _load_grant_target(db, user_id)
+    if target is None:
+        return HTMLResponse("User not found", status_code=404)
+    if target.is_platform_admin:
+        return HTMLResponse("Platform admins have full access.", status_code=400)
+    granted = {g.service for g in target.service_grants}
+    chips = [c for c in source_chip_rows(db) if c["name"] not in granted]
+    return templates.TemplateResponse(
+        request,
+        "_user_grant_sources_expand.html",
+        {"user": user, "target": target, "source_chips": chips},
+    )
 
+
+@router.post("/users/{user_id}/grant/sources/add")
+async def users_grant_sources_add(
+    user_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
+    from ..data.grants import sync_user_grants
+
+    if _teams_on(db):
+        request.session["flash_err"] = "Teams are enabled — edit the Team grant instead."
+        return RedirectResponse("/users", status_code=303)
+    target = _load_grant_target(db, user_id)
+    if not target or target.is_platform_admin:
+        return RedirectResponse("/users", status_code=303)
+    form = await request.form()
+    names = set(source_names(db))
+    granted = {g.service for g in target.service_grants}
+    to_add = _parse_services(form.getlist("services"), names)
+    if not to_add:
+        request.session["flash_err"] = "Check at least one source to add."
+        return RedirectResponse("/users", status_code=303)
+    merged = sorted(granted | set(to_add))
+    sync_user_grants(db, target, merged)
+    write_audit(
+        db,
+        actor=user,
+        action="user.grant.sources_add",
+        entity_type="user",
+        entity_id=target.id,
+        detail=f"added={to_add} total={merged}",
+    )
+    db.commit()
+    request.session["flash_ok"] = (
+        f"Added {', '.join(to_add)} for {target.username}."
+        if len(to_add) > 1
+        else f"Added {to_add[0]} for {target.username}."
+    )
+    return RedirectResponse("/users", status_code=303)
+
+
+@router.post("/users/{user_id}/grant/source/remove")
+async def users_grant_source_remove(
+    user_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+    source: str = Form(""),
+):
+    from ..data.grants import sync_user_grants
+    from ..data.models import ModelAllowlist
+
+    if _teams_on(db):
+        request.session["flash_err"] = "Teams are enabled — edit the Team grant instead."
+        return RedirectResponse("/users", status_code=303)
+    target = _load_grant_target(db, user_id)
+    if not target or target.is_platform_admin:
+        return RedirectResponse("/users", status_code=303)
+    name = source.strip()
+    names = set(source_names(db))
+    if not name or name not in names:
+        request.session["flash_err"] = "Unknown source."
+        return RedirectResponse("/users", status_code=303)
+    granted = {g.service for g in target.service_grants}
+    if name not in granted:
+        request.session["flash_err"] = f"Source '{name}' was not granted."
+        return RedirectResponse("/users", status_code=303)
+    remaining = sorted(granted - {name})
+    sync_user_grants(db, target, remaining)
+    db.query(ModelAllowlist).filter(
+        ModelAllowlist.user_id == target.id,
+        ModelAllowlist.service == name,
+    ).delete()
+    write_audit(
+        db,
+        actor=user,
+        action="user.grant.source_remove",
+        entity_type="user",
+        entity_id=target.id,
+        detail=f"removed={name} remaining={remaining}",
+    )
+    db.commit()
+    request.session["flash_ok"] = f"Removed {name} from {target.username}."
+    return RedirectResponse("/users", status_code=303)
+
+
+@router.get("/users/{user_id}/grant/limits/partial", response_class=HTMLResponse)
+def users_grant_limits_partial(
+    user_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
+    if _teams_on(db):
+        return HTMLResponse("Teams mode — edit grants on Teams.", status_code=400)
+    target = _load_grant_target(db, user_id)
+    if target is None:
+        return HTMLResponse("User not found", status_code=404)
+    if target.is_platform_admin:
+        return HTMLResponse("Platform admins have full access.", status_code=400)
+    from .accounts import get_auth_settings
+
+    auth = get_auth_settings(db)
+    return templates.TemplateResponse(
+        request,
+        "_user_grant_limits_expand.html",
+        {
+            "user": user,
+            "target": target,
+            "pool_window_hours": int(getattr(auth, "pool_window_hours", 0) or 0),
+        },
+    )
+
+
+@router.post("/users/{user_id}/grant/limits")
+async def users_grant_limits_save(
+    user_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
+    from .user_limits import apply_user_limits_from_form
+
+    if _teams_on(db):
+        request.session["flash_err"] = "Teams are enabled — edit the Team grant instead."
+        return RedirectResponse("/users", status_code=303)
+    target = _load_grant_target(db, user_id)
+    if not target or target.is_platform_admin:
+        return RedirectResponse("/users", status_code=303)
+    form = await request.form()
+    apply_user_limits_from_form(target, form)
+    write_audit(
+        db,
+        actor=user,
+        action="user.grant.limits",
+        entity_type="user",
+        entity_id=target.id,
+        detail=(
+            f"rpm={target.rpm_limit} conc={target.concurrency_limit} "
+            f"daily={target.daily_quota} pool={target.pool_limit}"
+        ),
+    )
+    db.commit()
+    request.session["flash_ok"] = f"Limits saved for {target.username}."
+    return RedirectResponse("/users", status_code=303)
+
+
+@router.get("/users/{user_id}/grant/partial", response_class=HTMLResponse)
+def users_grant_partial(
+    user_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
+    """HTML fragment: models for one source, under that user row."""
+    if _teams_on(db):
+        return HTMLResponse("Teams mode — edit grants on Teams.", status_code=400)
+    source = (request.query_params.get("source") or "").strip()
+    names = set(source_names(db))
+    if not source or source not in names:
+        return HTMLResponse("Unknown source", status_code=400)
     target = (
         db.query(AdminUser)
         .options(
@@ -1611,18 +1959,111 @@ def users_grant_edit(
         .filter(AdminUser.id == user_id)
         .first()
     )
-    if not target:
+    if target is None:
+        return HTMLResponse("User not found", status_code=404)
+    if target.is_platform_admin:
+        return HTMLResponse("Platform admins have full access.", status_code=400)
+    granted = {g.service for g in target.service_grants}
+    if source not in granted:
+        return HTMLResponse("Source not granted", status_code=400)
+    models = [
+        row
+        for row in list_catalog(db)
+        if row.enabled and row.source_name == source
+    ]
+    listed = {m.model_name for m in target.model_allowlists if m.service == source}
+    if listed:
+        selected = listed
+    else:
+        selected = {m.model_id for m in models}
+    return templates.TemplateResponse(
+        request,
+        "_user_grant_expand.html",
+        {
+            "user": user,
+            "target": target,
+            "source": source,
+            "models": models,
+            "selected": selected,
+        },
+    )
+
+
+@router.post("/users/{user_id}/grant/source")
+async def users_grant_source_save(
+    user_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
+    from ..data.grants import sync_user_models_for_service
+
+    if _teams_on(db):
+        request.session["flash_err"] = "Teams are enabled — edit the Team grant instead."
         return RedirectResponse("/users", status_code=303)
+    target = (
+        db.query(AdminUser)
+        .options(joinedload(AdminUser.service_grants))
+        .filter(AdminUser.id == user_id)
+        .first()
+    )
+    if not target or target.is_platform_admin:
+        return RedirectResponse("/users", status_code=303)
+    form = await request.form()
+    source = str(form.get("source") or "").strip()
+    names = set(source_names(db))
+    granted = {g.service for g in target.service_grants}
+    if source not in names or source not in granted:
+        request.session["flash_err"] = "Unknown or ungranted source."
+        return RedirectResponse("/users", status_code=303)
+    catalog_ids = [
+        row.model_id
+        for row in list_catalog(db)
+        if row.enabled and row.source_name == source
+    ]
+    picked = [m for s, m in _parse_model_checks(form.getlist("models")) if s == source]
+    if not picked or (catalog_ids and set(picked) >= set(catalog_ids)):
+        model_names = None
+    else:
+        model_names = picked
+    sync_user_models_for_service(db, target, source, model_names)
+    write_audit(
+        db,
+        actor=user,
+        action="user.grant.source",
+        entity_type="user",
+        entity_id=target.id,
+        detail=f"source={source} models={model_names if model_names is not None else 'all'}",
+    )
+    db.commit()
+    request.session["flash_ok"] = f"Saved {source} models for {target.username}."
+    return RedirectResponse("/users", status_code=303)
+
+
+@router.get("/users/{user_id}/grant", response_class=HTMLResponse)
+def users_grant_edit(
+    user_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
     if _teams_on(db):
         request.session["flash_err"] = (
             "Teams are enabled — set grants on the Team, not on individual users."
         )
         return RedirectResponse("/users", status_code=303)
-    selected = _selected_model_keys(target.model_allowlists)
-    selected_services = [g.service for g in target.service_grants]
-    # Empty grant on first open: pre-check safe (non-isolated) defaults.
-    if not selected_services and not target.is_platform_admin:
-        selected_services = default_grant_source_names(db)
+    target = (
+        db.query(AdminUser)
+        .options(
+            joinedload(AdminUser.service_grants),
+            joinedload(AdminUser.model_allowlists),
+        )
+        .filter(AdminUser.id == user_id)
+        .first()
+    )
+    if target is None:
+        return RedirectResponse("/users", status_code=303)
+    panel = _user_grant_panel(db, target)
     return templates.TemplateResponse(
         request,
         "user_grant.html",
@@ -1630,16 +2071,9 @@ def users_grant_edit(
             "user": user,
             "target": target,
             "nav": "users",
-            "services": source_names(db),
-            "source_chips": source_chip_rows(db),
-            "selected_services": selected_services,
-            "catalog_groups": catalog_groups_for_ceiling(
-                db, AccessCeiling(unrestricted=True)
-            ),
-            "selected_models": selected,
-            "grant_summary": grant_summary(ceiling_from_user(target)),
             "flash_ok": request.session.pop("flash_ok", None),
             "flash_err": request.session.pop("flash_err", None),
+            **panel,
         },
     )
 
@@ -1668,25 +2102,9 @@ async def users_grant_save(
     sync_user_grants(db, target, services)
     sync_user_models(db, target, models)
 
-    def _opt_int(raw: str) -> int | None:
-        s = (raw or "").strip()
-        if not s:
-            return None
-        try:
-            n = int(s)
-        except ValueError:
-            return None
-        return n if n > 0 else None
+    from .user_limits import apply_user_limits_from_form
 
-    target.rpm_limit = _opt_int(str(form.get("rpm_limit") or ""))
-    target.concurrency_limit = _opt_int(str(form.get("concurrency_limit") or ""))
-    target.daily_quota = _opt_int(str(form.get("daily_quota") or ""))
-    target.pool_limit = _opt_int(str(form.get("pool_limit") or ""))
-    if str(form.get("pool_reset_now") or "") == "on":
-        target.pool_used = 0.0
-        from ..data.models import utcnow
-
-        target.pool_window_start = utcnow()
+    apply_user_limits_from_form(target, form)
 
     write_audit(
         db,
@@ -1702,7 +2120,7 @@ async def users_grant_save(
     )
     db.commit()
     request.session["flash_ok"] = f"Grant saved for {target.username}."
-    return RedirectResponse(f"/users/{target.id}/grant", status_code=303)
+    return RedirectResponse("/users", status_code=303)
 
 
 @router.post("/users/new")
@@ -1711,7 +2129,7 @@ async def users_create(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_platform_admin)],
 ):
-    from ..data.grants import sync_user_grants
+    from ..data.grants import sync_user_grants, sync_user_models
 
     form = await request.form()
     username = str(form.get("username") or "").strip()
@@ -1743,8 +2161,11 @@ async def users_create(
         names = source_names(db)
         services = _parse_services(form.getlist("services"), names)
         if not services:
-            services = default_grant_source_names(db)
+            services = configured_default_sources(db)
         sync_user_grants(db, target, services)
+        models = [(s, m) for s, m in _collect_models_from_form(form, db) if s in services]
+        if models:
+            sync_user_models(db, target, models)
     write_audit(
         db, actor=user, action="user.create", entity_type="user", detail=username
     )
@@ -2059,6 +2480,7 @@ def models_page(
         list_catalog,
         suggest_docs_url,
     )
+    from ..data.usage_weights import catalog_weight_suggestions
     from ..stats import model_perf_averages, model_perf_by_id
     from ..vision_route import group_kind_rows_vl_pairs
     from .accounts import get_auth_settings
@@ -2069,6 +2491,7 @@ def models_page(
     auth = get_auth_settings(db)
     auto_vl = bool(auth.auto_vl_routing)
     pool_weights = bool(auth.pool_model_weights_enabled)
+    weight_status = catalog_weight_suggestions(db)
     observed = model_perf_by_id(model_perf_averages(db, key_ids=None, lookback_days=7))
     groups = []
     for kind, kind_rows in catalog_grouped_by_kind(rows):
@@ -2088,6 +2511,7 @@ def models_page(
             "observed": observed,
             "auto_vl_routing": auto_vl,
             "pool_model_weights_enabled": pool_weights,
+            "weight_status": weight_status,
             "suggest_docs_url": suggest_docs_url,
             "format_param_count": format_param_count,
             "format_bytes": format_bytes,
@@ -2121,6 +2545,44 @@ def models_sync(
         f"({stats['created']} new, {stats.get('tagged', 0)} auto-tagged, "
         f"{stats.get('meta', 0)} with meta)."
     )
+    return RedirectResponse("/models", status_code=303)
+
+
+@router.post("/models/apply-suggested-weights")
+def models_apply_suggested_weights(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
+    from ..data.usage_weights import apply_weight_suggestions, catalog_weight_suggestions
+    from .accounts import get_auth_settings
+
+    auth = get_auth_settings(db)
+    if not auth.pool_model_weights_enabled:
+        request.session["flash_err"] = (
+            "Enable per-model budget factors in Settings first — suggestions never apply automatically."
+        )
+        return RedirectResponse("/models", status_code=303)
+    status = catalog_weight_suggestions(db)
+    if not status.ready:
+        request.session["flash_err"] = status.message
+        return RedirectResponse("/models", status_code=303)
+    n = apply_weight_suggestions(db, status.suggestions)
+    write_audit(
+        db,
+        actor=user,
+        action="catalog.suggest_weights",
+        entity_type="catalog_models",
+        detail=f"updated={n} baseline_tg={status.baseline_tg_tok_s}",
+    )
+    db.commit()
+    if n:
+        request.session["flash_ok"] = (
+            f"Updated {n} budget factor(s) from 7d usage "
+            f"(baseline TG ~{status.baseline_tg_tok_s} tok/s)."
+        )
+    else:
+        request.session["flash_ok"] = "Weights already match suggestions — nothing changed."
     return RedirectResponse("/models", status_code=303)
 
 
@@ -2232,7 +2694,6 @@ def services_create(
     kind: str = Form("chat"),
     address: str = Form(""),
     is_default: str = Form(""),
-    isolated: str = Form(""),
     api_style: str = Form("auto"),
 ):
     from ..data.backends import (
@@ -2257,7 +2718,6 @@ def services_create(
         address=address,
         is_default=bool(is_default),
         route_models="",
-        isolated=bool(isolated),
         api_style=api_style,
     )
     write_audit(
@@ -2266,7 +2726,7 @@ def services_create(
         action="source.create",
         entity_type="backend_source",
         entity_id=src.id,
-        detail=f"{src.name} kind={src.kind} default={src.is_default} isolated={src.isolated} style={src.api_style}",
+        detail=f"{src.name} kind={src.kind} default={src.is_default} style={src.api_style}",
     )
     db.commit()
     request.session["flash_ok"] = f"Source '{src.name}' added."
@@ -2281,12 +2741,13 @@ def services_update(
     user: Annotated[AdminUser, Depends(require_platform_admin)],
     address: str = Form(""),
     is_default: str = Form(""),
-    isolated: str = Form(""),
     api_style: str = Form("auto"),
+    name: str = Form(""),
 ):
     from ..data.backends import (
         clear_default_for_kind,
         normalize_backend,
+        rename_source,
         validate_backend,
     )
     from ..data.models import BackendSource
@@ -2306,8 +2767,11 @@ def services_update(
     src.address = normalize_backend(address)
     src.gpu_power_url = ""  # always derived from address host:9105
     src.route_models = ""  # merge targets come from catalog sync only
-    src.isolated = bool(isolated)
     src.api_style = style
+    err = rename_source(db, src, name or src.name)
+    if err:
+        request.session["flash_err"] = err
+        return RedirectResponse("/services", status_code=303)
     make_default = bool(is_default)
     if make_default:
         clear_default_for_kind(db, src.kind, except_id=src.id)
@@ -2322,7 +2786,7 @@ def services_update(
         entity_id=src.id,
         detail=(
             f"{src.name} addr={'set' if src.address else 'empty'} "
-            f"default={src.is_default} isolated={src.isolated} style={src.api_style}"
+            f"default={src.is_default} style={src.api_style}"
         ),
     )
     db.commit()
@@ -2359,15 +2823,33 @@ def services_delete(
     return RedirectResponse("/services", status_code=303)
 
 
-@router.get("/settings", response_class=HTMLResponse)
-def settings_page(
-    request: Request,
-    db: Annotated[Session, Depends(get_db)],
+@router.get("/settings")
+def settings_root(
     user: Annotated[AdminUser, Depends(require_user)],
 ):
+    if user.is_platform_admin:
+        return RedirectResponse("/settings/access", status_code=303)
+    return RedirectResponse("/settings/system", status_code=303)
+
+
+def _settings_page_context(
+    request: Request,
+    db: Session,
+    user: AdminUser,
+    *,
+    settings_tab: str,
+) -> dict:
     import os
 
+    from ..auto_route import DEFAULT_AUTO_LONG, DEFAULT_AUTO_MODEL, DEFAULT_AUTO_QUALITY
     from ..data.backends import source_rows
+    from ..data.grants import (
+        AccessCeiling,
+        catalog_groups_for_ceiling,
+        display_default_models,
+        display_default_sources,
+    )
+    from ..data.usage_weights import catalog_weight_suggestions
     from .accounts import get_auth_settings
 
     settings = _settings(request)
@@ -2392,36 +2874,136 @@ def settings_page(
             db.commit()
             db.refresh(auth)
         observed_tok_s = observed_tokens_per_sec(db)
-    from ..auto_route import DEFAULT_AUTO_LONG, DEFAULT_AUTO_MODEL, DEFAULT_AUTO_QUALITY
+    weight_status = catalog_weight_suggestions(db)
+    grant_ctx: dict = {}
+    if auth is not None:
+        grant_ctx = {
+            "source_chips": source_chip_rows(db),
+            "selected_services": display_default_sources(db),
+            "catalog_groups": catalog_groups_for_ceiling(
+                db, AccessCeiling(unrestricted=True)
+            ),
+            "selected_models": display_default_models(db),
+        }
 
+    return {
+        "user": user,
+        "settings": settings,
+        "nav": "settings",
+        "settings_tab": settings_tab,
+        "session_max_age": settings.session_max_age,
+        "temp_max_c": settings.temp_max_c,
+        "temp_guard_disabled": settings.temp_guard_disabled,
+        "admin_url": admin_url,
+        "gateway_url": gateway_url,
+        "backend_rows": backend_rows_data,
+        "auth": auth,
+        "teams": teams,
+        "flash_ok": flash_ok,
+        "flash_err": flash_err,
+        "gpu_power_enabled": _gpu_power_enabled(request, db),
+        "observed_tok_s": observed_tok_s,
+        "weight_status": weight_status,
+        "default_auto_model": DEFAULT_AUTO_MODEL,
+        "default_auto_quality": DEFAULT_AUTO_QUALITY,
+        "default_auto_long": DEFAULT_AUTO_LONG,
+        **grant_ctx,
+    }
+
+
+def _render_settings(
+    request: Request,
+    db: Session,
+    user: AdminUser,
+    tab: str,
+) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "settings.html",
-        {
-            "user": user,
-            "settings": settings,
-            "nav": "settings",
-            "session_max_age": settings.session_max_age,
-            "temp_max_c": settings.temp_max_c,
-            "temp_guard_disabled": settings.temp_guard_disabled,
-            "admin_url": admin_url,
-            "gateway_url": gateway_url,
-            "backend_rows": backend_rows_data,
-            "auth": auth,
-            "teams": teams,
-            "flash_ok": flash_ok,
-            "flash_err": flash_err,
-            "gpu_power_enabled": _gpu_power_enabled(request, db),
-            "observed_tok_s": observed_tok_s,
-            "default_auto_model": DEFAULT_AUTO_MODEL,
-            "default_auto_quality": DEFAULT_AUTO_QUALITY,
-            "default_auto_long": DEFAULT_AUTO_LONG,
-        },
+        _settings_page_context(request, db, user, settings_tab=tab),
     )
 
 
-@router.post("/settings/auth")
-def settings_auth_save(
+@router.get("/settings/access", response_class=HTMLResponse)
+def settings_access_page(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
+    return _render_settings(request, db, user, "access")
+
+
+@router.get("/settings/limits", response_class=HTMLResponse)
+def settings_limits_page(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
+    return _render_settings(request, db, user, "limits")
+
+
+@router.get("/settings/routing", response_class=HTMLResponse)
+def settings_routing_page(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
+    return _render_settings(request, db, user, "routing")
+
+
+@router.get("/settings/privacy", response_class=HTMLResponse)
+def settings_privacy_page(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
+    return _render_settings(request, db, user, "privacy")
+
+
+@router.get("/settings/system", response_class=HTMLResponse)
+def settings_system_page(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_user)],
+):
+    return _render_settings(request, db, user, "system")
+
+
+@router.post("/settings/default-grant")
+async def settings_default_grant_save(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
+    from ..data.grants import save_default_grant
+
+    form = await request.form()
+    names = source_names(db)
+    services = _parse_services(form.getlist("services"), names)
+    models = [(s, m) for s, m in _collect_models_from_form(form, db) if s in services]
+    save_default_grant(db, services, models)
+    write_audit(
+        db,
+        actor=user,
+        action="settings.default_grant",
+        entity_type="auth_settings",
+        detail=f"services={services} models={len(models)}",
+    )
+    db.commit()
+    if services:
+        request.session["flash_ok"] = "Default access for new users saved."
+    else:
+        request.session["flash_ok"] = "Saved: new users get no sources until you grant them."
+    return RedirectResponse("/settings/access", status_code=303)
+
+
+def _settings_redirect(request: Request, tab: str, message: str) -> RedirectResponse:
+    request.session["flash_ok"] = message
+    return RedirectResponse(f"/settings/{tab}", status_code=303)
+
+
+@router.post("/settings/access")
+def settings_access_save(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_platform_admin)],
@@ -2429,89 +3011,140 @@ def settings_auth_save(
     require_email: str = Form(""),
     teams_enabled: str = Form(""),
     default_team_id: str = Form(""),
-    anonymize_client_ip: str = Form(""),
-    retention_days: str = Form("30"),
-    auto_vl_routing: str = Form(""),
-    auto_model_default: str = Form(""),
-    auto_model_quality: str = Form(""),
-    auto_model_long: str = Form(""),
     max_keys_per_user: str = Form("3"),
-    pool_window_hours: str = Form("5"),
-    pool_tokens_per_unit: str = Form("1"),
-    pool_min_cost: str = Form("1"),
-    pool_watt_weight: str = Form("0"),
-    pool_model_weights_enabled: str = Form(""),
 ):
     from .accounts import get_auth_settings
-    from ..privacy import purge_old_usage
-    from ..usage_pool import migrate_pool_to_token_budget, resolve_tokens_per_sec
 
     auth = get_auth_settings(db)
-    # Convert legacy unit budgets → tokens before applying form values.
-    migrate_pool_to_token_budget(db, auth)
     auth.allow_self_registration = allow_self_registration == "on"
     auth.require_email = require_email == "on"
     auth.teams_enabled = teams_enabled == "on"
-    auth.anonymize_client_ip = anonymize_client_ip == "on"
-    auth.auto_vl_routing = auto_vl_routing == "on"
-    auth.auto_model_default = (auto_model_default or "").strip()[:256]
-    auth.auto_model_quality = (auto_model_quality or "").strip()[:256]
-    auth.auto_model_long = (auto_model_long or "").strip()[:256]
-    auth.pool_model_weights_enabled = pool_model_weights_enabled == "on"
-    try:
-        auth.retention_days = max(0, min(3650, int(retention_days or "30")))
-    except ValueError:
-        auth.retention_days = 30
     try:
         auth.max_keys_per_user = max(0, min(100, int(max_keys_per_user or "3")))
     except ValueError:
         auth.max_keys_per_user = 3
-    try:
-        auth.pool_window_hours = max(0, min(8760, int(pool_window_hours or "5")))
-    except ValueError:
-        auth.pool_window_hours = 5
-    # Token budget: always 1 token = 1 budget point (no unit conversion in UI).
-    auth.pool_tokens_per_unit = 1
-    try:
-        auth.pool_min_cost = max(0.0, float(pool_min_cost or "1"))
-    except ValueError:
-        auth.pool_min_cost = 1.0
-    # Energy is display-only; never charge Wh into the pool from Settings.
-    auth.pool_watt_weight = 0.0
-    # Keep column filled with observed/fallback for any legacy readers.
-    auth.pool_tokens_per_sec = resolve_tokens_per_sec(db)
     tid = default_team_id.strip()
     if auth.teams_enabled and tid:
         team = db.get(Team, int(tid))
         auth.default_team_id = team.id if team else None
     else:
         auth.default_team_id = None
+    write_audit(
+        db,
+        actor=user,
+        action="settings.access",
+        entity_type="auth_settings",
+        entity_id=auth.id,
+        detail=f"register={auth.allow_self_registration} teams={auth.teams_enabled} max_keys={auth.max_keys_per_user}",
+    )
+    db.commit()
+    return _settings_redirect(request, "access", "Access & registration saved.")
+
+
+@router.post("/settings/limits")
+def settings_limits_save(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+    pool_window_hours: str = Form("5"),
+    pool_min_cost: str = Form("1"),
+    pool_model_weights_enabled: str = Form(""),
+):
+    from .accounts import get_auth_settings
+    from ..usage_pool import migrate_pool_to_token_budget, resolve_tokens_per_sec
+
+    auth = get_auth_settings(db)
+    migrate_pool_to_token_budget(db, auth)
+    try:
+        auth.pool_window_hours = max(0, min(8760, int(pool_window_hours or "5")))
+    except ValueError:
+        auth.pool_window_hours = 5
+    auth.pool_tokens_per_unit = 1
+    try:
+        auth.pool_min_cost = max(0.0, float(pool_min_cost or "1"))
+    except ValueError:
+        auth.pool_min_cost = 1.0
+    auth.pool_watt_weight = 0.0
+    auth.pool_tokens_per_sec = resolve_tokens_per_sec(db)
+    auth.pool_model_weights_enabled = pool_model_weights_enabled == "on"
+    write_audit(
+        db,
+        actor=user,
+        action="settings.limits",
+        entity_type="auth_settings",
+        entity_id=auth.id,
+        detail=f"pool_h={auth.pool_window_hours} pool_weights={auth.pool_model_weights_enabled}",
+    )
+    db.commit()
+    return _settings_redirect(request, "limits", "Limits & budget saved.")
+
+
+@router.post("/settings/routing")
+def settings_routing_save(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+    auto_vl_routing: str = Form(""),
+    preflight_upstream: str = Form(""),
+    load_aware_routing: str = Form(""),
+    auto_model_default: str = Form(""),
+    auto_model_quality: str = Form(""),
+    auto_model_long: str = Form(""),
+):
+    from .accounts import get_auth_settings
+
+    auth = get_auth_settings(db)
+    auth.auto_vl_routing = auto_vl_routing == "on"
+    auth.preflight_upstream = preflight_upstream == "on"
+    auth.load_aware_routing = load_aware_routing == "on"
+    auth.auto_model_default = (auto_model_default or "").strip()[:256]
+    auth.auto_model_quality = (auto_model_quality or "").strip()[:256]
+    auth.auto_model_long = (auto_model_long or "").strip()[:256]
+    write_audit(
+        db,
+        actor=user,
+        action="settings.routing",
+        entity_type="auth_settings",
+        entity_id=auth.id,
+        detail=(
+            f"auto_vl={auth.auto_vl_routing} preflight={auth.preflight_upstream} "
+            f"load_aware={auth.load_aware_routing}"
+        ),
+    )
+    db.commit()
+    return _settings_redirect(request, "routing", "Routing saved.")
+
+
+@router.post("/settings/privacy")
+def settings_privacy_save(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+    anonymize_client_ip: str = Form(""),
+    retention_days: str = Form("30"),
+):
+    from .accounts import get_auth_settings
+    from ..privacy import purge_old_usage
+
+    auth = get_auth_settings(db)
+    auth.anonymize_client_ip = anonymize_client_ip == "on"
+    try:
+        auth.retention_days = max(0, min(3650, int(retention_days or "30")))
+    except ValueError:
+        auth.retention_days = 30
     purged = purge_old_usage(db, auth.retention_days)
     write_audit(
         db,
         actor=user,
-        action="settings.auth",
+        action="settings.privacy",
         entity_type="auth_settings",
         entity_id=auth.id,
-        detail=(
-            f"register={auth.allow_self_registration} "
-            f"teams={auth.teams_enabled} "
-            f"anon_ip={auth.anonymize_client_ip} "
-            f"auto_vl={auth.auto_vl_routing} "
-            f"auto={auth.auto_model_default or '-'} "
-            f"auto_q={auth.auto_model_quality or '-'} "
-            f"auto_l={auth.auto_model_long or '-'} "
-            f"max_keys={auth.max_keys_per_user} "
-            f"pool_h={auth.pool_window_hours} "
-            f"pool_weights={auth.pool_model_weights_enabled} "
-            f"watt_w={auth.pool_watt_weight} "
-            f"retention={auth.retention_days} purged={purged}"
-        ),
+        detail=f"anon_ip={auth.anonymize_client_ip} retention={auth.retention_days} purged={purged}",
     )
     db.commit()
-    request.session["flash_ok"] = (
-        f"Settings saved. Purged {purged} old usage events."
+    msg = (
+        f"Privacy saved. Purged {purged} old usage events."
         if purged
-        else "Auth / privacy settings saved."
+        else "Privacy & retention saved."
     )
-    return RedirectResponse("/settings", status_code=303)
+    return _settings_redirect(request, "privacy", msg)

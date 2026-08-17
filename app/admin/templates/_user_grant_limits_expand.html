@@ -1,0 +1,51 @@
+{# Rate ceiling + token budget for one user. Expects: target, pool_window_hours #}
+<tr class="grant-expand-row grant-limits-row" id="grant-limits-editor" data-grant-for="{{ target.id }}">
+  <td colspan="6">
+    <div class="grant-expand grant-expand--slim grant-expand--wide">
+      <div class="grant-expand-head">
+        <p class="grant-expand-title mt-0">
+          Limits · <span class="mono">{{ target.username }}</span>
+        </p>
+        <button type="button" class="btn btn-sm" data-grant-collapse>Collapse</button>
+      </div>
+      <form method="post" action="/users/{{ target.id }}/grant/limits">
+        <p class="muted mt-0 text-xs">
+          Caps across <strong>all</strong> API keys for this user. Empty = unlimited.
+          {% if pool_window_hours %}Token budget window: {{ pool_window_hours }}h (Settings).{% endif %}
+        </p>
+        <div class="row row--loose">
+          <div class="field field--xs">
+            <label for="lim-rpm-{{ target.id }}">RPM</label>
+            <input id="lim-rpm-{{ target.id }}" type="number" name="rpm_limit" min="0" placeholder="∞"
+                   value="{{ target.rpm_limit if target.rpm_limit is not none else '' }}">
+          </div>
+          <div class="field field--xs">
+            <label for="lim-conc-{{ target.id }}">Concurrency</label>
+            <input id="lim-conc-{{ target.id }}" type="number" name="concurrency_limit" min="0" placeholder="∞"
+                   value="{{ target.concurrency_limit if target.concurrency_limit is not none else '' }}">
+          </div>
+          <div class="field field--xs">
+            <label for="lim-daily-{{ target.id }}">Daily requests</label>
+            <input id="lim-daily-{{ target.id }}" type="number" name="daily_quota" min="0" placeholder="∞"
+                   value="{{ target.daily_quota if target.daily_quota is not none else '' }}">
+          </div>
+        </div>
+        <div class="row row--loose mt-half">
+          <div class="field field--sm">
+            <label for="lim-pool-{{ target.id }}">Max prompt tokens / window</label>
+            <input id="lim-pool-{{ target.id }}" type="number" name="pool_limit" min="0" placeholder="off"
+                   value="{{ target.pool_limit if target.pool_limit is not none else '' }}">
+          </div>
+          <div class="field field--sm field--end">
+            <label><input type="checkbox" name="pool_reset_now"> Reset used → 0</label>
+          </div>
+        </div>
+        <div class="actions mt-half">
+          <button class="primary btn-sm" type="submit">Save limits</button>
+          <button type="button" class="btn btn-sm" data-grant-collapse>Collapse</button>
+          <a class="btn btn-sm" href="/users/{{ target.id }}/grant">Full grant editor</a>
+        </div>
+      </form>
+    </div>
+  </td>
+</tr>

@@ -43,12 +43,7 @@ def test_setup_checklist_and_wizard(tmp_path: Path):
     db.commit()
     wiz = wizard_progress(db)
     assert wiz["has_sources"] is True
-    assert wiz["next"]["id"] == "models"
-
-    db.add(CatalogModel(source_name="chat", kind="chat", model_id="m", enabled=True))
-    db.commit()
-    wiz = wizard_progress(db)
-    assert wiz["next"]["id"] == "key"
+    assert wiz["next"]["id"] == "access"
 
     db.add(
         ApiKey(
@@ -64,6 +59,8 @@ def test_setup_checklist_and_wizard(tmp_path: Path):
     assert wiz["complete"] is True
     assert needs_setup_wizard(db, admin) is False
 
+    db.add(CatalogModel(source_name="chat", kind="chat", model_id="m", enabled=True))
+    db.commit()
     st = setup_status(db)
     assert st["complete"] is True
     assert st["steps"][0].done and st["steps"][1].done and st["steps"][2].done

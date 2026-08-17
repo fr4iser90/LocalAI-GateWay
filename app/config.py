@@ -13,7 +13,8 @@ from .data.dialects import (  # noqa: F401 — re-export
 
 # Functional kinds (path families). Source *names* are free-form slugs in the DB.
 KINDS = ("chat", "embed", "stt", "tts")
-MODEL_CHECK_KINDS = frozenset({"chat", "embed"})
+MODEL_CHECK_KINDS = frozenset(KINDS)
+MODEL_REQUIRED_KINDS = frozenset({"chat", "embed"})
 MODEL_ROUTE_KINDS = frozenset(KINDS)
 
 SOURCE_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")

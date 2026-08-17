@@ -10,11 +10,14 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from ..audit import bump_usage_daily, check_quota_alert, maybe_alert
-from ..config import MODEL_CHECK_KINDS, get_settings
+from ..config import MODEL_CHECK_KINDS, MODEL_REQUIRED_KINDS, get_settings
 from ..data.db import hash_api_key
 from ..data.models import AdminUser, ApiKey, ModelLimit, Team, UsageDaily, UsageEvent, utcnow
+from .concurrency import ConcurrencyLease, release_concurrency_lease
 from .priority import priority_gate
 from .rate_limit import rate_limiter
+
+_STREAM_KINDS = frozenset({"chat", "embed", "stt", "tts"})
 
 
 @dataclass
@@ -28,6 +31,7 @@ class AuthResult:
     usage_event_id: int | None = None
     # Chat proxied via /v1/gateway/forward for real duration / Wh metering
     meter_proxy: bool = False
+    concurrency_lease: ConcurrencyLease | None = None
 
 
 def check_temperature() -> AuthResult | None:
@@ -70,8 +74,38 @@ def extract_model(body: bytes | None, content_type: str | None) -> str | None:
     if isinstance(payload, dict):
         model = payload.get("model")
         if isinstance(model, str):
-            return model
+            return model.strip() or None
     return None
+
+
+def extract_voice(body: bytes | None, content_type: str | None) -> str | None:
+    """Piper TTS often sends voice, not model."""
+    if not body:
+        return None
+    ct = (content_type or "").lower()
+    if "application/json" not in ct and body[:1] not in (b"{", b"["):
+        return None
+    try:
+        payload = json.loads(body[:65536].decode("utf-8", errors="ignore"))
+    except Exception:
+        return None
+    if isinstance(payload, dict):
+        voice = payload.get("voice")
+        if isinstance(voice, str):
+            return voice.strip() or None
+    return None
+
+
+def extract_request_model(
+    kind: str,
+    body: bytes | None,
+    content_type: str | None,
+) -> str | None:
+    """Model id for routing + allowlist (TTS falls back to voice)."""
+    model = extract_model(body, content_type)
+    if kind == "tts" and not model:
+        model = extract_voice(body, content_type)
+    return model
 
 
 def _services_for_key(api_key: ApiKey, db: Session | None = None) -> set[str]:
@@ -287,7 +321,7 @@ def authorize(
     started = time.perf_counter()
     model = None
     if kind in MODEL_CHECK_KINDS:
-        model = extract_model(body, content_type)
+        model = extract_request_model(kind, body, content_type)
 
     def _fail(status: int, reason: str, api_key: ApiKey | None = None, **kw) -> AuthResult:
         log_usage(
@@ -337,14 +371,18 @@ def authorize(
     if service not in _services_for_key(api_key, db):
         return _fail(403, "service_not_allowed", api_key)
 
-    if kind in MODEL_CHECK_KINDS and model:
-        allow = _models_for_key(api_key, service, db)
-        if allow is not None and model not in allow:
-            return _fail(403, "model_not_allowed", api_key)
-        from ..data.catalog import is_model_globally_enabled
+    if kind in MODEL_CHECK_KINDS:
+        writing = method.upper() in {"POST", "PUT", "PATCH"}
+        if kind in MODEL_REQUIRED_KINDS and writing and not model:
+            return _fail(400, "missing_model", api_key)
+        if model:
+            allow = _models_for_key(api_key, service, db)
+            if allow is not None and model not in allow:
+                return _fail(403, "model_not_allowed", api_key)
+            from ..data.catalog import is_model_globally_enabled
 
-        if not is_model_globally_enabled(db, service, model):
-            return _fail(403, "model_disabled", api_key)
+            if not is_model_globally_enabled(db, service, model):
+                return _fail(403, "model_disabled", api_key)
 
     rpm, concurrency, priority, daily_quota, monthly_quota = _effective_limits(api_key)
     mlim = _pick_model_limit(api_key, service, model)
@@ -383,8 +421,17 @@ def authorize(
             priority=priority,
         )
 
-    rate_limiter.release(api_key.id, model=model, user_id=owner_id)
-    priority_gate.release(api_key.id)
+    hold_concurrency = bool(defer_metering) and kind in _STREAM_KINDS
+    lease: ConcurrencyLease | None = None
+    if hold_concurrency:
+        lease = ConcurrencyLease(
+            key_id=api_key.id,
+            user_id=owner_id,
+            model=model,
+        )
+    else:
+        rate_limiter.release(api_key.id, model=model, user_id=owner_id)
+        priority_gate.release(api_key.id)
 
     from ..admin.accounts import get_auth_settings
     from ..usage_pool import check_and_consume_pool
@@ -398,6 +445,7 @@ def authorize(
         body=body,
     )
     if not pool.allowed:
+        release_concurrency_lease(lease)
         return _fail(
             429,
             pool.reason,
@@ -408,11 +456,12 @@ def authorize(
 
     temp_block = check_temperature()
     if temp_block is not None:
+        release_concurrency_lease(lease)
         return _fail(temp_block.status, temp_block.reason, api_key, priority=priority)
 
     # Only /v1/gateway/entry (or VL forward hop) finalizes duration/Wh.
     # Plain auth_request must not leave orphan deferred events.
-    meter_proxy = bool(defer_metering) and kind in {"chat", "embed", "stt", "tts"}
+    meter_proxy = hold_concurrency
 
     api_key.last_used_at = utcnow()
     event = log_usage(
@@ -455,4 +504,5 @@ def authorize(
         model=model,
         usage_event_id=event.id if meter_proxy else None,
         meter_proxy=meter_proxy,
+        concurrency_lease=lease,
     )
