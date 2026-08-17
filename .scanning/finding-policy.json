@@ -6,51 +6,20 @@
         "path_regex": "app/data/db\\.py",
         "message_regex": "sqlalchemy\\.text",
         "reason": "Schema migrations in _ensure_columns() use sql text() with table/column names from a hardcoded specs dict and compile-time DDL fragments only; no user-controlled SQL fragments."
-      },
-      {
-        "rule_id": "dockerfile.security.missing-user.missing-user",
-        "path_regex": "^Dockerfile$",
-        "message_regex": "missing a USER",
-        "reason": "Homelab gateway image: non-root USER requires writable /data volume ownership; accepted risk in isolated compose stack. Hardening tracked separately."
-      },
-      {
-        "rule_id": "dockerfile.security.missing-user.missing-user",
-        "path_regex": "services/gpu-power/Dockerfile",
-        "message_regex": "missing a USER",
-        "reason": "GPU sidecar runs on trusted host network namespace; needs host /sys and nvidia-smi. Non-root USER deferred for sidecar deployment model."
       }
     ]
   },
   "checkov": {
-    "accepted_findings": [
-      {
-        "rule_id": "CKV_DOCKER_3",
-        "path_regex": "^Dockerfile$",
-        "message_regex": "user for the container",
-        "reason": "Same as Semgrep missing-user: auth-gateway needs /data volume write access in default compose; non-root user planned with entrypoint chown."
-      },
-      {
-        "rule_id": "CKV_DOCKER_3",
-        "path_regex": "services/gpu-power/Dockerfile",
-        "message_regex": "user for the container",
-        "reason": "GPU power sidecar is an optional host-adjacent probe service, not internet-facing multi-tenant API."
-      },
-      {
-        "rule_id": "CKV_DOCKER_2",
-        "path_regex": "^Dockerfile$",
-        "message_regex": "HEALTHCHECK",
-        "reason": "Health is enforced externally (compose restart, optional reverse proxy, manual curl /healthz). Minimal alpine image avoids redundant in-image healthcheck."
-      },
-      {
-        "rule_id": "CKV_DOCKER_2",
-        "path_regex": "services/gpu-power/Dockerfile",
-        "message_regex": "HEALTHCHECK",
-        "reason": "Sidecar exposes a simple HTTP /power endpoint; liveness is optional and monitored by the gateway probe caller, not orchestrator HEALTHCHECK."
-      }
-    ]
+    "accepted_findings": []
   },
   "bandit": {
     "accepted_findings": [
+      {
+        "rule_id": "B106",
+        "path_regex": "^tests/",
+        "message_regex": "hardcoded password",
+        "reason": "Test fixtures use dummy password_hash='x' for in-memory SQLite users; not a real credential."
+      },
       {
         "rule_id": "B101",
         "path_regex": "^tests/",

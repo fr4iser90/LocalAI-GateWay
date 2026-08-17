@@ -31,7 +31,8 @@ services:
     image: nginx:alpine
     container_name: llm-gateway
     depends_on:
-      - auth-gateway
+      auth-gateway:
+        condition: service_healthy
     env_file: .env
     ports:
       - "${GATEWAY_PORT:-9081}:80"
