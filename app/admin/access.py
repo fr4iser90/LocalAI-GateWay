@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import Depends, Request
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 from typing import Annotated
 
@@ -86,6 +87,10 @@ def user_team_ids(user: AdminUser) -> set[int]:
     return {m.team_id for m in user.memberships}
 
 
+def owned_team_ids(user: AdminUser) -> set[int]:
+    return {m.team_id for m in user.memberships if m.role == "owner"}
+
+
 def user_teams(user: AdminUser) -> list[Team]:
     return [m.team for m in user.memberships if m.team]
 
@@ -99,21 +104,32 @@ def can_access_team(user: AdminUser, team_id: int | None) -> bool:
 
 
 def can_access_key(user: AdminUser, api_key, *, teams_enabled: bool) -> bool:
-    """Keys: team membership when teams on, else owner-only isolation."""
+    """Keys: own keys always; team owners also see every key on that team."""
     if user.is_platform_admin:
         return True
-    if teams_enabled:
-        return can_access_team(user, api_key.team_id)
-    return api_key.owner_user_id == user.id
+    if api_key.owner_user_id == user.id:
+        return True
+    if teams_enabled and api_key.team_id is not None:
+        return api_key.team_id in owned_team_ids(user)
+    return False
 
 
 def scope_keys_query(q, user: AdminUser, *, teams_enabled: bool):
     if user.is_platform_admin:
         return q
-    if teams_enabled:
-        tids = user_team_ids(user)
-        return q.filter(ApiKey.team_id.in_(tids)) if tids else q.filter(False)
+    if not teams_enabled:
+        return q.filter(ApiKey.owner_user_id == user.id)
+    owned = owned_team_ids(user)
+    if owned:
+        return q.filter(
+            or_(ApiKey.owner_user_id == user.id, ApiKey.team_id.in_(owned))
+        )
     return q.filter(ApiKey.owner_user_id == user.id)
+
+
+def scoped_key_ids(db: Session, user: AdminUser, *, teams_enabled: bool) -> list[int]:
+    rows = scope_keys_query(db.query(ApiKey.id), user, teams_enabled=teams_enabled).all()
+    return [int(kid) for (kid,) in rows]
 
 
 def is_team_owner(user: AdminUser, team_id: int) -> bool:

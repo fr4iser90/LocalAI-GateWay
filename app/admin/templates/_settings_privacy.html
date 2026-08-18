@@ -1,5 +1,6 @@
 <section class="panel">
   <h2>Privacy &amp; data</h2>
+  <p class="muted mt-0">These are the gateway-wide logging and retention defaults.</p>
   <form method="post" action="/settings/privacy">
     <div class="checkboxes checkboxes-block">
       <label><input type="checkbox" name="anonymize_client_ip" {% if auth.anonymize_client_ip %}checked{% endif %}> Anonymize client IPs in usage logs</label>

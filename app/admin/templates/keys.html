@@ -29,14 +29,43 @@
 </div>
 {% endif %}
 
+<section class="metric-section">
+  <h2 class="section-title">Key management</h2>
+  <div class="cards cards-hero">
+    <div class="card">
+      <div class="label">Total keys</div>
+      <div class="value">{{ keys|length }}</div>
+      <div class="hint">{% if is_admin %}Every key you can manage{% else %}Yours{% endif %}</div>
+    </div>
+    <div class="card">
+      <div class="label">Active</div>
+      <div class="value">{{ active_count }}</div>
+      <div class="hint">Usable right now</div>
+    </div>
+    <div class="card">
+      <div class="label">Revoked</div>
+      <div class="value">{{ keys|length - active_count }}</div>
+      <div class="hint">Kept for history</div>
+    </div>
+  </div>
+</section>
+
 <div class="panel">
-  <table>
+  <div class="panel-head">
+    <div class="panel-head-text">
+      <h2>Your keys</h2>
+      <p class="panel-sub">Edit opens under the row — sources and models, without leaving the list. Rotate and revoke stay on the row.</p>
+    </div>
+  </div>
+  <table class="keys-table">
     <thead>
       <tr>
         <th>Label</th>
         <th>Prefix</th>
         {% if teams_enabled %}<th>Team</th>{% endif %}
         <th>Services</th>
+        <th>Last used</th>
+        <th>24h</th>
         <th>Limits</th>
         <th>Priority</th>
         <th>Status</th>
@@ -45,17 +74,19 @@
     </thead>
     <tbody>
     {% for k in keys %}
-      <tr>
+      <tr id="key-row-{{ k.id }}">
         <td>{{ k.label }}</td>
         <td class="mono">{{ k.key_prefix }}</td>
         {% if teams_enabled %}<td>{{ k.team.name if k.team else '—' }}</td>{% endif %}
         <td>
           {% for g in k.service_grants %}
-            <span class="badge">{{ g.service }}</span>
+            <span class="badge" title="{{ source_tips.get(g.service, g.service) }}">{{ g.service }}</span>
           {% else %}
             <span class="muted">{% if teams_enabled %}team defaults{% else %}none{% endif %}</span>
           {% endfor %}
         </td>
+        <td class="mono">{% if last_used.get(k.id) %}{{ last_used.get(k.id) }}{% else %}—{% endif %}</td>
+        <td class="mono">{{ usage_24h.get(k.id, 0) }}</td>
         <td class="mono">
           rpm={{ k.rpm_limit if k.rpm_limit is not none else '∅' }}
           / conc={{ k.concurrency_limit if k.concurrency_limit is not none else '∅' }}
@@ -66,7 +97,7 @@
           {% else %}<span class="badge off">revoked</span>{% endif %}
         </td>
         <td class="actions">
-          <a class="btn btn-sm" href="/keys/{{ k.id }}">Edit</a>
+          <a class="btn btn-sm" href="/keys?edit={{ k.id }}" data-key-edit="{{ k.id }}">Edit</a>
           <form method="post" action="/keys/{{ k.id }}/rotate">
             <button class="btn-sm" type="submit">Rotate</button>
           </form>
@@ -78,7 +109,7 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="8">
+      <tr><td colspan="{% if teams_enabled %}10{% else %}9{% endif %}">
         <div class="empty-state">
           <p class="empty-state-title">No API keys yet</p>
           <p class="empty-state-text">Create a key for OpenAI-compatible clients (VS Code, curl, apps).</p>
@@ -89,4 +120,5 @@
     </tbody>
   </table>
 </div>
+<script src="/static/keys_edit.js"></script>
 {% endblock %}

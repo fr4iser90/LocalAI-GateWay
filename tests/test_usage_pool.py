@@ -151,13 +151,26 @@ def test_model_weight_lookup(tmp_path: Path):
 def test_probe_url_from_source_address():
     from types import SimpleNamespace
 
-    from app.usage_pool import probe_url_for_source, suggest_gpu_power_url
+    from app.usage_pool import (
+        probe_url_for_source,
+        suggest_gpu_power_url,
+        suggest_temp_guard_url,
+        temp_guard_url_for_source,
+    )
 
     assert suggest_gpu_power_url("192.168.1.10:11535") == "http://192.168.1.10:9105/power"
+    assert suggest_temp_guard_url("192.168.1.10:11535") == "http://192.168.1.10:9105/check"
     assert suggest_gpu_power_url("") == ""
+    assert suggest_temp_guard_url("") == ""
     assert (
         probe_url_for_source(SimpleNamespace(address="10.0.0.5:8080"))
         == "http://10.0.0.5:9105/power"
+    )
+    assert (
+        temp_guard_url_for_source(
+            SimpleNamespace(address="10.0.0.5:8080", temp_guard_enabled=True)
+        )
+        == "http://10.0.0.5:9105/check"
     )
     # stored override ignored — sidecar is always co-located with source
     assert (
@@ -166,7 +179,14 @@ def test_probe_url_from_source_address():
         )
         == "http://10.0.0.5:9105/power"
     )
+    assert (
+        temp_guard_url_for_source(
+            SimpleNamespace(address="10.0.0.5:1", temp_guard_enabled=False)
+        )
+        == ""
+    )
     assert probe_url_for_source(None) == ""
+    assert temp_guard_url_for_source(None) == ""
     assert probe_url_for_source(SimpleNamespace(address="")) == ""
 
 

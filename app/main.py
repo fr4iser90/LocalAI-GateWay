@@ -128,6 +128,7 @@ def create_app() -> FastAPI:
             "/reset",
             "/register",
             "/account",
+            "/account/update",
             "/account/password",
             "/account/email",
             "/privacy",
@@ -196,7 +197,6 @@ def create_app() -> FastAPI:
     def gateway_models(request: Request, db: Session = Depends(get_db)):
         """Filtered OpenAI model list for IDEs (nginx routes GET /v1/models here)."""
         from .data.catalog import (
-            favorites_for_key,
             load_api_key,
             models_visible_for_key,
             openai_models_payload,
@@ -213,7 +213,7 @@ def create_app() -> FastAPI:
         if api_key.expires_at and api_key.expires_at < utcnow():
             return JSONResponse({"error": "expired_api_key"}, status_code=401)
         rows = models_visible_for_key(db, api_key)
-        payload = openai_models_payload(rows, favorites_for_key(api_key))
+        payload = openai_models_payload(rows)
         aliases = auto_alias_list_entries(get_auth_settings(db))
         if aliases:
             seen = {x.get("id") for x in payload.get("data") or []}

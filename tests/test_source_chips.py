@@ -37,6 +37,8 @@ def test_source_chip_rows_are_equal_sources(tmp_path: Path):
     by = {r["name"]: r for r in rows}
     assert by["chat"]["kind"] == "chat"
     assert by["lab"]["kind"] == "chat"
+    assert "hardware" in by["chat"]
+    assert "tooltip" in by["chat"]
     assert "extra" not in (by["lab"]["hint"] or "").lower()
     assert "fallback" not in (by["chat"]["hint"] or "").lower()
     filtered = source_chip_rows(db, ["chat"])

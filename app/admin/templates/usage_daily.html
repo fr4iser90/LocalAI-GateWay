@@ -5,7 +5,7 @@
   <div>
     <p class="eyebrow">Activity</p>
     <h1>Usage</h1>
-    <p class="lede">Daily rollups by team / key / service / model.</p>
+    <p class="lede">Daily rollups by {% if teams_enabled %}team / {% endif %}key / service / model.</p>
   </div>
 </header>
 
@@ -18,12 +18,12 @@
   <div class="table-wrap">
   <table>
     <caption class="sr-only">Daily usage aggregates</caption>
-    <thead><tr><th>Day</th><th>Team</th><th>Key</th><th>Service</th><th>Model</th><th>OK</th><th>Deny</th><th>429</th></tr></thead>
+    <thead><tr><th>Day</th>{% if teams_enabled %}<th>Team</th>{% endif %}<th>Key</th><th>Service</th><th>Model</th><th>OK</th><th>Deny</th><th>429</th></tr></thead>
     <tbody>
     {% for r in rows %}
       <tr>
         <td class="mono">{{ r.day }}</td>
-        <td>{{ r.team_name or '—' }}</td>
+        {% if teams_enabled %}<td>{{ r.team_name or '—' }}</td>{% endif %}
         <td>{{ r.key_label or '—' }}</td>
         <td>{{ r.service }}</td>
         <td class="mono">{{ r.model or '—' }}</td>
@@ -32,7 +32,7 @@
         <td>{{ r.rate_limit_count }}</td>
       </tr>
     {% else %}
-      <tr><td colspan="8" class="empty-cell">
+      <tr><td colspan="{{ 8 if teams_enabled else 7 }}" class="empty-cell">
         <div class="empty-state">
           <p class="empty-state-title">No aggregates yet</p>
           <p class="empty-state-text">Daily rollups appear after traffic is recorded. Check Events for the live stream.</p>

@@ -1,20 +1,13 @@
 {% extends "base.html" %}
-{% block title %}My account · Gateway{% endblock %}
+{% block title %}Overview · Gateway{% endblock %}
 {% block content %}
 <header class="page-head page-head--compact">
   <div>
     <p class="eyebrow">Your workspace</p>
-    <h1>Home</h1>
-    <p class="lede">{% if teams_enabled %}Scoped to your team memberships.{% else %}Only your keys and usage — other users stay invisible.{% endif %}{% if is_admin %} You are also platform admin.{% endif %} Email / password: <a href="/account">Profile</a>.</p>
+    <h1>Overview</h1>
+    <p class="lede">{% if teams_enabled %}Scoped to your team memberships.{% else %}Only your keys and usage — other users stay invisible.{% endif %}{% if is_admin %} You are also platform admin.{% endif %} Account details live under <a href="/account">Profile</a>.</p>
   </div>
 </header>
-
-{% if is_admin %}
-<div class="banner-info" role="status">
-  Personal usage lives here. Fleet health, sources, and users are under
-  <a href="/"><strong>Ops → Dashboard</strong></a>.
-</div>
-{% endif %}
 
 {% if not keys %}
 <section class="panel" id="connect">
@@ -23,6 +16,10 @@
       <h2>Connect a client</h2>
       <p class="panel-sub">Three steps — then VS Code / Continue / curl work.</p>
     </div>
+  </div>
+  <div class="empty-state">
+    <p class="empty-state-title">No keys yet</p>
+    <p class="empty-state-text">Create your first API key, then connect a client and usage will appear here.</p>
   </div>
   <ol class="setup-steps">
     <li class="setup-step is-todo">
@@ -57,9 +54,25 @@
 </section>
 {% endif %}
 
+{% if keys %}
+<section class="panel panel-quick-actions">
+  <div class="panel-head row-between">
+    <div class="panel-head-text">
+      <h2>Quick actions</h2>
+      <p class="panel-sub">Use Overview for a fast check-in. Open the detail pages when you want to investigate.</p>
+    </div>
+    <div class="actions">
+      <a class="btn btn-sm primary" href="/keys/new">New key</a>
+      <a class="btn btn-sm" href="/usage">View usage</a>
+      <a class="btn btn-sm" href="/account">Profile</a>
+    </div>
+  </div>
+</section>
+{% endif %}
+
 <section class="metric-section">
   <h2 class="section-title">Last 24 hours</h2>
-  <div class="cards">
+  <div class="cards cards-hero">
     <div class="card">
       <div class="label">Successful</div>
       <div class="value">{{ '{:,}'.format(ok) }}</div>
@@ -76,47 +89,27 @@
       <div class="hint">HTTP 429</div>
     </div>
     <div class="card">
-      <div class="label">Tokens in</div>
-      <div class="value">{{ '{:,}'.format(tokens_in) }}</div>
-      <div class="hint">Estimate</div>
-    </div>
-    <div class="card">
-      <div class="label">Tokens out</div>
-      <div class="value">{{ '{:,}'.format(tokens_out) }}</div>
-      <div class="hint">Completion</div>
-    </div>
-    <div class="card">
-      <div class="label">STT audio</div>
-      <div class="value">{{ audio_seconds }}<span class="unit">s</span></div>
-      <div class="hint">Seconds</div>
-    </div>
-    <div class="card">
-      <div class="label">Latency p50</div>
-      <div class="value">{% if latency_p50 %}{{ '%.0f'|format(latency_p50) }}<span class="unit">ms</span>{% else %}—{% endif %}</div>
-      <div class="hint">Median</div>
-    </div>
-    <div class="card">
       <div class="label">Latency p95</div>
       <div class="value">{% if latency_p95 %}{{ '%.0f'|format(latency_p95) }}<span class="unit">ms</span>{% else %}—{% endif %}</div>
-      <div class="hint">Tail</div>
+      <div class="hint">Tail latency</div>
     </div>
-    {% if gpu_power_enabled %}
-    <div class="card">
-      <div class="label">GPU energy</div>
-      <div class="value">{% if watt_hours %}{{ '%.3f'|format(watt_hours) }}<span class="unit">Wh</span>{% else %}—{% endif %}</div>
-      <div class="hint">Estimate · 24h{% if watt_hours_week %} · {{ '%.2f'|format(watt_hours_week) }} Wh / 7d{% endif %}</div>
-    </div>
-    <div class="card">
-      <div class="label">Avg GPU draw</div>
-      <div class="value">{% if watts_avg %}{{ '%.0f'|format(watts_avg) }}<span class="unit">W</span>{% else %}—{% endif %}</div>
-      <div class="hint">Mean sampled watts during calls</div>
-    </div>
-    {% endif %}
     {% if pool_limit %}
     <div class="card">
       <div class="label">Token budget</div>
       <div class="value">{{ '%.0f'|format(pool_used) }}<span class="unit">/{{ pool_limit }}</span></div>
-      <div class="hint">Prompt tokens this window{% if pool_cost %} · {{ '%.0f'|format(pool_cost) }} charged 24h{% endif %}</div>
+      <div class="hint">Prompt budget this window</div>
+    </div>
+    {% elif gpu_power_enabled %}
+    <div class="card">
+      <div class="label">GPU energy</div>
+      <div class="value">{% if watt_hours %}{{ '%.3f'|format(watt_hours) }}<span class="unit">Wh</span>{% else %}—{% endif %}</div>
+      <div class="hint">Estimate · 24h</div>
+    </div>
+    {% else %}
+    <div class="card">
+      <div class="label">Tokens in</div>
+      <div class="value">{{ '{:,}'.format(tokens_in) }}</div>
+      <div class="hint">Estimate</div>
     </div>
     {% endif %}
   </div>
@@ -126,175 +119,101 @@
   <div class="panel-head">
     <div>
       <h2>Traffic · last 7 days</h2>
-      <p class="panel-sub">Your requests per day ({{ display_timezone }}). Daily total above each bar; OK · deny · rate-limit below.</p>
+      <p class="panel-sub">Your requests per day ({{ display_timezone }}). Open <a href="/usage">Usage</a> for event details and deeper breakdowns.</p>
     </div>
   </div>
   {{ chart_daily | safe }}
 </section>
 
-<section class="panel panel-chart">
-  <div class="panel-head">
-    <h2>By service · 24h</h2>
-    <p class="panel-sub">Successful requests only</p>
-  </div>
-  {{ chart_service | safe }}
-</section>
-
-{% if teams_enabled %}
+{% if global_stats %}
 <section class="panel">
-  <div class="panel-head"><h2>Your teams</h2></div>
-  {% if teams %}
-  <ul class="clean-list">
-    {% for t in teams %}
-    <li><a href="/teams/{{ t.id }}">{{ t.name }}</a>
-      {% if t.daily_quota %} · daily {{ t.daily_quota }}{% endif %}
-      {% if t.monthly_quota %} · monthly {{ t.monthly_quota }}{% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <p class="muted">You are not in a team yet. Ask an admin to add you.</p>
-  {% endif %}
+  <div class="panel-head">
+    <div class="panel-head-text">
+      <h2>Global gateway snapshot</h2>
+      <p class="panel-sub">Visible because an admin enabled shared platform totals.</p>
+    </div>
+  </div>
+  <div class="cards cards-hero">
+    <div class="card">
+      <div class="label">Requests</div>
+      <div class="value">{{ '{:,}'.format(global_stats.requests_24h) }}</div>
+      <div class="hint">Gateway · 24h</div>
+    </div>
+    <div class="card">
+      <div class="label">Successful</div>
+      <div class="value">{{ '{:,}'.format(global_stats.ok_24h) }}</div>
+      <div class="hint">Gateway · 24h</div>
+    </div>
+    <div class="card card-warn">
+      <div class="label">Denied</div>
+      <div class="value">{{ '{:,}'.format(global_stats.denies_24h) }}</div>
+      <div class="hint">Gateway · 24h</div>
+    </div>
+    <div class="card card-warn">
+      <div class="label">Rate limited</div>
+      <div class="value">{{ '{:,}'.format(global_stats.rate_limits_24h) }}</div>
+      <div class="hint">Gateway · 24h</div>
+    </div>
+    <div class="card">
+      <div class="label">Sources</div>
+      <div class="value">{{ global_stats.sources_ok }}</div>
+      <div class="hint">
+        ok{% if global_stats.sources_loading %} · {{ global_stats.sources_loading }} loading{% endif %}{% if global_stats.sources_down %} · {{ global_stats.sources_down }} down{% endif %}
+      </div>
+    </div>
+  </div>
 </section>
 {% endif %}
 
-<section class="panel">
-  <div class="panel-head">
-    <h2>My model averages · 7d</h2>
-    <p class="panel-sub">From your keys via the gateway (duration, tokens/s, watts when sidecar is up).</p>
-  </div>
-  {% if model_avgs %}
-  <div class="table-wrap">
-  <table>
-    <thead>
-      <tr>
-        <th>Model</th>
-        <th>n</th>
-        <th>PP tok/s</th>
-        <th>TG tok/s</th>
-        {% if gpu_power_enabled %}<th>avg W</th><th>avg Wh</th>{% endif %}
-        <th>Latency</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for r in model_avgs %}
-      <tr>
-        <td class="mono">{{ r.model }}</td>
-        <td class="num">{{ r.n }}</td>
-        <td class="num">{% if r.pp_tok_s_avg %}{{ '%.1f'|format(r.pp_tok_s_avg) }}{% else %}—{% endif %}</td>
-        <td class="num">{% if r.tg_tok_s_avg %}{{ '%.1f'|format(r.tg_tok_s_avg) }}{% else %}—{% endif %}</td>
-        {% if gpu_power_enabled %}
-        <td class="num">{% if r.watts_avg %}{{ '%.0f'|format(r.watts_avg) }}{% else %}—{% endif %}</td>
-        <td class="num">{% if r.watt_hours_avg %}{{ '%.4f'|format(r.watt_hours_avg) }}{% else %}—{% endif %}</td>
-        {% endif %}
-        <td class="num">{% if r.duration_ms_avg %}{% if r.duration_ms_avg >= 60000 %}{{ '%.1f'|format(r.duration_ms_avg / 60000) }} min{% else %}{{ '%.1f'|format(r.duration_ms_avg / 1000) }} s{% endif %}{% else %}—{% endif %}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  {% else %}
-  <p class="muted">No metered chat yet in the last 7 days. Call models through the gateway with your API key.</p>
-  {% endif %}
-</section>
-
-<section class="panel">
-  <div class="panel-head">
-    <h2>Today (aggregated)</h2>
-  </div>
-  {% if daily_rows %}
-  <div class="table-wrap">
-  <table>
-    <thead><tr>{% if teams_enabled %}<th>Team</th>{% endif %}<th>Key</th><th>Service</th><th>Model</th><th>OK</th><th>Tokens in</th>{% if gpu_power_enabled %}<th>Wh</th>{% endif %}<th>Pool</th><th>Audio s</th></tr></thead>
-    <tbody>
-    {% for r in daily_rows %}
-      <tr>
-        {% if teams_enabled %}<td>{{ r.team_name or '—' }}</td>{% endif %}
-        <td>{{ r.key_label or '—' }}</td>
-        <td>{{ r.service }}</td>
-        <td class="mono">{{ r.model or '—' }}</td>
-        <td class="num">{{ r.ok_count }}</td>
-        <td class="num">{{ r.tokens_in or 0 }}</td>
-        {% if gpu_power_enabled %}<td class="num">{% if r.watt_hours %}{{ '%.3f'|format(r.watt_hours) }}{% else %}—{% endif %}</td>{% endif %}
-        <td class="num">{% if r.pool_cost %}{{ '%.1f'|format(r.pool_cost) }}{% else %}—{% endif %}</td>
-        <td class="num">{{ '%.1f'|format(r.audio_seconds or 0) }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  {% else %}
-  <p class="muted">No usage today.</p>
-  {% endif %}
-</section>
-
-<section class="panel">
+<section class="panel panel-overview-summary">
   <div class="panel-head row-between">
-    <h2>Your keys</h2>
-    <a class="btn btn-primary btn-sm" href="/keys/new">New key</a>
+    <div class="panel-head-text">
+      <h2>Your account at a glance</h2>
+      <p class="panel-sub">Overview is summary-only. Keys, usage details, and account settings live on their own pages.</p>
+    </div>
+    <a class="btn btn-sm" href="/keys">Manage keys</a>
   </div>
   <div class="table-wrap">
-  <table>
-    <thead><tr><th>Label</th><th>Prefix</th>{% if teams_enabled %}<th>Team</th>{% endif %}<th>Status</th></tr></thead>
-    <tbody>
-    {% for k in keys %}
-      <tr>
-        <td><a href="/keys/{{ k.id }}">{{ k.label }}</a></td>
-        <td class="mono">{{ k.key_prefix }}</td>
-        {% if teams_enabled %}<td>{{ k.team.name if k.team else '—' }}</td>{% endif %}
-        <td>{% if k.is_active %}<span class="badge ok">active</span>{% else %}<span class="badge off">off</span>{% endif %}</td>
-      </tr>
-    {% else %}
-      <tr><td colspan="4" class="empty-cell">
-        <div class="empty-state">
-          <p class="empty-state-title">No keys yet</p>
-          <p class="empty-state-text">Mint an API key to call the gateway from clients.</p>
-          <a class="btn primary" href="/keys/new">New key</a>
-        </div>
-      </td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
+    <table>
+      <tbody>
+        <tr>
+          <th>API keys</th>
+          <td>{{ keys|length }} total</td>
+        </tr>
+        <tr>
+          <th>Active keys</th>
+          <td>{{ keys|selectattr('is_active')|list|length }}</td>
+        </tr>
+        <tr>
+          <th>Usage details</th>
+          <td><a href="/usage">Open Usage</a> for events, rollups, and model averages.</td>
+        </tr>
+        <tr>
+          <th>Profile</th>
+          <td><a href="/account">Email, password, timezone</a></td>
+        </tr>
+        <tr>
+          <th>Privacy</th>
+          <td><a href="/privacy">Retention, logging, wipe usage</a></td>
+        </tr>
+        {% if teams_enabled %}
+        <tr>
+          <th>Your teams</th>
+          <td>
+            {% if teams %}
+              {% for t in teams %}
+                <a href="/teams/{{ t.id }}">{{ t.name }}</a>{% if not loop.last %} · {% endif %}
+              {% endfor %}
+            {% else %}
+              You are not in a team yet.
+            {% endif %}
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
   </div>
 </section>
-
-{% if keys %}
-<section class="panel">
-  <div class="panel-head">
-    <h2>Favorites</h2>
-    <p class="panel-sub">Pinned models appear first in <span class="mono">GET /v1/models</span> (VS Code etc.). Does not change permissions.</p>
-  </div>
-  {% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
-  <form method="get" action="/me" class="row row-filter">
-    <div class="field field--sm">
-      <label for="fav-key">Key</label>
-      <select id="fav-key" name="fav_key" onchange="this.form.submit()">
-        {% for k in keys %}
-        <option value="{{ k.id }}" {% if fav_key and fav_key.id == k.id %}selected{% endif %}>{{ k.label }}</option>
-        {% endfor %}
-      </select>
-    </div>
-  </form>
-  {% if fav_key %}
-  <form method="post" action="/me/favorites">
-    <input type="hidden" name="key_id" value="{{ fav_key.id }}">
-    {% if catalog_groups %}
-    {% with catalog_groups=catalog_groups, selected=selected_favorites, input_name='favorites', picker_id='me-favs', hint='' %}
-    {% include "partials/model_picker.html" %}
-    {% endwith %}
-    {% else %}
-    <div class="empty-state">
-      <p class="empty-state-title">No catalog models yet</p>
-      <p class="empty-state-text">Ask an admin to sync under Models, then pin favorites here.</p>
-    </div>
-    {% endif %}
-    <div class="actions actions-mt">
-      <input class="primary" type="submit" value="Save favorites">
-    </div>
-  </form>
-  {% endif %}
-</section>
-{% endif %}
 
 <p class="footnote"><a href="/privacy">Privacy &amp; data controls</a></p>
 {% endblock %}

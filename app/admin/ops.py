@@ -29,7 +29,7 @@ from .access import (
     can_access_team,
     require_platform_admin,
     require_user,
-    user_team_ids,
+    scoped_key_ids,
     user_teams,
 )
 from .templating import make_templates
@@ -102,7 +102,7 @@ def me_dashboard(
 ):
     """User dashboard — owner-scoped or team-scoped depending on settings."""
     from .accounts import teams_feature_enabled
-    from .access import scope_keys_query
+    from .access import scope_keys_query, scoped_key_ids
     from ..stats import (
         bar_chart_svg,
         daily_traffic_chart_svg,
@@ -113,47 +113,30 @@ def me_dashboard(
 
     teams_on = teams_feature_enabled(db)
     teams = user_teams(user) if teams_on else []
-    team_ids = user_team_ids(user) if teams_on else set()
     zone = zone_from_request(request, user)
     day_ago = utcnow() - timedelta(days=1)
     week_ago = week_window_start(zone)
     tz_label = str(zone)
 
-    owned_ids = [
-        kid
-        for (kid,) in db.query(ApiKey.id)
-        .filter(ApiKey.owner_user_id == user.id)
-        .all()
-    ]
+    keys_q = scope_keys_query(db.query(ApiKey), user, teams_enabled=teams_on)
+    keys = keys_q.order_by(ApiKey.created_at.desc()).limit(20).all()
+    visible_ids = scoped_key_ids(db, user, teams_enabled=teams_on)
 
     if user.is_platform_admin:
         day = usage_stats(db, since=day_ago, tz=zone)
         week = usage_stats(db, since=week_ago, tz=zone)
-    elif teams_on:
-        day = usage_stats(db, since=day_ago, team_ids=team_ids, tz=zone)
-        week = usage_stats(db, since=week_ago, team_ids=team_ids, tz=zone)
     else:
-        day = usage_stats(db, since=day_ago, key_ids=owned_ids, tz=zone)
-        week = usage_stats(db, since=week_ago, key_ids=owned_ids, tz=zone)
-
-    keys_q = scope_keys_query(db.query(ApiKey), user, teams_enabled=teams_on)
-    keys = keys_q.order_by(ApiKey.created_at.desc()).limit(20).all()
+        day = usage_stats(db, since=day_ago, key_ids=visible_ids, tz=zone)
+        week = usage_stats(db, since=week_ago, key_ids=visible_ids, tz=zone)
 
     today = utcnow().astimezone(zone).date()
     daily_q = db.query(UsageDaily).filter(UsageDaily.day == today)
     if not user.is_platform_admin:
-        if teams_on:
-            daily_q = (
-                daily_q.filter(UsageDaily.team_id.in_(team_ids))
-                if team_ids
-                else daily_q.filter(False)
-            )
-        else:
-            daily_q = (
-                daily_q.filter(UsageDaily.api_key_id.in_(owned_ids))
-                if owned_ids
-                else daily_q.filter(False)
-            )
+        daily_q = (
+            daily_q.filter(UsageDaily.api_key_id.in_(visible_ids))
+            if visible_ids
+            else daily_q.filter(False)
+        )
     daily_rows = daily_q.order_by(UsageDaily.ok_count.desc()).limit(30).all()
 
     return templates.TemplateResponse(
@@ -213,23 +196,10 @@ def usage_daily_page(
     from .accounts import teams_feature_enabled
 
     teams_on = teams_feature_enabled(db)
-    team_ids = user_team_ids(user)
     q = db.query(UsageDaily).order_by(UsageDaily.day.desc(), UsageDaily.ok_count.desc())
     if not user.is_platform_admin:
-        if teams_on:
-            q = q.filter(UsageDaily.team_id.in_(team_ids)) if team_ids else q.filter(False)
-        else:
-            owned_ids = [
-                kid
-                for (kid,) in db.query(ApiKey.id)
-                .filter(ApiKey.owner_user_id == user.id)
-                .all()
-            ]
-            q = (
-                q.filter(UsageDaily.api_key_id.in_(owned_ids))
-                if owned_ids
-                else q.filter(False)
-            )
+        visible_ids = scoped_key_ids(db, user, teams_enabled=teams_on)
+        q = q.filter(UsageDaily.api_key_id.in_(visible_ids)) if visible_ids else q.filter(False)
     rows = q.limit(300).all()
     return templates.TemplateResponse(
         request,

@@ -1,0 +1,12 @@
+{% if flash_ok is defined and flash_ok %}
+<div class="flash" role="status" data-toast>
+  <p class="flash-msg">{{ flash_ok }}</p>
+  <button type="button" class="flash-dismiss" data-toast-dismiss aria-label="Dismiss">×</button>
+</div>
+{% endif %}
+{% if flash_err is defined and flash_err %}
+<div class="error" role="alert" data-toast>
+  <p class="flash-msg">{{ flash_err }}</p>
+  <button type="button" class="flash-dismiss" data-toast-dismiss aria-label="Dismiss">×</button>
+</div>
+{% endif %}

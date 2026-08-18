@@ -1,245 +1,283 @@
 {% extends "base.html" %}
-{% block title %}Users · Gateway Admin{% endblock %}
+{% block title %}Users & Access · Gateway Admin{% endblock %}
 {% block content %}
 <header class="page-head page-head--compact">
   <div>
     <p class="eyebrow">Access</p>
-    <h1>Users / Grants</h1>
+    <h1>Users &amp; access</h1>
     <p class="lede">
       {% if teams_enabled %}
-      Teams mode is on — grants live on <a href="/teams">Teams</a>.
+      Manage accounts here. Source and model grants live on <a href="/teams">Teams</a>.
       {% else %}
-      Create users, pick <strong>which sources</strong> they may use. That is their ceiling.
-      They mint API keys under API Keys and can put only some sources/models on each key.
-      Pre-checked = <a href="/settings/access">Settings → Default access</a>. <strong>Disable</strong> blocks login + API.
+      Each user gets a source ceiling. They create keys under API Keys and can only narrow access from there.
       {% endif %}
     </p>
   </div>
+  <div class="page-actions">
+    {% if not teams_enabled %}
+    <a class="btn btn-sm" href="/settings/access">Default access</a>
+    {% endif %}
+    <a class="btn btn-sm" href="/smtp">SMTP</a>
+  </div>
 </header>
-{% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
-{% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
+
 {% if teams_enabled %}
-<div class="banner-info">Teams mode is on — access grants live on <a href="/teams">Teams</a> (add users as members). Per-user grants are disabled.</div>
+<div class="banner-info">Teams mode is on — per-user grants are disabled. Add members on <a href="/teams">Teams</a>.</div>
 {% endif %}
-{% if not smtp_ok %}<p class="muted">SMTP not ready — password-reset emails won’t send until you configure <a href="/smtp">SMTP</a>.</p>{% endif %}
+
+{% if not smtp_ok %}
+<div class="banner-warn" role="status">SMTP is not configured — password-reset emails will not send until <a href="/smtp">SMTP</a> is ready.</div>
+{% endif %}
+
 {% if not teams_enabled and weight_status is defined and weight_status.ready and not pool_model_weights_enabled %}
 <div class="flash">
   Enough 7d usage for <strong>optional</strong> budget weighting
   ({{ weight_status.model_count }} models, baseline TG ~{{ weight_status.baseline_tg_tok_s }} tok/s).
-  Nothing changes until you enable it:
-  <a href="/settings/limits#pool-weights">Settings → budget factors</a>, then
+  Enable via <a href="/settings/limits#pool-weights">Settings → budget factors</a>, then
   <a href="/models">Models → Apply suggested weights</a>.
 </div>
 {% endif %}
 
-{% if not teams_enabled %}
-<div class="panel">
-  <div class="panel-head">
-    <div class="panel-head-text">
-      <h2>Invite link</h2>
-      <p class="panel-sub">Self-registration can stay off. One-time links (7 days) let invited people sign up with <a href="/settings/access">Settings → Default access</a>.</p>
+<section class="metric-section">
+  <h2 class="section-title">Directory</h2>
+  <div class="cards cards-hero">
+    <div class="card">
+      <div class="label">Users</div>
+      <div class="value">{{ user_counts.total }}</div>
+      <div class="hint">Total accounts</div>
+    </div>
+    <div class="card">
+      <div class="label">Active</div>
+      <div class="value">{{ user_counts.active }}</div>
+      <div class="hint">Can sign in</div>
+    </div>
+    <div class="card">
+      <div class="label">Admins</div>
+      <div class="value">{{ user_counts.admins }}</div>
+      <div class="hint">Platform admin</div>
+    </div>
+    <div class="card card-warn">
+      <div class="label">Password reset</div>
+      <div class="value">{{ user_counts.must_change }}</div>
+      <div class="hint">Must change on login</div>
     </div>
   </div>
-  <form method="post" action="/users/invites" class="row row--wrap row--align-end">
-    <div class="field">
-      <label for="invite-email">Send to email (optional)</label>
-      <input id="invite-email" type="email" name="email" placeholder="Signal friend? leave blank and copy link" autocomplete="off">
+</section>
+
+{% if not teams_enabled %}
+<div class="users-admin-grid">
+  <section class="panel panel-invite">
+    <div class="panel-head">
+      <div class="panel-head-text">
+        <h2>Invite link</h2>
+        <p class="panel-sub">One-time signup links (7 days). Uses <a href="/settings/access">default access</a> when self-registration is off.</p>
+      </div>
     </div>
-    <div class="field">
-      <label for="invite-note">Note (optional)</label>
-      <input id="invite-note" type="text" name="note" placeholder="e.g. Anna" autocomplete="off">
+    <form method="post" action="/users/invites" class="row row--wrap row--align-end">
+      <div class="field">
+        <label for="invite-email">Email (optional)</label>
+        <input id="invite-email" type="email" name="email" placeholder="Send link by email" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="invite-note">Note</label>
+        <input id="invite-note" type="text" name="note" placeholder="e.g. Anna" autocomplete="off">
+      </div>
+      <button class="primary" type="submit">Create link</button>
+    </form>
+    {% if pending_invites %}
+    <div class="table-wrap users-invite-table">
+      <table class="table-compact">
+        <thead><tr><th>Created</th><th>Expires</th><th>By</th><th>Note</th><th></th></tr></thead>
+        <tbody>
+        {% for inv in pending_invites %}
+          <tr>
+            <td class="mono">{{ inv.created_at.strftime('%Y-%m-%d %H:%M') }} UTC</td>
+            <td class="mono">{{ inv.expires_at.strftime('%Y-%m-%d') }}</td>
+            <td>{{ invite_creators.get(inv.created_by_id, '—') }}</td>
+            <td>{{ inv.note or '—' }}</td>
+            <td>
+              <form method="post" action="/users/invites/{{ inv.id }}/revoke">
+                <button class="btn-sm" type="submit">Revoke</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
     </div>
-    <button class="primary" type="submit">Create invite link</button>
-  </form>
-  {% if pending_invites %}
-  <div class="table-wrap mt-1">
-    <table class="table-compact">
-      <thead><tr><th>Created</th><th>Expires</th><th>By</th><th>Note</th><th></th></tr></thead>
-      <tbody>
-      {% for inv in pending_invites %}
+    {% endif %}
+  </section>
+
+  <section class="panel panel-create-user">
+    <div class="panel-head">
+      <div class="panel-head-text">
+        <h2>Create user</h2>
+        <p class="panel-sub">Set the account ceiling. Pre-checked sources come from default access.</p>
+      </div>
+    </div>
+    <form method="post" action="/users/new" class="users-create-form">
+      <div class="row">
+        <div class="field">
+          <label for="new-username">Username</label>
+          <input id="new-username" type="text" name="username" required autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="new-email">Email</label>
+          <input id="new-email" type="email" name="email" placeholder="Needed for password reset" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="new-password">Password</label>
+          <input id="new-password" type="password" name="password" required minlength="8" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="checkboxes checkboxes-block">
+        <label><input type="checkbox" name="is_platform_admin" id="new-is-admin"> Platform admin (full access)</label>
+        <label><input type="checkbox" name="must_change_password" checked> Must change password on first login</label>
+      </div>
+      <div class="field field-gap-lg" id="new-user-grants">
+        <label>Sources for this user</label>
+        {% with source_chips=source_chips, selected_services=selected_services, hint_below='Uncheck sources this person should not use.' %}
+        {% include "_source_chips.html" %}
+        {% endwith %}
+      </div>
+      {% if catalog_groups %}
+      <details class="details-edit field-gap-lg">
+        <summary class="btn-sm">Optional · restrict models</summary>
+        <div class="details-edit-body">
+          {% with catalog_groups=catalog_groups, selected=selected_models, input_name='models', picker_id='new-user-models', hint='Nothing checked = all ON models for the sources above.' %}
+          {% include "partials/model_picker.html" %}
+          {% endwith %}
+        </div>
+      </details>
+      {% endif %}
+      <div class="actions actions-mt">
+        <input class="primary" type="submit" value="Add user">
+      </div>
+    </form>
+  </section>
+</div>
+{% endif %}
+
+<section class="panel panel-users-list">
+  <div class="panel-head row-between">
+    <div class="panel-head-text">
+      <h2>All users</h2>
+      {% if not teams_enabled %}
+      <p class="panel-sub">Click a source badge for models. <strong>+</strong> add source · <strong>×</strong> remove · limits line opens RPM and quotas.</p>
+      {% else %}
+      <p class="panel-sub">Account status and admin role. Team membership is managed on Teams.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="users-table">
+      <thead>
         <tr>
-          <td class="mono">{{ inv.created_at.strftime('%Y-%m-%d %H:%M') }} UTC</td>
-          <td class="mono">{{ inv.expires_at.strftime('%Y-%m-%d') }}</td>
-          <td>{{ invite_creators.get(inv.created_by_id, '—') }}</td>
-          <td>{{ inv.note or '—' }}</td>
-          <td>
-            <form method="post" action="/users/invites/{{ inv.id }}/revoke">
-              <button class="btn-sm" type="submit">Revoke</button>
-            </form>
+          <th>User</th>
+          <th>Email</th>
+          {% if not teams_enabled %}<th>Access</th>{% endif %}
+          <th class="col-manage">Manage</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for u in users %}
+        <tr id="user-row-{{ u.id }}" class="{% if not u.is_active %}row-muted{% endif %}">
+          <td class="user-cell-name">
+            <strong>{{ u.username }}</strong>
+            <div class="user-meta-badges">
+              {% if u.is_platform_admin %}<span class="badge">admin</span>{% else %}<span class="badge badge-muted">user</span>{% endif %}
+              {% if u.is_active %}<span class="badge ok">active</span>{% else %}<span class="badge off">disabled</span>{% endif %}
+              {% if u.must_change_password %}<span class="badge rate">must change pw</span>{% endif %}
+            </div>
+          </td>
+          <td class="mono user-cell-email">{{ u.email or '—' }}</td>
+          {% if not teams_enabled %}
+          <td class="user-access-cell">
+            {% if u.is_platform_admin %}
+            <span class="badge ok">full access</span>
+            {% else %}
+              {% set srcs = grant_sources.get(u.id, []) %}
+              {% set ungranted = ungranted_sources.get(u.id, []) %}
+              <div class="tag-row grant-source-badges" title="Click a badge for models · + to add sources">
+                {% for s in srcs %}
+                <span class="grant-source-chip">
+                  <a class="badge badge-link" href="/users/{{ u.id }}/grant" data-grant-user="{{ u.id }}" data-grant-source="{{ s }}">{{ s }}</a>
+                  <form method="post" action="/users/{{ u.id }}/grant/source/remove" class="grant-source-revoke-form"
+                        onsubmit="return confirm('Remove source {{ s }} from {{ u.username }}?');">
+                    <input type="hidden" name="source" value="{{ s }}">
+                    <button type="submit" class="grant-source-revoke" title="Remove {{ s }}">×</button>
+                  </form>
+                </span>
+                {% endfor %}
+                {% if ungranted %}
+                <button type="button" class="badge badge-add" data-grant-add-user="{{ u.id }}" title="Add source">+</button>
+                {% endif %}
+              </div>
+              {% if srcs %}
+              <div class="muted hint-micro">{{ grant_labels.get(u.id, '') }}</div>
+              {% else %}
+              <div class="muted hint-micro">No sources granted yet.</div>
+              {% endif %}
+              <div class="user-access-actions">
+                <button type="button" class="grant-limits-btn" data-grant-limits-user="{{ u.id }}"
+                        title="Edit RPM, concurrency, daily quota, token budget">
+                  {{ limit_summaries.get(u.id, 'No limits (∞)') }}
+                </button>
+                <a href="/users/{{ u.id }}/grant">Full grant editor</a>
+              </div>
+            {% endif %}
+          </td>
+          {% endif %}
+          <td class="col-manage">
+            <div class="actions actions-inline user-manage-actions">
+              {% if u.id != user.id %}
+              <form method="post" action="/users/{{ u.id }}/toggle">
+                <button class="btn-sm {% if u.is_active %}btn-danger{% else %}primary{% endif %}" type="submit">
+                  {{ 'Disable' if u.is_active else 'Enable' }}
+                </button>
+              </form>
+              {% endif %}
+              <details class="details-edit">
+                <summary class="btn-sm">Edit</summary>
+                <form method="post" action="/users/{{ u.id }}/update" class="details-edit-body">
+                  <div class="field field-gap-sm">
+                    <label for="email-{{ u.id }}">Email</label>
+                    <input id="email-{{ u.id }}" type="email" name="email" value="{{ u.email or '' }}">
+                  </div>
+                  <div class="field field-gap-sm">
+                    <label for="pw-{{ u.id }}">New password (optional)</label>
+                    <input id="pw-{{ u.id }}" type="password" name="new_password" minlength="8" autocomplete="new-password">
+                  </div>
+                  <div class="checkboxes field-gap-sm">
+                    {% if u.id != user.id %}
+                    <label><input type="checkbox" name="is_platform_admin" {% if u.is_platform_admin %}checked{% endif %}> Platform admin</label>
+                    {% endif %}
+                    <label><input type="checkbox" name="must_change_password" {% if u.must_change_password %}checked{% endif %}> Must change password</label>
+                  </div>
+                  <button class="btn-sm primary" type="submit">Save</button>
+                </form>
+                <div class="actions mt-half">
+                  <form method="post" action="/users/{{ u.id }}/send-reset">
+                    <button class="btn-sm" type="submit" {% if not u.email or not smtp_ok %}disabled{% endif %}>Send reset email</button>
+                  </form>
+                </div>
+              </details>
+            </div>
           </td>
         </tr>
+      {% else %}
+        <tr><td colspan="{{ 4 if not teams_enabled else 3 }}" class="empty-cell">
+          <div class="empty-state">
+            <p class="empty-state-title">No users yet</p>
+            <p class="empty-state-text">Create a user above and grant sources they may use.</p>
+          </div>
+        </td></tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
-  {% endif %}
-</div>
+</section>
 
-<div class="panel">
-  <div class="panel-head">
-    <div class="panel-head-text">
-      <h2>Create user</h2>
-      <p class="panel-sub">Ceiling for this account. Pre-checked from Settings → Default access; check any other sources this person should have.</p>
-    </div>
-  </div>
-  <form method="post" action="/users/new">
-    <div class="row">
-      <div class="field">
-        <label for="new-username">Username</label>
-        <input id="new-username" type="text" name="username" required autocomplete="off">
-      </div>
-      <div class="field">
-        <label for="new-email">Email</label>
-        <input id="new-email" type="email" name="email" placeholder="optional but needed for reset" autocomplete="off">
-      </div>
-      <div class="field">
-        <label for="new-password">Password</label>
-        <input id="new-password" type="password" name="password" required minlength="8" autocomplete="new-password">
-      </div>
-    </div>
-    <div class="checkboxes checkboxes-block">
-      <label><input type="checkbox" name="is_platform_admin" id="new-is-admin"> Platform admin (full access — ignores source grant)</label>
-      <label><input type="checkbox" name="must_change_password" checked> Must change password on first login</label>
-    </div>
-    <div class="field field-gap-lg" id="new-user-grants">
-      <label>Sources for this user</label>
-      {% with source_chips=source_chips, selected_services=selected_services, hint_below='Pre-checked from Settings → Default access. Check any source this person should have.' %}
-      {% include "_source_chips.html" %}
-      {% endwith %}
-    </div>
-    {% if catalog_groups %}
-    <details class="details-edit field-gap-lg">
-      <summary class="btn-sm">Optional · restrict models</summary>
-      <div class="details-edit-body">
-        {% with catalog_groups=catalog_groups, selected=selected_models, input_name='models', picker_id='new-user-models', hint='Nothing checked = all ON models for the sources above.' %}
-        {% include "partials/model_picker.html" %}
-        {% endwith %}
-      </div>
-    </details>
-    {% endif %}
-    <input class="primary" type="submit" value="Add user">
-  </form>
-</div>
-{% endif %}
-
-<div class="panel">
-  <div class="panel-head">
-    <div class="panel-head-text">
-      <h2>Users</h2>
-      <p class="panel-sub">Badges = sources · <strong>+</strong> add · <strong>×</strong> remove · click badge for models · click limits for RPM/budget.</p>
-    </div>
-  </div>
-  <div class="table-wrap">
-  <table class="users-table">
-    <thead>
-      <tr>
-        <th>User</th>
-        <th>Email</th>
-        <th>Role</th>
-        <th>Sources</th>
-        <th>Status</th>
-        <th>Manage</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for u in users %}
-      <tr id="user-row-{{ u.id }}" class="{% if not u.is_active %}row-muted{% endif %}">
-        <td>
-          <strong>{{ u.username }}</strong>
-          {% if u.must_change_password %}<span class="badge rate">must change pw</span>{% endif %}
-        </td>
-        <td class="mono">{{ u.email or '—' }}</td>
-        <td>{% if u.is_platform_admin %}<span class="badge">admin</span>{% else %}user{% endif %}</td>
-        <td class="text-sm">
-          {% if teams_enabled %}
-          <span class="muted">via team</span>
-          {% elif u.is_platform_admin %}
-          <span class="badge ok">full access</span>
-          {% else %}
-            {% set srcs = grant_sources.get(u.id, []) %}
-            {% set ungranted = ungranted_sources.get(u.id, []) %}
-            <div class="tag-row grant-source-badges" title="Click a badge for models · + to add sources">
-              {% for s in srcs %}
-              <span class="grant-source-chip">
-                <a class="badge badge-link" href="/users/{{ u.id }}/grant" data-grant-user="{{ u.id }}" data-grant-source="{{ s }}">{{ s }}</a>
-                <form method="post" action="/users/{{ u.id }}/grant/source/remove" class="grant-source-revoke-form"
-                      onsubmit="return confirm('Remove source {{ s }} from {{ u.username }}?');">
-                  <input type="hidden" name="source" value="{{ s }}">
-                  <button type="submit" class="grant-source-revoke" title="Remove {{ s }}">×</button>
-                </form>
-              </span>
-              {% endfor %}
-              {% if ungranted %}
-              <button type="button" class="badge badge-add" data-grant-add-user="{{ u.id }}" title="Add source">+</button>
-              {% endif %}
-            </div>
-            {% if srcs %}
-            <div class="muted hint-micro">{{ grant_labels.get(u.id, '') }}</div>
-            {% endif %}
-            <div class="grant-limits-line mt-third">
-              <button type="button" class="grant-limits-btn" data-grant-limits-user="{{ u.id }}"
-                      title="Edit RPM, concurrency, daily quota, token budget">
-                {{ limit_summaries.get(u.id, 'No limits (∞)') }}
-              </button>
-            </div>
-            <div class="mt-third">
-              <a href="/users/{{ u.id }}/grant">Edit grant</a>
-              <span class="muted"> · all sources &amp; models</span>
-            </div>
-          {% endif %}
-        </td>
-        <td>
-          {% if u.is_active %}<span class="badge ok">active</span>{% else %}<span class="badge off">disabled</span>{% endif %}
-        </td>
-        <td>
-          <div class="actions actions-inline">
-            {% if u.id != user.id %}
-            <form method="post" action="/users/{{ u.id }}/toggle">
-              <button class="btn-sm {% if u.is_active %}btn-danger{% else %}primary{% endif %}" type="submit">
-                {{ 'Disable' if u.is_active else 'Enable' }}
-              </button>
-            </form>
-            {% endif %}
-            <details class="details-edit">
-              <summary class="btn-sm">Edit</summary>
-              <form method="post" action="/users/{{ u.id }}/update" class="details-edit-body">
-                <div class="field field-gap-sm">
-                  <label for="email-{{ u.id }}">Email</label>
-                  <input id="email-{{ u.id }}" type="email" name="email" value="{{ u.email or '' }}">
-                </div>
-                <div class="field field-gap-sm">
-                  <label for="pw-{{ u.id }}">Set new password (optional)</label>
-                  <input id="pw-{{ u.id }}" type="password" name="new_password" minlength="8" autocomplete="new-password">
-                </div>
-                <div class="checkboxes field-gap-sm">
-                  {% if u.id != user.id %}
-                  <label><input type="checkbox" name="is_platform_admin" {% if u.is_platform_admin %}checked{% endif %}> Platform admin</label>
-                  {% endif %}
-                  <label><input type="checkbox" name="must_change_password" {% if u.must_change_password %}checked{% endif %}> Must change password</label>
-                </div>
-                <button class="btn-sm primary" type="submit">Save</button>
-              </form>
-              <div class="actions mt-half">
-                <form method="post" action="/users/{{ u.id }}/send-reset">
-                  <button class="btn-sm" type="submit" {% if not u.email or not smtp_ok %}disabled{% endif %}>Send reset email</button>
-                </form>
-              </div>
-            </details>
-          </div>
-        </td>
-      </tr>
-    {% else %}
-      <tr><td colspan="6" class="empty-cell">
-        <div class="empty-state">
-          <p class="empty-state-title">No users yet</p>
-          <p class="empty-state-text">Create a user above and grant daily sources.</p>
-        </div>
-      </td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-</div>
 <script>
 (function () {
   var admin = document.getElementById('new-is-admin');

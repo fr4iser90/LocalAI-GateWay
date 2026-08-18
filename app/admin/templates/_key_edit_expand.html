@@ -1,0 +1,86 @@
+{# Inline key editor under the keys table row. Expects the same ctx as key_form. #}
+<tr class="grant-expand-row key-expand-row" id="key-editor" data-key-for="{{ key.id }}">
+  <td colspan="{{ 10 if teams_enabled else 9 }}">
+    <div class="grant-expand grant-expand--key">
+      <div class="grant-expand-head">
+        <p class="grant-expand-title mt-0">Edit <span class="mono">{{ key.label }}</span></p>
+        <div class="grant-expand-actions">
+          <button type="button" class="btn btn-sm" data-key-collapse>Collapse</button>
+        </div>
+      </div>
+      {% if grant_empty %}
+      <p class="error mt-0" role="alert">No sources in your grant yet — ask an admin to grant access first.</p>
+      {% endif %}
+      <form method="post" action="/keys/{{ key.id }}">
+        <div class="row">
+          <div class="field">
+            <label for="key-label-{{ key.id }}">Label</label>
+            <input id="key-label-{{ key.id }}" type="text" name="label" value="{{ key.label }}" required>
+          </div>
+          {% if teams_enabled %}
+          <div class="field">
+            <label for="key-team-{{ key.id }}">Team</label>
+            <select id="key-team-{{ key.id }}" name="team_id" required>
+              <option value="">— select team —</option>
+              {% for t in teams %}
+              <option value="{{ t.id }}" {% if key.team_id == t.id %}selected{% endif %}>{{ t.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% elif is_admin and owners is defined and owners %}
+          <div class="field">
+            <label for="key-owner-{{ key.id }}">Owner</label>
+            <select id="key-owner-{{ key.id }}" name="owner_user_id">
+              {% for u in owners %}
+              <option value="{{ u.id }}" {% if key.owner_user_id == u.id %}selected{% endif %}>{{ u.username }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
+        </div>
+
+        <div class="field field-gap">
+          <label>Sources</label>
+          {% with source_chips=source_chips, selected_services=selected_services, hint_below='Uncheck sources this key should not use.', chips_for_picker='key-models-' ~ key.id %}
+          {% include "_source_chips.html" %}
+          {% endwith %}
+        </div>
+
+        <div class="field field-gap">
+          <label>Models <span class="muted label-normal">— uncheck to restrict</span></label>
+          {% with catalog_groups=catalog_groups, selected=selected_models, input_name='models', picker_id='key-models-' ~ key.id, hint='' %}
+          {% include "partials/model_picker.html" %}
+          {% endwith %}
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="key-rpm-{{ key.id }}">RPM</label>
+            <input id="key-rpm-{{ key.id }}" type="number" name="rpm_limit" min="0" value="{{ key.rpm_limit if key.rpm_limit is not none else '' }}" placeholder="∞">
+          </div>
+          <div class="field">
+            <label for="key-conc-{{ key.id }}">Concurrency</label>
+            <input id="key-conc-{{ key.id }}" type="number" name="concurrency_limit" min="0" value="{{ key.concurrency_limit if key.concurrency_limit is not none else '' }}" placeholder="∞">
+          </div>
+          <div class="field">
+            <label for="key-daily-{{ key.id }}">Daily quota</label>
+            <input id="key-daily-{{ key.id }}" type="number" name="daily_quota" min="0" value="{{ key.daily_quota if key.daily_quota is not none else '' }}" placeholder="∞">
+          </div>
+          <div class="field">
+            <label for="key-priority-{{ key.id }}">Priority</label>
+            <input id="key-priority-{{ key.id }}" type="number" name="priority" value="{{ key.priority if key.priority is not none else '' }}" placeholder="0">
+          </div>
+        </div>
+
+        <div class="field field-gap-sm">
+          <label><input type="checkbox" name="is_active" {% if key.is_active %}checked{% endif %}> Active</label>
+        </div>
+
+        <div class="actions mt-half">
+          <input class="primary btn-sm" type="submit" value="Save">
+          <button type="button" class="btn btn-sm" data-key-collapse>Collapse</button>
+        </div>
+      </form>
+    </div>
+  </td>
+</tr>

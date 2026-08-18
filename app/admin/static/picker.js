@@ -208,19 +208,6 @@
         applyVlCouple(root, false);
       }
     }
-
-    root.querySelectorAll("[data-favorite-toggle]").forEach(function (btn) {
-      btn.addEventListener("click", function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        var item = btn.closest(".model-picker-item");
-        var cb = item && item.querySelector(".model-picker-fav-cb");
-        if (!cb) return;
-        cb.checked = !cb.checked;
-        btn.classList.toggle("is-on", cb.checked);
-        btn.setAttribute("aria-pressed", cb.checked ? "true" : "false");
-      });
-    });
   }
 
   function init(scope) {

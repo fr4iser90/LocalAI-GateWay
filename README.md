@@ -37,7 +37,7 @@ docker compose up -d --build
 **Model merge:** All sources of a kind are equal. `/v1` picks a source by request `model` from the **enabled** catalog. No match → 404 `unknown_model` (or 400 `missing_model`). Who may call a source is the **user/key grant**. `/s/{name}/` is only an optional pin.  
 **API dialects:** `api_style` on each source — see `app/data/dialects.py`.  
 **Model catalog:** Admin → Models — sync, disable, tags/notes/docs links.  
-Keys/Teams pick models via checkboxes (empty = all). Favorites pin order in `/v1/models` (key overrides team).  
+Keys/Teams pick models via checkboxes (empty = all).  
 `GET /v1/models` returns only enabled models ∩ key/team allowlist (notes → `description` when set).  
 Aliases **`auto`**, **`auto-quality`**, **`auto-long`** are rewritten in Settings → Routing (daily Q4 MoE+MTP / Q5 MoE+MTP / 128k). Enable **Auto-VL** so screenshots follow the text model.
 
@@ -57,6 +57,8 @@ docker compose -f compose.traefik.yaml up -d --build
 |--------|--------|
 | `DOMAIN`, `PUBLIC_HOST`, `SESSION_SECRET`, bootstrap admin | API keys, users, SMTP, teams |
 | Ports, thermal sidecar (prod example) | Named sources (kind + address); grant keys per source |
+
+Admin page layout (Browse vs Task vs Auth) is documented in [docs/LAYOUT.md](docs/LAYOUT.md) and enforced by `tests/test_admin_layout_convention.py`.
 
 ## Layout
 

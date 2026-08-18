@@ -2,12 +2,13 @@
 {% if source_chips %}
 <div class="source-chips"{% if chips_for_picker is defined and chips_for_picker %} data-source-chips-for="{{ chips_for_picker }}"{% endif %}>
   {% for s in source_chips %}
-  <label class="source-chip" id="source-{{ s.name }}" data-source-chip="{{ s.name }}">
+  <label class="source-chip" id="source-{{ s.name }}" data-source-chip="{{ s.name }}" {% if s.tooltip %}title="{{ s.tooltip }}"{% endif %}>
     <input type="checkbox" name="services" value="{{ s.name }}" {% if s.name in selected_services %}checked{% endif %}>
     <span class="source-chip-name mono">{{ s.name }}</span>
     <span class="source-chip-badges">
       <span class="badge">{{ s.kind }}</span>
     </span>
+    {% if s.hardware %}<span class="source-chip-meta">{{ s.hardware }}</span>{% endif %}
     {% if s.hint %}<span class="source-chip-meta">{{ s.hint }}</span>{% endif %}
     {% if s.address %}<span class="source-chip-meta mono">{{ s.address }}</span>{% endif %}
   </label>

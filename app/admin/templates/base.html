@@ -45,17 +45,17 @@
 
       <div class="nav-group nav-group--you" role="group" aria-labelledby="nav-you">
         <p class="nav-group-label" id="nav-you">You</p>
-        <a href="/me" class="{{ 'active' if nav == 'me' else '' }}" {% if nav == 'me' %}aria-current="page"{% endif %}>Home</a>
+        <a href="/me" class="{{ 'active' if nav == 'me' else '' }}" {% if nav == 'me' %}aria-current="page"{% endif %}>Overview</a>
         <a href="/keys" class="{{ 'active' if nav == 'keys' else '' }}" {% if nav == 'keys' %}aria-current="page"{% endif %}>API Keys</a>
         <a href="/usage" class="{{ 'active' if usage_on else '' }}" {% if usage_on %}aria-current="page"{% endif %}>Usage</a>
         <a href="/account" class="{{ 'active' if nav == 'account' else '' }}" {% if nav == 'account' %}aria-current="page"{% endif %}>Profile</a>
-        <a href="/privacy" class="{{ 'active' if nav == 'privacy' else '' }}" {% if nav == 'privacy' %}aria-current="page"{% endif %}>Privacy</a>
+        <a href="/privacy" class="{{ 'active' if nav == 'privacy' else '' }}" {% if nav == 'privacy' %}aria-current="page"{% endif %}>Data &amp; Privacy</a>
       </div>
 
       {% if user.is_platform_admin %}
       <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-ops">
         <p class="nav-group-label" id="nav-ops">Ops</p>
-        <a href="/" class="{{ 'active' if nav == 'dashboard' else '' }}" {% if nav == 'dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
+        <a href="/" class="{{ 'active' if nav == 'dashboard' else '' }}" {% if nav == 'dashboard' %}aria-current="page"{% endif %}>Overview</a>
       </div>
 
       <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-backends">
@@ -66,7 +66,7 @@
 
       <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-access">
         <p class="nav-group-label" id="nav-access">Access</p>
-        <a href="/users" class="{{ 'active' if nav == 'users' else '' }}" {% if nav == 'users' %}aria-current="page"{% endif %}>Users / Grants</a>
+        <a href="/users" class="{{ 'active' if nav == 'users' else '' }}" {% if nav == 'users' %}aria-current="page"{% endif %}>Users &amp; Access</a>
         {% if teams_enabled %}
         <a href="/teams" class="{{ 'active' if nav == 'teams' else '' }}" {% if nav == 'teams' %}aria-current="page"{% endif %}>Teams</a>
         {% endif %}
@@ -74,7 +74,7 @@
 
       <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-system">
         <p class="nav-group-label" id="nav-system">System</p>
-        <a href="/settings" class="{{ 'active' if nav in ['settings', 'smtp', 'alerts', 'audit'] else '' }}" {% if nav in ['settings', 'smtp', 'alerts', 'audit'] %}aria-current="page"{% endif %}>Settings</a>
+        <a href="/settings" class="{{ 'active' if nav in ['settings', 'smtp', 'alerts', 'audit'] else '' }}" {% if nav in ['settings', 'smtp', 'alerts', 'audit'] %}aria-current="page"{% endif %}>Gateway settings</a>
       </div>
       {% elif teams_enabled %}
       <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-team">
@@ -103,6 +103,7 @@
     </header>
     <main id="main-content" class="content{% block content_class %}{% endblock %}" tabindex="-1">
       <div class="content-inner">
+        {% include "_flash.html" %}
         {% block content %}{% endblock %}
       </div>
     </main>
@@ -111,6 +112,7 @@
 <script src="/static/theme.js"></script>
 <script src="/static/nav.js"></script>
 <script src="/static/picker.js"></script>
+<script src="/static/ui.js"></script>
 <script>
 (function () {
   var tz;

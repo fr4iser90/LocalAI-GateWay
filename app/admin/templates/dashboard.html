@@ -1,29 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Dashboard · Gateway Admin{% endblock %}
+{% block title %}Ops Overview · Gateway Admin{% endblock %}
 {% block content %}
 <header class="page-head page-head--compact">
   <div>
     <p class="eyebrow">Operations</p>
-    <h1>Dashboard</h1>
-    <p class="lede">Fleet health and traffic — personal keys live on <a href="/me">Home</a>.</p>
+    <h1>Ops overview</h1>
+    <p class="lede">Fleet health and gateway traffic. Personal keys and personal usage live on <a href="/me">Overview</a>.</p>
   </div>
   <div class="page-actions">
     <a class="btn btn-sm" href="/services">Services</a>
     <a class="btn btn-sm" href="/users">Users</a>
     <a class="btn btn-sm" href="/usage">Usage</a>
-    {% if demo_tools %}
-    <form method="post" action="/demo/seed">
-      <button class="btn btn-sm" type="submit">Seed demo</button>
-    </form>
-    <form method="post" action="/demo/clear" onsubmit="return confirm('Remove all demo usage?')">
-      <button class="btn btn-sm btn-danger" type="submit">Clear demo</button>
-    </form>
-    {% endif %}
   </div>
 </header>
-
-{% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
-{% if demo_count %}<div class="banner-info">Showing <strong>{{ '{:,}'.format(demo_count) }}</strong> demo events in the 7-day window.</div>{% endif %}
 
 <section class="panel fleet-panel">
   <div class="panel-head">

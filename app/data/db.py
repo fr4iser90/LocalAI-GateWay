@@ -118,6 +118,7 @@ def _ensure_columns(eng) -> None:
             ("load_aware_routing", "BOOLEAN DEFAULT 1"),
             ("default_grant_sources", "TEXT DEFAULT ''"),
             ("default_grant_models", "TEXT DEFAULT ''"),
+            ("show_global_stats", "BOOLEAN DEFAULT 0"),
         ],
         "audit_logs": [
             ("prev_hash", "VARCHAR(64) DEFAULT ''"),
@@ -131,6 +132,7 @@ def _ensure_columns(eng) -> None:
             ("route_models", "TEXT DEFAULT ''"),
             ("api_style", "VARCHAR(32) DEFAULT 'auto'"),
             ("gpu_power_url", "VARCHAR(512) DEFAULT ''"),
+            ("temp_guard_enabled", "BOOLEAN DEFAULT 1"),
             ("hardware", "VARCHAR(64) DEFAULT ''"),
         ],
         "service_grants": [
@@ -166,8 +168,12 @@ def _ensure_columns(eng) -> None:
                 if name not in existing:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
-        # Retired: source.isolated (grants decide access; do not re-add).
+        # Retired: model_favorites (removed feature).
         tables = set(inspect(eng).get_table_names())
+        if "model_favorites" in tables:
+            conn.execute(text("DROP TABLE model_favorites"))
+
+        # Retired: source.isolated (grants decide access; do not re-add).
         if "backend_sources" in tables:
             src_cols = {c["name"] for c in inspect(eng).get_columns("backend_sources")}
             if "isolated" in src_cols:

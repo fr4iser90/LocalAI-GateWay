@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from .backends import list_sources
 from .db import hash_api_key
-from .models import AdminUser, ApiKey, CatalogModel, ModelFavorite, Team, utcnow
+from .models import AdminUser, ApiKey, CatalogModel, Team, utcnow
 
 _UNRANKED = 10_000
 
@@ -472,31 +472,6 @@ def models_visible_for_key(db: Session, api_key: ApiKey) -> list[CatalogModel]:
     return out
 
 
-def favorites_for_key(api_key: ApiKey) -> list[ModelFavorite]:
-    """Key favorites if set; else team defaults. Empty = no pins."""
-    key_favs = list(api_key.model_favorites or [])
-    if key_favs:
-        return sorted(key_favs, key=lambda f: (f.sort_order, f.model_name))
-    if api_key.team and api_key.team.model_favorites:
-        return sorted(
-            api_key.team.model_favorites, key=lambda f: (f.sort_order, f.model_name)
-        )
-    return []
-
-
-def favorite_rank_maps(
-    favorites: list[ModelFavorite],
-) -> tuple[dict[tuple[str, str], int], dict[str, int]]:
-    """(source, model) ranks and model_id ranks (first wins)."""
-    by_pair: dict[tuple[str, str], int] = {}
-    by_id: dict[str, int] = {}
-    for fav in favorites:
-        pair = (fav.service, fav.model_name)
-        by_pair[pair] = fav.sort_order
-        by_id.setdefault(fav.model_name, fav.sort_order)
-    return by_pair, by_id
-
-
 def context_length_for_model(row: CatalogModel) -> int | None:
     """OpenRouter-style max context for IDEs (Continue, OpenCode, …).
 
@@ -509,27 +484,12 @@ def context_length_for_model(row: CatalogModel) -> int | None:
     return None
 
 
-def openai_models_payload(
-    rows: list[CatalogModel],
-    favorites: list[ModelFavorite] | None = None,
-) -> dict:
-    """OpenAI-compatible list; favorites first, then catalog sort_order.
-
-    Extra fields are last-known upstream values only (omitted when unknown).
-    """
-    by_pair, by_id = favorite_rank_maps(favorites or [])
-
-    def sort_key(r: CatalogModel) -> tuple:
-        pair_rank = by_pair.get((r.source_name, r.model_id))
-        if pair_rank is not None:
-            rank = pair_rank
-        else:
-            rank = by_id.get(r.model_id, _UNRANKED)
-        return (rank, r.sort_order, r.model_id, r.source_name)
+def openai_models_payload(rows: list[CatalogModel]) -> dict:
+    """OpenAI-compatible list sorted by catalog order."""
 
     data = []
     seen: set[str] = set()
-    for row in sorted(rows, key=sort_key):
+    for row in sorted(rows, key=lambda r: (r.sort_order, r.model_id, r.source_name)):
         if row.model_id in seen:
             continue
         seen.add(row.model_id)
@@ -570,12 +530,10 @@ def load_api_key(db: Session, raw_key: str | None) -> ApiKey | None:
         .options(
             joinedload(ApiKey.team).joinedload(Team.service_grants),
             joinedload(ApiKey.team).joinedload(Team.model_allowlists),
-            joinedload(ApiKey.team).joinedload(Team.model_favorites),
             joinedload(ApiKey.owner).joinedload(AdminUser.service_grants),
             joinedload(ApiKey.owner).joinedload(AdminUser.model_allowlists),
             joinedload(ApiKey.service_grants),
             joinedload(ApiKey.model_allowlists),
-            joinedload(ApiKey.model_favorites),
         )
         .filter(ApiKey.key_hash == hash_api_key(raw_key), ApiKey.is_active.is_(True))
         .first()

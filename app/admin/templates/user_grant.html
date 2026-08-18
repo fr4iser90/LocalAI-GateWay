@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Grant · {{ target.username }} · Gateway Admin{% endblock %}
+{% block content_class %} content--fill{% endblock %}
 {% block content %}
 <header class="page-head page-head--compact">
   <div>
@@ -13,12 +14,11 @@
     <a class="btn" href="/users">← Users</a>
   </div>
 </header>
-{% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
-{% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
 {% if target.is_platform_admin %}
 <div class="banner-info">Platform admins already have full access; this grant is ignored for them.</div>
 {% endif %}
-<div class="panel">
+
+<div class="panel panel--fill">
   {% include "_user_grant_form.html" %}
 </div>
 {% endblock %}

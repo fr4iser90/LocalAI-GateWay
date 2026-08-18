@@ -1,59 +1,52 @@
 {% extends "base.html" %}
-{% block title %}Privacy · Gateway{% endblock %}
+{% block title %}Data & Privacy · Gateway{% endblock %}
+{% block content_class %} content--fill{% endblock %}
 {% block content %}
 <header class="page-head page-head--compact">
   <div>
     <p class="eyebrow">You</p>
-    <h1>Privacy</h1>
+    <h1>Data &amp; Privacy</h1>
     <p class="lede">What this gateway stores — and what it never logs.</p>
   </div>
 </header>
-{% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
-{% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
 
-<div class="stack">
-  <div class="panel">
-    <div class="panel-head">
-      <div class="panel-head-text"><h2>What I store</h2></div>
-    </div>
-    <ul class="privacy-list">
-      <li><strong>Account:</strong> username, optional email, password hash (bcrypt) — never plaintext passwords.</li>
-      <li><strong>API keys:</strong> label + SHA-256 hash + prefix only. The full key is shown once at creation.</li>
-      <li><strong>Usage metadata:</strong> time, service, path, model name, result (ok/deny/429), duration, optional token/audio estimates, key label.</li>
-      <li><strong>Not stored:</strong> prompts, chat messages, embeddings text, STT audio, TTS audio, response bodies.</li>
-    </ul>
-  </div>
+<div class="panel panel--fill">
+  <div class="privacy-fill">
+    <div class="privacy-body">
+      <h2 class="section-title">What I store</h2>
+      <ul class="privacy-list">
+        <li><strong>Account:</strong> username, optional email, password hash (bcrypt) — never plaintext passwords.</li>
+        <li><strong>API keys:</strong> label + SHA-256 hash + prefix only. The full key is shown once at creation.</li>
+        <li><strong>Usage metadata:</strong> time, service, path, model name, result (ok/deny/429), duration, optional token/audio estimates, key label.</li>
+        <li><strong>Not stored:</strong> prompts, chat messages, embeddings text, STT audio, TTS audio, response bodies.</li>
+      </ul>
 
-  <div class="panel">
-    <div class="panel-head">
-      <div class="panel-head-text"><h2>Current policy</h2></div>
+      <h2 class="section-title">Current policy</h2>
+      <table>
+        <tr><th>Client IP</th><td>{% if auth.anonymize_client_ip %}Anonymized (last octet / IPv6 truncated){% else %}Stored as received{% endif %}</td></tr>
+        <tr><th>Usage retention</th><td>{% if auth.retention_days %}{{ auth.retention_days }} days (then purged){% else %}No automatic purge{% endif %}</td></tr>
+        <tr><th>Your visibility</th><td>You only see usage for <strong>your own</strong> API keys{% if teams_enabled %} (or your teams when teams are enabled){% endif %}.</td></tr>
+        <tr><th>Admin visibility</th><td>Platform admins can see all usage metadata for ops/debugging — still no prompts/audio.</td></tr>
+      </table>
     </div>
-    <table>
-      <tr><th>Client IP</th><td>{% if auth.anonymize_client_ip %}Anonymized (last octet / IPv6 truncated){% else %}Stored as received{% endif %}</td></tr>
-      <tr><th>Usage retention</th><td>{% if auth.retention_days %}{{ auth.retention_days }} days (then purged){% else %}No automatic purge{% endif %}</td></tr>
-      <tr><th>Your visibility</th><td>You only see usage for <strong>your own</strong> API keys{% if teams_enabled %} (or your teams when teams are enabled){% endif %}.</td></tr>
-      <tr><th>Admin visibility</th><td>Platform admins can see all usage metadata for ops/debugging — still no prompts/audio.</td></tr>
-    </table>
-  </div>
 
-  <div class="panel">
-    <div class="panel-head">
-      <div class="panel-head-text"><h2>Delete my usage data</h2></div>
-    </div>
-    <p class="muted mt-0">Removes usage events and daily rollups for keys you own. Does not delete your account or keys.</p>
-    <form method="post" action="/privacy/wipe-usage" onsubmit="return confirm('Really delete your usage history?')">
-      <div class="row">
-        <div class="field">
-          <label for="privacy-confirm">Type DELETE</label>
-          <input id="privacy-confirm" type="text" name="confirm" required placeholder="DELETE" autocomplete="off">
+    <div class="wizard-actions--sticky privacy-wipe">
+      <h2 class="section-title">Delete my usage data</h2>
+      <p class="muted mt-0">Removes usage events and daily rollups for keys you own. Does not delete your account or keys.</p>
+      <form method="post" action="/privacy/wipe-usage" onsubmit="return confirm('Really delete your usage history?')">
+        <div class="row">
+          <div class="field">
+            <label for="privacy-confirm">Type DELETE</label>
+            <input id="privacy-confirm" type="text" name="confirm" required placeholder="DELETE" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="privacy-pw">Password</label>
+            <input id="privacy-pw" type="password" name="current_password" required autocomplete="current-password">
+          </div>
         </div>
-        <div class="field">
-          <label for="privacy-pw">Password</label>
-          <input id="privacy-pw" type="password" name="current_password" required autocomplete="current-password">
-        </div>
-      </div>
-      <button class="btn btn-danger" type="submit">Wipe my usage</button>
-    </form>
+        <button class="btn btn-danger" type="submit">Wipe my usage</button>
+      </form>
+    </div>
   </div>
 </div>
 {% endblock %}

@@ -316,13 +316,101 @@ def bar_chart_svg(
     return "\n".join(lines)
 
 
+def _nice_ceiling(v: int) -> int:
+    """Round an axis max so ticks land on even steps (5 → 6, 53 → 60)."""
+    v = max(1, int(v))
+    if v <= 4:
+        return v
+    if v <= 6:
+        return 6
+    if v <= 8:
+        return 8
+    if v <= 10:
+        return 10
+    if v <= 50:
+        step = 5
+    elif v <= 100:
+        step = 10
+    elif v <= 250:
+        step = 25
+    else:
+        step = 50
+    return ((v + step - 1) // step) * step
+
+
+def _axis_ticks(max_v: int) -> list[int]:
+    if max_v <= 4:
+        return list(range(0, max_v + 1))
+    for n in (4, 3, 5, 2):
+        if max_v % n == 0:
+            step = max_v // n
+            return [i * step for i in range(n + 1)]
+    return [0, max_v // 2, max_v]
+
+
+# Plot-only SVG: legend lives in HTML chrome so labels never collide with it.
+_CHART_LEFT = 40
+_CHART_RIGHT = 12
+_CHART_TOP = 24
+_CHART_PLOT_H = 156
+_CHART_BOTTOM = 28
+_CHART_H = _CHART_TOP + _CHART_PLOT_H + _CHART_BOTTOM
+
+
+def _traffic_axes(left: float, top: float, plot_w: float, plot_h: float, max_v: int) -> list[str]:
+    out: list[str] = []
+    for t in _axis_ticks(max_v):
+        y = top + plot_h - (t / max_v) * plot_h
+        grid = "chart-grid chart-grid--base" if t == 0 else "chart-grid"
+        out.append(
+            f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_w}" y2="{y:.1f}" class="{grid}"/>'
+            f'<text x="{left - 8}" y="{y:.1f}" text-anchor="end" dominant-baseline="central" '
+            f'class="chart-axis">{_fmt_int(t)}</text>'
+        )
+    return out
+
+
+def _svg_bars(series: list[dict], *, width: int, max_v: int) -> str:
+    n = len(series)
+    left, top, plot_h = _CHART_LEFT, _CHART_TOP, _CHART_PLOT_H
+    plot_w = width - left - _CHART_RIGHT
+    slot = plot_w / n
+    bar_w = min(44.0, max(16.0, slot * 0.48))
+    lines = [
+        f'<svg class="chart chart-daily" viewBox="0 0 {width} {_CHART_H}" role="img" '
+        f'aria-label="Stacked requests per day">'
+    ]
+    lines.extend(_traffic_axes(left, top, plot_w, plot_h, max_v))
+    for i, s in enumerate(series):
+        x = left + i * slot + (slot - bar_w) / 2
+        cx = x + bar_w / 2
+        y_cursor = top + plot_h
+        for cls, val in (("seg-ok", s["ok"]), ("seg-deny", s["deny"]), ("seg-rate", s["rate_limit"])):
+            if val <= 0:
+                continue
+            h = (val / max_v) * plot_h
+            y_cursor -= h
+            lines.append(
+                f'<rect x="{x:.1f}" y="{y_cursor:.1f}" width="{bar_w:.1f}" height="{h:.1f}" '
+                f'class="{cls}"/>'
+            )
+        total_cls = "chart-total" if s["total"] else "chart-total is-zero"
+        lines.append(
+            f'<text x="{cx:.1f}" y="{top - 8}" text-anchor="middle" class="{total_cls}">'
+            f'{_fmt_int(s["total"])}</text>'
+        )
+        lines.append(
+            f'<text x="{cx:.1f}" y="{top + plot_h + 18}" text-anchor="middle" '
+            f'class="chart-label">{escape(s["label"])}</text>'
+        )
+    lines.append("</svg>")
+    return "".join(lines)
+
+
 def daily_traffic_chart_svg(
-    series: list[dict], *, width: int = 640, tz_label: str = "UTC"
+    series: list[dict], *, width: int = 720, tz_label: str = "UTC"
 ) -> str:
-    """
-    7-day column chart: OK / deny / rate_limit stacked.
-    Compact when empty; always labeled when there is traffic.
-    """
+    """7-day stacked OK / deny / rate-limit bars."""
     if not series:
         return '<div class="chart-empty">No data in this window.</div>'
 
@@ -332,92 +420,13 @@ def daily_traffic_chart_svg(
         return (
             '<div class="chart-empty chart-empty--soft">'
             f"<strong>No traffic yet</strong>"
-            f"<span>Last 7 days ({tz_safe}) — bars appear after the first OK / deny / 429.</span>"
+            f"<span>Last 7 days ({tz_safe}) — counts appear after the first request.</span>"
             "</div>"
         )
 
-    left, right, top, bottom = 40, 12, 40, 44
-    plot_w = width - left - right
-    plot_h = 120
-    height = top + plot_h + bottom
-    n = len(series)
-    gap = 8
-    bar_w = max(16, (plot_w - gap * (n + 1)) // n)
-    max_v = max((s["total"] for s in series), default=0) or 1
-
-    def y_scale(v: float) -> float:
-        return top + plot_h - (v / max_v) * plot_h
-
-    # Y ticks: 0, mid, max
-    ticks = [0, max_v // 2, max_v]
-    lines = [
-        f'<svg class="chart chart-daily" viewBox="0 0 {width} {height}" role="img" '
-        f'aria-label="Requests per day for the last 7 days">'
-        f'<rect x="{left}" y="{top}" width="{plot_w}" height="{plot_h}" class="chart-plot-bg"/>'
-    ]
-    for t in ticks:
-        y = y_scale(t)
-        lines.append(
-            f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_w}" y2="{y:.1f}" class="chart-grid"/>'
-            f'<text x="{left - 8}" y="{y + 4:.1f}" text-anchor="end" class="chart-axis">{_fmt_int(t)}</text>'
-        )
-
-    legend_y = 14
-    lines.append(
-        f'<g class="chart-legend">'
-        f'<rect x="{left}" y="{legend_y - 8}" width="10" height="10" rx="2" class="seg-ok"/>'
-        f'<text x="{left + 14}" y="{legend_y}" class="chart-legend-text">OK</text>'
-        f'<rect x="{left + 52}" y="{legend_y - 8}" width="10" height="10" rx="2" class="seg-deny"/>'
-        f'<text x="{left + 66}" y="{legend_y}" class="chart-legend-text">Deny</text>'
-        f'<rect x="{left + 118}" y="{legend_y - 8}" width="10" height="10" rx="2" class="seg-rate"/>'
-        f'<text x="{left + 132}" y="{legend_y}" class="chart-legend-text">Rate limit</text>'
-        f'<text x="{left + plot_w}" y="{legend_y}" text-anchor="end" class="chart-axis-title">'
-        f'requests / day</text>'
-        f"</g>"
-    )
-
-    for i, s in enumerate(series):
-        x = left + gap + i * (bar_w + gap)
-        ok, deny, rate = s["ok"], s["deny"], s["rate_limit"]
-        total = s["total"]
-        y_cursor = top + plot_h
-        segments = [
-            ("seg-ok", ok),
-            ("seg-deny", deny),
-            ("seg-rate", rate),
-        ]
-        for cls, val in segments:
-            if val <= 0:
-                continue
-            h = (val / max_v) * plot_h
-            y_cursor -= h
-            lines.append(
-                f'<rect x="{x}" y="{y_cursor:.1f}" width="{bar_w}" height="{max(h, 1):.1f}" '
-                f'rx="2" class="{cls}"/>'
-            )
-        # Daily total — in the margin above the plot, never overlapping bars
-        lines.append(
-            f'<text x="{x + bar_w / 2:.1f}" y="{top - 8}" text-anchor="middle" '
-            f'class="chart-total">{_fmt_int(total)}</text>'
-        )
-        lines.append(
-            f'<text x="{x + bar_w / 2:.1f}" y="{top + plot_h + 18}" text-anchor="middle" '
-            f'class="chart-label">{escape(s["label"])}</text>'
-        )
-        lines.append(
-            f'<text x="{x + bar_w / 2:.1f}" y="{top + plot_h + 34}" text-anchor="middle" '
-            f'class="chart-sub">{ok}·{deny}·{rate}</text>'
-        )
-
-    tz_safe = escape(tz_label or "UTC")
-    lines.append(
-        f'<text x="{left + plot_w / 2:.1f}" y="{height - 4}" text-anchor="middle" '
-        f'class="chart-footnote">Last 7 days ({tz_safe}) · total above bars · '
-        f"OK · deny · rate-limit below</text>"
-    )
-    lines.append("</svg>")
-
-    # HTML table fallback for accessibility / exact numbers
+    raw_max = max(int(s["total"]) for s in series) or 1
+    max_v = _nice_ceiling(raw_max)
+    svg = _svg_bars(series, width=width, max_v=max_v)
     rows_html = "".join(
         f"<tr><td>{escape(s['label'])}</td>"
         f"<td class='num'>{s['ok']}</td>"
@@ -433,4 +442,20 @@ def daily_traffic_chart_svg(
         "<th>Day</th><th>OK</th><th>Deny</th><th>429</th><th>Total</th>"
         f"</tr></thead><tbody>{rows_html}</tbody></table></details>"
     )
-    return "\n".join(lines) + table
+    return (
+        '<div class="chart-frame">'
+        '<div class="chart-meta">'
+        '<div class="chart-legend" role="list">'
+        '<span class="chart-legend-item" role="listitem">'
+        '<span class="chart-swatch chart-swatch--ok" aria-hidden="true"></span>OK</span>'
+        '<span class="chart-legend-item" role="listitem">'
+        '<span class="chart-swatch chart-swatch--deny" aria-hidden="true"></span>Deny</span>'
+        '<span class="chart-legend-item" role="listitem">'
+        '<span class="chart-swatch chart-swatch--rate" aria-hidden="true"></span>Rate limit</span>'
+        "</div>"
+        '<span class="chart-unit">requests / day</span>'
+        "</div>"
+        f"{svg}"
+        f"{table}"
+        "</div>"
+    )

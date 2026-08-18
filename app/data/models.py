@@ -85,9 +85,6 @@ class Team(Base):
     model_limits: Mapped[list[ModelLimit]] = relationship(
         back_populates="team", cascade="all, delete-orphan"
     )
-    model_favorites: Mapped[list[ModelFavorite]] = relationship(
-        back_populates="team", cascade="all, delete-orphan"
-    )
 
 
 class TeamMember(Base):
@@ -136,9 +133,6 @@ class ApiKey(Base):
     model_limits: Mapped[list[ModelLimit]] = relationship(
         back_populates="api_key", cascade="all, delete-orphan"
     )
-    model_favorites: Mapped[list[ModelFavorite]] = relationship(
-        back_populates="api_key", cascade="all, delete-orphan"
-    )
 
 
 class ServiceGrant(Base):
@@ -185,34 +179,6 @@ class ModelAllowlist(Base):
     api_key: Mapped[ApiKey | None] = relationship(back_populates="model_allowlists")
     team: Mapped[Team | None] = relationship(back_populates="model_allowlists")
     user: Mapped[AdminUser | None] = relationship(back_populates="model_allowlists")
-
-
-class ModelFavorite(Base):
-    """Pin/order for GET /v1/models (UX only — not a permission)."""
-
-    __tablename__ = "model_favorites"
-    __table_args__ = (
-        UniqueConstraint(
-            "api_key_id", "service", "model_name", name="uq_key_model_favorite"
-        ),
-        UniqueConstraint(
-            "team_id", "service", "model_name", name="uq_team_model_favorite"
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    service: Mapped[str] = mapped_column(String(64), index=True)
-    model_name: Mapped[str] = mapped_column(String(256), index=True)
-    sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    api_key_id: Mapped[int | None] = mapped_column(
-        ForeignKey("api_keys.id", ondelete="CASCADE"), nullable=True
-    )
-    team_id: Mapped[int | None] = mapped_column(
-        ForeignKey("teams.id", ondelete="CASCADE"), nullable=True
-    )
-
-    api_key: Mapped[ApiKey | None] = relationship(back_populates="model_favorites")
-    team: Mapped[Team | None] = relationship(back_populates="model_favorites")
 
 
 class ModelLimit(Base):
@@ -390,6 +356,8 @@ class BackendSource(Base):
     # Optional source-sidecar is always co-located: http://<address-host>:9105/power
     # (column kept for migrations; not used for overrides)
     gpu_power_url: Mapped[str] = mapped_column(String(512), default="")
+    # Thermal guard check is also co-located per source: http://<address-host>:9105/check
+    temp_guard_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # Optional operator label: "Strix Halo", "Jetson Orin Super" — display only.
     hardware: Mapped[str] = mapped_column(String(64), default="")
 
@@ -474,6 +442,8 @@ class AuthSettings(Base):
     default_grant_sources: Mapped[str] = mapped_column(Text, default="")
     # Newline "source:model"; empty = all ON models for those sources.
     default_grant_models: Mapped[str] = mapped_column(Text, default="")
+    # Optional user-facing panel on Overview with aggregate gateway stats.
+    show_global_stats: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class PasswordResetToken(Base):

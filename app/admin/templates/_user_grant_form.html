@@ -1,61 +1,64 @@
 {# Expects: target, source_chips, selected_services, catalog_groups, selected_models,
    grant_summary, form_action (optional) #}
 {% set form_action = form_action|default('/users/' ~ target.id ~ '/grant') %}
-<p class="muted mt-0">Current: {{ grant_summary }}</p>
-<form method="post" action="{{ form_action }}">
-  <div class="field field-gap-lg" id="sources">
-    <label>1 · Sources</label>
-    <p class="muted hint-below mt-0">Which backends this user may touch. Uncheck = denied.</p>
-    {% with source_chips=source_chips, selected_services=selected_services, hint_below='' %}
-    {% include "_source_chips.html" %}
-    {% endwith %}
+<form method="post" action="{{ form_action }}" class="wizard-form wizard-form--fill">
+  <div class="wizard-top">
+    <p class="muted mt-0">Current: {{ grant_summary }}</p>
+    <div class="field field-gap" id="sources">
+      <label>1 · Sources</label>
+      <p class="muted hint-below mt-0">Which backends this user may touch. Uncheck = denied.</p>
+      {% with source_chips=source_chips, selected_services=selected_services, hint_below='' %}
+      {% include "_source_chips.html" %}
+      {% endwith %}
+    </div>
   </div>
 
-  <div class="field field-gap-lg" id="models">
-    <label>2 · Models (optional, chat / embed)</label>
-    <p class="muted hint-below mt-0">Nothing checked = all ON models for the sources above.</p>
+  <div class="field wizard-grow task-form-scroll" id="models">
+    <label>2 · Models (optional, chat / embed) <span class="muted label-normal">— nothing checked = all ON models for the sources above</span></label>
     {% with catalog_groups=catalog_groups, selected=selected_models, input_name='models', picker_id='user-grant-' ~ target.id, hint='' %}
     {% include "partials/model_picker.html" %}
     {% endwith %}
+
+    <div class="task-form-extra">
+      <h3 class="section-label">Rate ceiling (this user)</h3>
+      <p class="muted mt-0 text-sm">
+        Caps across <strong>all</strong> of this user’s API keys (empty = no user-level cap).
+      </p>
+      <div class="row row--loose">
+        <div class="field field--xs">
+          <label for="grant-rpm-{{ target.id }}">RPM</label>
+          <input id="grant-rpm-{{ target.id }}" type="number" name="rpm_limit" min="0" placeholder="∞" value="{{ target.rpm_limit if target.rpm_limit is not none else '' }}">
+        </div>
+        <div class="field field--xs">
+          <label for="grant-conc-{{ target.id }}">Concurrency</label>
+          <input id="grant-conc-{{ target.id }}" type="number" name="concurrency_limit" min="0" placeholder="∞" value="{{ target.concurrency_limit if target.concurrency_limit is not none else '' }}">
+        </div>
+        <div class="field field--xs">
+          <label for="grant-daily-{{ target.id }}">Daily requests</label>
+          <input id="grant-daily-{{ target.id }}" type="number" name="daily_quota" min="0" placeholder="∞" value="{{ target.daily_quota if target.daily_quota is not none else '' }}">
+        </div>
+      </div>
+
+      <h3 class="section-label">Token budget (optional)</h3>
+      <p class="muted mt-0 text-sm">
+        Max estimated prompt tokens / window. Used:
+        <span class="mono">{{ '%.0f'|format(target.pool_used or 0) }}</span>
+        {% if target.pool_limit %} / {{ target.pool_limit }}{% endif %}
+      </p>
+      <div class="row row--loose">
+        <div class="field field--sm">
+          <label for="pool-limit-{{ target.id }}">Max tokens / window</label>
+          <input id="pool-limit-{{ target.id }}" type="number" name="pool_limit" min="0" placeholder="off" value="{{ target.pool_limit if target.pool_limit is not none else '' }}">
+        </div>
+        <div class="field field--sm field--end">
+          <label><input type="checkbox" name="pool_reset_now"> Reset used → 0 now</label>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <h3 class="section-label">Rate ceiling (this user)</h3>
-  <p class="muted mt-0 text-sm">
-    Caps across <strong>all</strong> of this user’s API keys (empty = no user-level cap).
-  </p>
-  <div class="row row--loose">
-    <div class="field field--xs">
-      <label>RPM</label>
-      <input type="number" name="rpm_limit" min="0" placeholder="∞" value="{{ target.rpm_limit if target.rpm_limit is not none else '' }}">
-    </div>
-    <div class="field field--xs">
-      <label>Concurrency</label>
-      <input type="number" name="concurrency_limit" min="0" placeholder="∞" value="{{ target.concurrency_limit if target.concurrency_limit is not none else '' }}">
-    </div>
-    <div class="field field--xs">
-      <label>Daily requests</label>
-      <input type="number" name="daily_quota" min="0" placeholder="∞" value="{{ target.daily_quota if target.daily_quota is not none else '' }}">
-    </div>
-  </div>
-
-  <h3 class="section-label">Token budget (optional)</h3>
-  <p class="muted mt-0 text-sm">
-    Max estimated prompt tokens / window. Used:
-    <span class="mono">{{ '%.0f'|format(target.pool_used or 0) }}</span>
-    {% if target.pool_limit %} / {{ target.pool_limit }}{% endif %}
-  </p>
-  <div class="row row--loose">
-    <div class="field field--sm">
-      <label for="pool-limit-{{ target.id }}">Max tokens / window</label>
-      <input id="pool-limit-{{ target.id }}" type="number" name="pool_limit" min="0" placeholder="off" value="{{ target.pool_limit if target.pool_limit is not none else '' }}">
-    </div>
-    <div class="field field--sm field--end">
-      <label><input type="checkbox" name="pool_reset_now"> Reset used → 0 now</label>
-    </div>
-  </div>
-
-  <div class="actions">
-    <input class="primary" type="submit" value="Save grant for {{ target.username }}">
+  <div class="actions wizard-actions wizard-actions--sticky">
     <a class="btn" href="/users">Back to users</a>
+    <input class="primary" type="submit" value="Save grant for {{ target.username }}">
   </div>
 </form>

@@ -195,11 +195,29 @@ def suggest_gpu_power_url(address: str) -> str:
     return f"http://{host}:9105/power"
 
 
+def suggest_temp_guard_url(address: str) -> str:
+    """http://HOST:9105/check from source address host:port."""
+    addr = (address or "").strip()
+    if not addr:
+        return ""
+    host = addr.split(":")[0].strip()
+    if not host:
+        return ""
+    return f"http://{host}:9105/check"
+
+
 def probe_url_for_source(src) -> str:
     """Sidecar always on the source host: http://HOST:9105/power from address."""
     if src is None:
         return ""
     return suggest_gpu_power_url(getattr(src, "address", "") or "")
+
+
+def temp_guard_url_for_source(src) -> str:
+    """Thermal guard sidecar always on the source host: http://HOST:9105/check."""
+    if src is None or not bool(getattr(src, "temp_guard_enabled", True)):
+        return ""
+    return suggest_temp_guard_url(getattr(src, "address", "") or "")
 
 
 def check_probe(url: str) -> tuple[str, float | None, str]:

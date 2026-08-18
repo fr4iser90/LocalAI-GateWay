@@ -34,7 +34,6 @@ from ..data.models import (
     ApiKey,
     CatalogModel,
     ModelAllowlist,
-    ModelFavorite,
     ServiceGrant,
     Team,
     TeamMember,
@@ -50,6 +49,7 @@ from .access import (
     require_platform_admin,
     require_user,
     scope_keys_query,
+    scoped_key_ids,
     user_team_ids,
     user_teams,
 )
@@ -59,6 +59,42 @@ from .templating import make_templates
 
 templates = make_templates()
 router = APIRouter()
+
+
+def _source_tips(db: Session) -> dict[str, str]:
+    from sqlalchemy import func
+
+    from ..data.models import CatalogModel
+
+    counts = dict(
+        db.query(CatalogModel.source_name, func.count(CatalogModel.id))
+        .filter(CatalogModel.enabled.is_(True))
+        .group_by(CatalogModel.source_name)
+        .all()
+    )
+    tips: dict[str, str] = {}
+    for row in source_chip_rows(db):
+        n = int(counts.get(row["name"]) or 0)
+        extra = f"{n} models" if n != 1 else "1 model"
+        if n == 0:
+            extra = ""
+        tips[row["name"]] = " · ".join(p for p in (row.get("tooltip"), extra) if p) or row["name"]
+    return tips
+
+
+def _sync_team_members(db: Session, team: Team, member_ids: list, owner_ids: list) -> None:
+    members = {int(uid) for uid in member_ids}
+    owners = {int(uid) for uid in owner_ids}
+    keep = members | owners
+    db.query(TeamMember).filter(TeamMember.team_id == team.id).delete()
+    for uid in sorted(keep):
+        db.add(
+            TeamMember(
+                team_id=team.id,
+                user_id=uid,
+                role="owner" if uid in owners else "member",
+            )
+        )
 
 
 def _settings(request: Request) -> Settings:
@@ -75,6 +111,20 @@ def _gpu_power_enabled(request: Request, db: Session | None = None) -> bool:
 
         for src in db.query(BackendSource).all():
             if probe_url_for_source(src):
+                return True
+    return False
+
+
+def _temp_guard_enabled(request: Request, db: Session | None = None) -> bool:
+    """Thermal UI when globally on and any source has sidecar checks enabled."""
+    if _settings(request).temp_guard_disabled:
+        return False
+    if db is not None:
+        from ..data.models import BackendSource
+        from ..usage_pool import temp_guard_url_for_source
+
+        for src in db.query(BackendSource).all():
+            if temp_guard_url_for_source(src):
                 return True
     return False
 
@@ -133,20 +183,7 @@ def _collect_models_from_form(form, db: Session) -> list[tuple[str, str]]:
     return out
 
 
-def _collect_favorites_from_form(form, db: Session) -> list[tuple[str, str, int]]:
-    """Pinned models with order = checkbox list index."""
-    _ = db
-    seen: set[tuple[str, str]] = set()
-    out: list[tuple[str, str, int]] = []
-    for pair in _parse_model_checks(form.getlist("favorites")):
-        if pair in seen:
-            continue
-        seen.add(pair)
-        out.append((pair[0], pair[1], len(out)))
-    return out
-
-
-def _selected_model_keys(rows: list[ModelAllowlist] | list[ModelFavorite]) -> set[str]:
+def _selected_model_keys(rows: list[ModelAllowlist]) -> set[str]:
     return {f"{m.service}:{m.model_name}" for m in rows}
 
 
@@ -183,21 +220,6 @@ def _sync_key_models(db: Session, api_key: ApiKey, models: list[tuple[str, str]]
         db.add(ModelAllowlist(api_key_id=api_key.id, service=svc, model_name=name))
 
 
-def _sync_key_favorites(
-    db: Session, api_key: ApiKey, favorites: list[tuple[str, str, int]]
-) -> None:
-    db.query(ModelFavorite).filter(ModelFavorite.api_key_id == api_key.id).delete()
-    for svc, name, order in favorites:
-        db.add(
-            ModelFavorite(
-                api_key_id=api_key.id,
-                service=svc,
-                model_name=name,
-                sort_order=order,
-            )
-        )
-
-
 def _sync_team_grants(db: Session, team: Team, services: list[str]) -> None:
     db.query(ServiceGrant).filter(ServiceGrant.team_id == team.id).delete()
     for s in services:
@@ -208,21 +230,6 @@ def _sync_team_models(db: Session, team: Team, models: list[tuple[str, str]]) ->
     db.query(ModelAllowlist).filter(ModelAllowlist.team_id == team.id).delete()
     for svc, name in models:
         db.add(ModelAllowlist(team_id=team.id, service=svc, model_name=name))
-
-
-def _sync_team_favorites(
-    db: Session, team: Team, favorites: list[tuple[str, str, int]]
-) -> None:
-    db.query(ModelFavorite).filter(ModelFavorite.team_id == team.id).delete()
-    for svc, name, order in favorites:
-        db.add(
-            ModelFavorite(
-                team_id=team.id,
-                service=svc,
-                model_name=name,
-                sort_order=order,
-            )
-        )
 
 
 def _resolve_ceiling(
@@ -307,9 +314,6 @@ def _key_form_context(
             selected_models = display_enabled_models_for_services(db, selected_services)
     else:
         selected_models = display_enabled_models_for_services(db, selected_services)
-    selected_favorites = (
-        _selected_model_keys(list(api_key.model_favorites)) if api_key else set()
-    )
     return {
         "user": user,
         "key": api_key,
@@ -320,7 +324,6 @@ def _key_form_context(
         "owners": owners,
         "catalog_groups": catalog_groups_for_ceiling(db, ceil),
         "selected_models": selected_models,
-        "selected_favorites": selected_favorites,
         "model_limits_text": (
             _format_model_limits(api_key.model_limits) if api_key else ""
         ),
@@ -847,7 +850,6 @@ def dashboard(
     )
     flash_ok = request.session.pop("flash_ok", None)
     setup = setup_status(db)
-    demo_tools = bool(getattr(_settings(request), "demo_tools", False))
     attention = attention_items(
         db,
         fleet=fleet,
@@ -870,7 +872,6 @@ def dashboard(
             "tokens_in": day["tokens_in"],
             "watt_hours_day": day["watt_hours"],
             "latency_p95": day["latency_p95"],
-            "demo_count": week["demo_count"] if demo_tools else 0,
             "chart_service": bar_chart_svg(day["by_service"], unit="requests"),
             "chart_model": bar_chart_svg([(m, c) for m, c in day["by_model"]], unit="requests"),
             "chart_keys": bar_chart_svg(day["top_keys"], unit="requests"),
@@ -878,7 +879,6 @@ def dashboard(
             "active_keys": active_keys,
             "teams_count": teams_count,
             "teams_enabled": teams_on,
-            "demo_tools": demo_tools,
             "display_timezone": tz_label,
             "flash_ok": flash_ok,
             "nav": "dashboard",
@@ -908,12 +908,14 @@ def me_page(
         week_window_start,
         zone_from_request,
     )
+    from .accounts import get_auth_settings
+    from .dashboard_ops import fleet_statuses, fleet_summary
 
     teams_on = _teams_on(db)
+    auth = get_auth_settings(db)
     keys_q = scope_keys_query(
         db.query(ApiKey).options(
             joinedload(ApiKey.team),
-            joinedload(ApiKey.model_favorites),
         ),
         user,
         teams_enabled=teams_on,
@@ -939,24 +941,20 @@ def me_page(
     else:
         daily_q = daily_q.filter(False)
     daily_rows = daily_q.order_by(UsageDaily.ok_count.desc()).limit(50).all()
-    fav_key_id = request.query_params.get("fav_key")
-    fav_key = None
-    if fav_key_id:
-        try:
-            kid = int(fav_key_id)
-        except ValueError:
-            kid = None
-        if kid is not None:
-            fav_key = next((k for k in keys if k.id == kid), None)
-    if fav_key is None and keys:
-        fav_key = keys[0]
-    selected_favs = (
-        _selected_model_keys(fav_key.model_favorites) if fav_key else set()
-    )
-    catalog_groups = (
-        _catalog_for_allowlist(db, selected_favs) if fav_key else []
-    )
     flash_ok = request.session.pop("flash_ok", None)
+    global_stats = None
+    if bool(getattr(auth, "show_global_stats", False)):
+        fleet = fleet_statuses(db)
+        fleet_counts = fleet_summary(fleet)
+        global_stats = {
+            "requests_24h": day["event_count"],
+            "ok_24h": day["total_ok"],
+            "denies_24h": day["denies"],
+            "rate_limits_24h": day["rate_limits"],
+            "sources_ok": fleet_counts["ok"],
+            "sources_loading": fleet_counts["loading"],
+            "sources_down": fleet_counts["down"],
+        }
     return templates.TemplateResponse(
         request,
         "me.html",
@@ -983,81 +981,15 @@ def me_page(
             "api_base": api_base,
             "keys": keys,
             "teams": user_teams(user) if teams_on else [],
-            "fav_key": fav_key,
-            "catalog_groups": catalog_groups,
-            "selected_favorites": selected_favs,
             "flash_ok": flash_ok,
             "display_timezone": tz_label,
+            "global_stats": global_stats,
             "nav": "me",
             "is_admin": user.is_platform_admin,
             "teams_enabled": teams_on,
             "gpu_power_enabled": _gpu_power_enabled(request, db),
         },
     )
-
-
-@router.post("/me/favorites")
-async def me_favorites_save(
-    request: Request,
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[AdminUser, Depends(require_user)],
-):
-    teams_on = _teams_on(db)
-    form = await request.form()
-    try:
-        key_id = int(form.get("key_id") or 0)
-    except (TypeError, ValueError):
-        return RedirectResponse("/me", status_code=303)
-    api_key = db.get(ApiKey, key_id)
-    if api_key is None or not can_access_key(user, api_key, teams_enabled=teams_on):
-        raise Forbidden()
-    favorites = _collect_favorites_from_form(form, db)
-    _sync_key_favorites(db, api_key, favorites)
-    write_audit(
-        db,
-        actor=user,
-        action="key.favorites",
-        entity_type="api_key",
-        entity_id=api_key.id,
-        detail=f"n={len(favorites)}",
-    )
-    db.commit()
-    request.session["flash_ok"] = f"Favorites saved for {api_key.label}."
-    return RedirectResponse(f"/me?fav_key={api_key.id}", status_code=303)
-
-
-@router.post("/demo/seed")
-def demo_seed(
-    request: Request,
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[AdminUser, Depends(require_platform_admin)],
-):
-    if not _settings(request).demo_tools:
-        raise Forbidden()
-    from ..demo_seed import seed_demo_usage
-
-    n = seed_demo_usage(db, count=120)
-    write_audit(db, actor=user, action="demo.seed", detail=f"events={n}")
-    db.commit()
-    request.session["flash_ok"] = f"Seeded {n} demo usage events (tagged is_demo)."
-    return RedirectResponse("/", status_code=303)
-
-
-@router.post("/demo/clear")
-def demo_clear(
-    request: Request,
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[AdminUser, Depends(require_platform_admin)],
-):
-    if not _settings(request).demo_tools:
-        raise Forbidden()
-    from ..demo_seed import clear_demo_usage
-
-    n = clear_demo_usage(db)
-    write_audit(db, actor=user, action="demo.clear", detail=f"removed={n}")
-    db.commit()
-    request.session["flash_ok"] = f"Removed {n} demo usage events."
-    return RedirectResponse("/", status_code=303)
 
 
 # ---- Keys ----
@@ -1083,6 +1015,29 @@ def keys_list(
     q = db.query(ApiKey).options(joinedload(ApiKey.team), joinedload(ApiKey.service_grants))
     q = scope_keys_query(q, user, teams_enabled=teams_on)
     keys = q.order_by(ApiKey.created_at.desc()).all()
+    key_ids = [k.id for k in keys]
+    day_ago = utcnow() - timedelta(days=1)
+    usage_24h: dict[int, int] = {}
+    last_used: dict[int, object] = {}
+    if key_ids:
+        usage_rows = (
+            db.query(UsageEvent.api_key_id, func.count(UsageEvent.id))
+            .filter(
+                UsageEvent.api_key_id.in_(key_ids),
+                UsageEvent.created_at >= day_ago,
+            )
+            .group_by(UsageEvent.api_key_id)
+            .all()
+        )
+        usage_24h = {int(kid): int(n) for kid, n in usage_rows if kid is not None}
+        last_rows = (
+            db.query(UsageEvent.api_key_id, func.max(UsageEvent.created_at))
+            .filter(UsageEvent.api_key_id.in_(key_ids))
+            .group_by(UsageEvent.api_key_id)
+            .all()
+        )
+        last_used = {int(kid): ts for kid, ts in last_rows if kid is not None and ts is not None}
+    active_count = sum(1 for k in keys if k.is_active)
     teams = (
         (
             db.query(Team).order_by(Team.name).all()
@@ -1102,11 +1057,52 @@ def keys_list(
             "teams": teams,
             "flash_key": request.session.pop("flash_key", None),
             "flash_key_services": request.session.pop("flash_key_services", None),
+            "flash_ok": request.session.pop("flash_ok", None),
+            "flash_err": request.session.pop("flash_err", None),
             "api_base": public_api_base(gateway_port=os.getenv("GATEWAY_PORT", "9081")),
+            "active_count": active_count,
+            "usage_24h": usage_24h,
+            "last_used": last_used,
+            "source_tips": _source_tips(db),
             "nav": "keys",
             "is_admin": user.is_platform_admin,
             "teams_enabled": teams_on,
         },
+    )
+
+
+def _key_teams_owners(db: Session, user: AdminUser, teams_on: bool) -> tuple[list, list]:
+    teams = (
+        (
+            db.query(Team).order_by(Team.name).all()
+            if user.is_platform_admin
+            else user_teams(user)
+        )
+        if teams_on
+        else []
+    )
+    owners = (
+        db.query(AdminUser).order_by(AdminUser.username).all()
+        if user.is_platform_admin and not teams_on
+        else []
+    )
+    return teams, owners
+
+
+def _load_editable_key(db: Session, key_id: int):
+    return (
+        db.query(ApiKey)
+        .options(
+            joinedload(ApiKey.service_grants),
+            joinedload(ApiKey.model_allowlists),
+            joinedload(ApiKey.model_limits),
+            joinedload(ApiKey.team).joinedload(Team.service_grants),
+            joinedload(ApiKey.team).joinedload(Team.model_allowlists),
+            joinedload(ApiKey.owner).joinedload(AdminUser.service_grants),
+            joinedload(ApiKey.owner).joinedload(AdminUser.model_allowlists),
+        )
+        .filter(ApiKey.id == key_id)
+        .first()
     )
 
 
@@ -1192,10 +1188,6 @@ async def keys_create(
     )
     models = clamp_models(_collect_models_from_form(form, db), ceil)
     models = normalize_model_allowlist(db, services, models)
-    favorites = clamp_models(
-        [(s, m) for s, m, _ in _collect_favorites_from_form(form, db)], ceil
-    )
-    fav_rows = [(s, m, i) for i, (s, m) in enumerate(favorites)]
     rpm = form.get("rpm_limit")
     concurrency = form.get("concurrency_limit")
     priority = form.get("priority")
@@ -1218,7 +1210,6 @@ async def keys_create(
     db.flush()
     _sync_key_grants(db, api_key, services)
     _sync_key_models(db, api_key, models)
-    _sync_key_favorites(db, api_key, fav_rows)
     sync_key_model_limits(db, api_key, str(form.get("model_limits") or ""))
     write_audit(
         db,
@@ -1244,39 +1235,28 @@ def keys_edit(
     user: Annotated[AdminUser, Depends(require_user)],
 ):
     teams_on = _teams_on(db)
-    api_key = (
-        db.query(ApiKey)
-        .options(
-            joinedload(ApiKey.service_grants),
-            joinedload(ApiKey.model_allowlists),
-            joinedload(ApiKey.model_favorites),
-            joinedload(ApiKey.model_limits),
-            joinedload(ApiKey.team).joinedload(Team.service_grants),
-            joinedload(ApiKey.team).joinedload(Team.model_allowlists),
-            joinedload(ApiKey.owner).joinedload(AdminUser.service_grants),
-            joinedload(ApiKey.owner).joinedload(AdminUser.model_allowlists),
-        )
-        .filter(ApiKey.id == key_id)
-        .first()
-    )
+    api_key = db.get(ApiKey, key_id)
     if not api_key:
         return RedirectResponse("/keys", status_code=303)
     if not can_access_key(user, api_key, teams_enabled=teams_on):
         raise Forbidden()
-    teams = (
-        (
-            db.query(Team).order_by(Team.name).all()
-            if user.is_platform_admin
-            else user_teams(user)
-        )
-        if teams_on
-        else []
-    )
-    owners = (
-        db.query(AdminUser).order_by(AdminUser.username).all()
-        if user.is_platform_admin and not teams_on
-        else []
-    )
+    return RedirectResponse(f"/keys?edit={key_id}", status_code=303)
+
+
+@router.get("/keys/{key_id}/partial", response_class=HTMLResponse)
+def keys_edit_partial(
+    key_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_user)],
+):
+    teams_on = _teams_on(db)
+    api_key = _load_editable_key(db, key_id)
+    if not api_key:
+        return HTMLResponse("Key not found", status_code=404)
+    if not can_access_key(user, api_key, teams_enabled=teams_on):
+        raise Forbidden()
+    teams, owners = _key_teams_owners(db, user, teams_on)
     ctx = _key_form_context(
         db,
         user=user,
@@ -1285,7 +1265,7 @@ def keys_edit(
         teams=teams,
         owners=owners,
     )
-    return templates.TemplateResponse(request, "key_form.html", ctx)
+    return templates.TemplateResponse(request, "_key_edit_expand.html", ctx)
 
 
 @router.post("/keys/{key_id}")
@@ -1364,14 +1344,10 @@ async def keys_update(
     )
     models = clamp_models(_collect_models_from_form(form, db), ceil)
     models = normalize_model_allowlist(db, services, models)
-    favorites = clamp_models(
-        [(s, m) for s, m, _ in _collect_favorites_from_form(form, db)], ceil
-    )
-    fav_rows = [(s, m, i) for i, (s, m) in enumerate(favorites)]
     _sync_key_grants(db, api_key, services)
     _sync_key_models(db, api_key, models)
-    _sync_key_favorites(db, api_key, fav_rows)
-    sync_key_model_limits(db, api_key, str(form.get("model_limits") or ""))
+    if "model_limits" in form:
+        sync_key_model_limits(db, api_key, str(form.get("model_limits") or ""))
     write_audit(
         db,
         actor=user,
@@ -1381,6 +1357,7 @@ async def keys_update(
         detail=api_key.label,
     )
     db.commit()
+    request.session["flash_ok"] = f"Saved {api_key.label}."
     return RedirectResponse("/keys", status_code=303)
 
 
@@ -1487,10 +1464,10 @@ def teams_new(
                 db, AccessCeiling(unrestricted=True)
             ),
             "selected_models": set(),
-            "selected_favorites": set(),
             "model_limits_text": "",
             "users": db.query(AdminUser).order_by(AdminUser.username).all(),
             "member_ids": [],
+            "owner_ids": [],
             "nav": "teams",
             "is_admin": True,
             "read_only": False,
@@ -1525,13 +1502,10 @@ async def teams_create(
     names = source_names(db)
     services = _parse_services(form.getlist("services"), names)
     models = _collect_models_from_form(form, db)
-    favorites = _collect_favorites_from_form(form, db)
     _sync_team_grants(db, team, services)
     _sync_team_models(db, team, models)
-    _sync_team_favorites(db, team, favorites)
     sync_team_model_limits(db, team, str(form.get("model_limits") or ""))
-    for uid in form.getlist("members"):
-        db.add(TeamMember(team_id=team.id, user_id=int(uid), role="member"))
+    _sync_team_members(db, team, form.getlist("members"), form.getlist("owners"))
     write_audit(
         db, actor=user, action="team.create", entity_type="team", entity_id=team.id, detail=name
     )
@@ -1554,7 +1528,6 @@ def teams_edit(
         .options(
             joinedload(Team.service_grants),
             joinedload(Team.model_allowlists),
-            joinedload(Team.model_favorites),
             joinedload(Team.model_limits),
             joinedload(Team.members).joinedload(TeamMember.user),
         )
@@ -1564,7 +1537,6 @@ def teams_edit(
     if not team:
         return RedirectResponse("/teams", status_code=303)
     selected = _selected_model_keys(team.model_allowlists)
-    selected_favs = _selected_model_keys(team.model_favorites)
     # Only platform admins see the full user directory for membership editing.
     if user.is_platform_admin:
         users = db.query(AdminUser).order_by(AdminUser.username).all()
@@ -1585,10 +1557,10 @@ def teams_edit(
                 db, AccessCeiling(unrestricted=True)
             ),
             "selected_models": selected,
-            "selected_favorites": selected_favs,
             "model_limits_text": _format_model_limits(team.model_limits),
             "users": users,
             "member_ids": [m.user_id for m in team.members],
+            "owner_ids": [m.user_id for m in team.members if m.role == "owner"],
             "nav": "teams",
             "is_admin": user.is_platform_admin,
             "teams_enabled": True,
@@ -1623,14 +1595,10 @@ async def teams_update(
     names = source_names(db)
     services = _parse_services(form.getlist("services"), names)
     models = _collect_models_from_form(form, db)
-    favorites = _collect_favorites_from_form(form, db)
     _sync_team_grants(db, team, services)
     _sync_team_models(db, team, models)
-    _sync_team_favorites(db, team, favorites)
     sync_team_model_limits(db, team, str(form.get("model_limits") or ""))
-    db.query(TeamMember).filter(TeamMember.team_id == team.id).delete()
-    for uid in form.getlist("members"):
-        db.add(TeamMember(team_id=team.id, user_id=int(uid), role="member"))
+    _sync_team_members(db, team, form.getlist("members"), form.getlist("owners"))
     write_audit(
         db, actor=user, action="team.update", entity_type="team", entity_id=team.id, detail=team.name
     )
@@ -1740,6 +1708,12 @@ def users_list(
             "selected_models": display_default_models(db),
             "pending_invites": pending,
             "invite_creators": invite_creators,
+            "user_counts": {
+                "total": len(users),
+                "active": sum(1 for u in users if u.is_active),
+                "admins": sum(1 for u in users if u.is_platform_admin),
+                "must_change": sum(1 for u in users if u.must_change_password),
+            },
         },
     )
 
@@ -2389,25 +2363,22 @@ def usage_page(
     key_id: int | None = None,
     result: str | None = None,
 ):
+    from ..data.models import UsageDaily
+    from ..stats import (
+        daily_traffic_chart_svg,
+        model_perf_averages,
+        usage_stats,
+        week_window_start,
+        zone_from_request,
+    )
+
     teams_on = _teams_on(db)
     q = db.query(UsageEvent).order_by(UsageEvent.created_at.desc())
-    tids = user_team_ids(user)
+    visible_ids = scoped_key_ids(db, user, teams_enabled=teams_on)
     if not user.is_platform_admin:
-        if teams_on:
-            if not tids:
-                q = q.filter(False)
-            else:
-                q = q.filter(UsageEvent.team_id.in_(tids))
-                if team_id and team_id not in tids:
-                    raise Forbidden()
-        else:
-            owned = [
-                kid
-                for (kid,) in db.query(ApiKey.id)
-                .filter(ApiKey.owner_user_id == user.id)
-                .all()
-            ]
-            q = q.filter(UsageEvent.api_key_id.in_(owned)) if owned else q.filter(False)
+        q = q.filter(UsageEvent.api_key_id.in_(visible_ids)) if visible_ids else q.filter(False)
+        if team_id and teams_on and team_id not in user_team_ids(user):
+            raise Forbidden()
     if service:
         q = q.filter(UsageEvent.service == service)
     if team_id and teams_on:
@@ -2427,6 +2398,22 @@ def usage_page(
         else []
     )
     keys_q = scope_keys_query(db.query(ApiKey), user, teams_enabled=teams_on)
+    scoped_keys = keys_q.order_by(ApiKey.label).all()
+    key_ids = [k.id for k in scoped_keys]
+    zone = zone_from_request(request, user)
+    now = utcnow()
+    day_ago = now - timedelta(days=1)
+    week_ago = week_window_start(zone)
+    day = usage_stats(db, since=day_ago, key_ids=key_ids, tz=zone)
+    week = usage_stats(db, since=week_ago, key_ids=key_ids, tz=zone)
+    model_avgs = model_perf_averages(db, key_ids=key_ids, lookback_days=7)
+    today = now.astimezone(zone).date()
+    daily_q = db.query(UsageDaily).filter(UsageDaily.day == today)
+    if key_ids:
+        daily_q = daily_q.filter(UsageDaily.api_key_id.in_(key_ids))
+    else:
+        daily_q = daily_q.filter(False)
+    daily_rows = daily_q.order_by(UsageDaily.ok_count.desc()).limit(50).all()
     return templates.TemplateResponse(
         request,
         "usage.html",
@@ -2435,13 +2422,21 @@ def usage_page(
             "events": events,
             "services": source_names(db),
             "teams": teams,
-            "keys": keys_q.order_by(ApiKey.label).all(),
+            "keys": scoped_keys,
             "filters": {
                 "service": service or "",
                 "team_id": team_id or "",
                 "key_id": key_id or "",
                 "result": result or "",
             },
+            "ok": day["total_ok"],
+            "deny": day["denies"],
+            "rate": day["rate_limits"],
+            "tokens_in": day["tokens_in"],
+            "latency_p95": day["latency_p95"],
+            "chart_daily": daily_traffic_chart_svg(week["daily_series"], tz_label=str(zone)),
+            "model_avgs": model_avgs,
+            "daily_rows": daily_rows,
             "nav": "usage",
             "is_admin": user.is_platform_admin,
             "teams_enabled": teams_on,
@@ -2463,17 +2458,8 @@ def usage_export(
     teams_on = _teams_on(db)
     q = db.query(UsageEvent).order_by(UsageEvent.created_at.desc())
     if not user.is_platform_admin:
-        if teams_on:
-            tids = user_team_ids(user)
-            q = q.filter(UsageEvent.team_id.in_(tids)) if tids else q.filter(False)
-        else:
-            owned = [
-                kid
-                for (kid,) in db.query(ApiKey.id)
-                .filter(ApiKey.owner_user_id == user.id)
-                .all()
-            ]
-            q = q.filter(UsageEvent.api_key_id.in_(owned)) if owned else q.filter(False)
+        visible_ids = scoped_key_ids(db, user, teams_enabled=teams_on)
+        q = q.filter(UsageEvent.api_key_id.in_(visible_ids)) if visible_ids else q.filter(False)
     if service:
         q = q.filter(UsageEvent.service == service)
     if team_id and teams_on:
@@ -2486,57 +2472,55 @@ def usage_export(
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(
-        [
-            "created_at",
-            "team",
-            "key",
-            "service",
-            "method",
-            "path",
-            "host",
-            "client_ip",
-            "model",
-            "status",
-            "result",
-            "duration_ms",
-            "tokens_in",
-            "tokens_out",
-            "audio_seconds",
-            "response_chars",
-            "watts",
-            "watt_hours",
-            "power_status",
-            "pool_cost",
-            "is_demo",
-        ]
-    )
+    header = [
+        "created_at",
+        *(["team"] if teams_on else []),
+        "key",
+        "service",
+        "method",
+        "path",
+        "host",
+        "client_ip",
+        "model",
+        "status",
+        "result",
+        "duration_ms",
+        "tokens_in",
+        "tokens_out",
+        "audio_seconds",
+        "response_chars",
+        "watts",
+        "watt_hours",
+        "power_status",
+        "pool_cost",
+        "is_demo",
+    ]
+    writer.writerow(header)
     for e in events:
-        writer.writerow(
-            [
-                e.created_at.isoformat() if e.created_at else "",
-                e.team_name,
-                e.key_label,
-                e.service,
-                e.method,
-                e.path,
-                e.host,
-                e.client_ip,
-                e.model or "",
-                e.status,
-                e.result,
-                e.duration_ms or "",
-                e.tokens_in or "",
-                e.tokens_out or "",
-                e.audio_seconds or "",
-                e.response_chars or "",
-                e.watts if e.watts is not None else "",
-                e.watt_hours if e.watt_hours is not None else "",
-                getattr(e, "power_status", "") or "",
-                e.pool_cost if e.pool_cost is not None else "",
-                1 if e.is_demo else 0,
-            ]
-        )
+        row = [
+            e.created_at.isoformat() if e.created_at else "",
+            *([e.team_name] if teams_on else []),
+            e.key_label,
+            e.service,
+            e.method,
+            e.path,
+            e.host,
+            e.client_ip,
+            e.model or "",
+            e.status,
+            e.result,
+            e.duration_ms or "",
+            e.tokens_in or "",
+            e.tokens_out or "",
+            e.audio_seconds or "",
+            e.response_chars or "",
+            e.watts if e.watts is not None else "",
+            e.watt_hours if e.watt_hours is not None else "",
+            getattr(e, "power_status", "") or "",
+            e.pool_cost if e.pool_cost is not None else "",
+            1 if e.is_demo else 0,
+        ]
+        writer.writerow(row)
     buf.seek(0)
     return StreamingResponse(
         iter([buf.getvalue()]),
@@ -2776,6 +2760,7 @@ def services_create(
     address: str = Form(""),
     api_style: str = Form("auto"),
     hardware: str = Form(""),
+    temp_guard_enabled: str | None = Form(None),
 ):
     from ..data.backends import (
         upsert_source,
@@ -2799,6 +2784,7 @@ def services_create(
         address=address,
         route_models="",
         api_style=api_style,
+        temp_guard_enabled=temp_guard_enabled is not None,
         hardware=hardware,
     )
     write_audit(
@@ -2824,6 +2810,7 @@ def services_update(
     api_style: str = Form("auto"),
     name: str = Form(""),
     hardware: str = Form(""),
+    temp_guard_enabled: str | None = Form(None),
 ):
     from ..data.backends import (
         normalize_backend,
@@ -2847,6 +2834,7 @@ def services_update(
         style = "auto"
     src.address = normalize_backend(address)
     src.gpu_power_url = ""  # always derived from address host:9105
+    src.temp_guard_enabled = temp_guard_enabled is not None
     src.route_models = ""  # merge targets come from catalog sync only
     src.api_style = style
     src.hardware = normalize_hardware_label(hardware)
@@ -2968,7 +2956,7 @@ def _settings_page_context(
         "nav": "settings",
         "settings_tab": settings_tab,
         "session_max_age": settings.session_max_age,
-        "temp_max_c": settings.temp_max_c,
+        "temp_guard_enabled": _temp_guard_enabled(request, db),
         "temp_guard_disabled": settings.temp_guard_disabled,
         "admin_url": admin_url,
         "gateway_url": gateway_url,
@@ -3223,3 +3211,26 @@ def settings_privacy_save(
         else "Privacy & retention saved."
     )
     return _settings_redirect(request, "privacy", msg)
+
+
+@router.post("/settings/system")
+def settings_system_save(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+    show_global_stats: str = Form(""),
+):
+    from .accounts import get_auth_settings
+
+    auth = get_auth_settings(db)
+    auth.show_global_stats = show_global_stats == "on"
+    write_audit(
+        db,
+        actor=user,
+        action="settings.system",
+        entity_type="auth_settings",
+        entity_id=auth.id,
+        detail=f"show_global_stats={auth.show_global_stats}",
+    )
+    db.commit()
+    return _settings_redirect(request, "system", "System settings saved.")

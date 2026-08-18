@@ -9,8 +9,9 @@ Industry-aligned admin shell rules we enforce:
 4. ``base.html`` wraps content in ``.content-inner``.
 5. Charts fill their panel (``.chart`` / ``.panel-chart`` → ``max-width: none``).
 
-These are not visual screenshots — they assert the design tokens and template
-contracts so half-width regressions fail CI.
+Layout modes (Browse / Task / Auth) are documented in ``docs/LAYOUT.md`` and enforced
+below via ``test_task_pages_use_content_fill_contract`` and
+``test_browse_pages_do_not_use_content_fill``.
 """
 
 from __future__ import annotations
@@ -21,6 +22,34 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / "app" / "admin" / "templates"
 STYLE = ROOT / "app" / "admin" / "static" / "style.css"
+LAYOUT_DOC = ROOT / "docs" / "LAYOUT.md"
+
+# Mode B — Task pages: fixed shell, one panel--fill, sticky actions (see docs/LAYOUT.md)
+TASK_PAGES = frozenset({
+    "account.html",
+    "privacy.html",
+    "key_form.html",
+    "team_form.html",
+    "user_grant.html",
+})
+
+# Mode A — Browse pages: main column scrolls; must not use content--fill
+BROWSE_PAGES = frozenset({
+    "me.html",
+    "usage.html",
+    "usage_daily.html",
+    "keys.html",
+    "users.html",
+    "teams.html",
+    "models.html",
+    "services.html",
+    "dashboard.html",
+    "audit.html",
+    "settings.html",
+    "smtp.html",
+    "alerts.html",
+    "setup_done.html",
+})
 
 # App pages that render inside the authenticated shell (extend base + block content)
 APP_PAGES = sorted(
@@ -148,16 +177,57 @@ def test_no_stack_form_narrowing_in_templates():
     assert not hits, f"Replace stack--form with stack: {', '.join(hits)}"
 
 
-def test_account_and_privacy_panels_share_full_stack():
-    for name in ("account.html", "privacy.html"):
+def test_layout_doc_exists():
+    assert LAYOUT_DOC.is_file()
+    text = LAYOUT_DOC.read_text(encoding="utf-8")
+    assert "Mode A" in text and "Mode B" in text and "content--fill" in text
+
+
+def _task_page_source(name: str) -> str:
+    text = (TEMPLATES / name).read_text(encoding="utf-8")
+    if name == "user_grant.html":
+        text += (TEMPLATES / "_user_grant_form.html").read_text(encoding="utf-8")
+    return text
+
+
+def test_task_pages_use_content_fill_contract():
+    for name in sorted(TASK_PAGES):
+        text = _task_page_source(name)
+        assert "content--fill" in text, f"{name} must set content--fill"
+        assert "panel--fill" in text, f"{name} must use panel--fill"
+        assert "wizard-form--fill" in text or "profile-form--fill" in text or "privacy-fill" in text, name
+        assert "wizard-actions--sticky" in text or "profile-actions" in text, name
+    setup = (TEMPLATES / "setup_base.html").read_text(encoding="utf-8")
+    assert "content--fill" in setup
+
+
+def test_browse_pages_do_not_use_content_fill():
+    violations = []
+    for name in sorted(BROWSE_PAGES):
         text = (TEMPLATES / name).read_text(encoding="utf-8")
-        assert 'class="stack"' in text
-        assert "stack--form" not in text
-        assert "form-narrow" not in text
-        assert "panel-head" in text
-        assert 'style="' not in text, f"{name} should have zero inline styles"
-        panels = re.findall(r'<div class="panel[^"]*"', text)
-        assert len(panels) >= 2
+        if "content--fill" in text:
+            violations.append(name)
+    assert not violations, f"Browse pages must not use content--fill: {', '.join(violations)}"
+
+
+def test_account_uses_content_fill_single_form():
+    account = (TEMPLATES / "account.html").read_text(encoding="utf-8")
+    assert "content--fill" in account
+    assert "panel--fill" in account
+    assert 'action="/account/update"' in account
+    assert account.count('type="submit"') == 1
+    assert "details" not in account
+    assert "stack--form" not in account
+    assert 'style="' not in account
+
+
+def test_privacy_uses_content_fill():
+    text = (TEMPLATES / "privacy.html").read_text(encoding="utf-8")
+    assert "content--fill" in text
+    assert "panel--fill" in text
+    assert "privacy-fill" in text
+    assert "form-narrow" not in text
+    assert 'style="' not in text
 
 
 def test_layout_grid_uses_sidebar_token():
@@ -351,7 +421,30 @@ def test_users_grant_expand_clicks_are_not_intercepted():
     assert "data-grant-disable-all" in js
 
 
-def test_setup_sources_has_per_row_delete():
+def test_keys_edit_expands_inline_on_list():
+    keys = (TEMPLATES / "keys.html").read_text(encoding="utf-8")
+    assert 'class="keys-table"' in keys
+    assert "data-key-edit" in keys
+    assert 'href="/keys/{{ k.id }}"' not in keys
+    assert "/static/keys_edit.js" in keys
+    js = (ROOT / "app" / "admin" / "static" / "keys_edit.js").read_text(encoding="utf-8")
+    assert "/keys/" in js and "/partial" in js
+    assert "initModelPickers" in js
+    expand = (TEMPLATES / "_key_edit_expand.html").read_text(encoding="utf-8")
+    assert '_source_chips.html' in expand
+    assert "model_picker.html" in expand
+    assert "data-key-collapse" in expand
+    picker = (ROOT / "app" / "admin" / "static" / "picker.js").read_text(encoding="utf-8")
+    assert "window.initModelPickers" in picker
+
+
+def test_usage_daily_team_column_gated_on_teams_enabled():
+    text = (TEMPLATES / "usage_daily.html").read_text(encoding="utf-8")
+    assert "{% if teams_enabled %}<th>Team</th>{% endif %}" in text
+    assert "{% if teams_enabled %}<td>{{ r.team_name or '—' }}</td>{% endif %}" in text
+    assert "Daily rollups by {% if teams_enabled %}team / {% endif %}key" in text
+    assert "<th>Team</th>" not in text.replace("{% if teams_enabled %}<th>Team</th>{% endif %}", "")
+
     text = (TEMPLATES / "setup_sources.html").read_text(encoding="utf-8")
     assert 'action="/setup/sources/{{ s.id }}/delete"' in text
     assert "btn-icon-del" in text

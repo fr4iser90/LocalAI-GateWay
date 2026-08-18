@@ -17,7 +17,7 @@ services:
     environment:
       DATA_DIR: /data
       ADMIN_BOOTSTRAP_USER: ${ADMIN_BOOTSTRAP_USER:-admin}
-      TEMP_GUARD_DISABLED: "true"
+      TEMP_GUARD_DISABLED: ${TEMP_GUARD_DISABLED:-false}
       GATEWAY_PORT: ${GATEWAY_PORT:-9081}
       WEB_PORT: ${WEB_PORT:-9080}
       PORT: "8080"

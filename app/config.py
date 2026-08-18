@@ -59,12 +59,14 @@ class Settings(BaseSettings):
 
     temp_max_c: str = "30"
     temp_guard_disabled: bool = False
+    # If the sidecar is unreachable or returns an unexpected status:
+    # - true  → allow traffic (fail-open)
+    # - false → reject traffic (fail-closed)
+    temp_guard_fail_open: bool = True
+    # Deprecated legacy override; normal behavior derives /check from each source host.
     temp_guard_url: str = "http://source-sidecar:8080/check"
     # Optional source-sidecar power probe. Empty = off.
     gpu_power_url: str = ""
-    # Dashboard demo seed/clear — off by default; set DEMO_TOOLS=1 for local UI polish
-    demo_tools: bool = False
-    # Deprecated unused; charts use each browser's timezone (cookie gw_tz).
     display_timezone: str = "UTC"
 
 

@@ -82,6 +82,7 @@ def get_auth_settings(db: Session) -> AuthSettings:
             pool_watt_weight=0.0,
             pool_tokens_per_sec=50.0,
             pool_model_weights_enabled=False,
+            show_global_stats=False,
         )
         db.add(cfg)
         db.flush()
@@ -552,6 +553,114 @@ async def account_timezone_auto(
     return resp
 
 
+def _apply_account_update(
+    *,
+    request: Request,
+    db: Session,
+    user: AdminUser,
+    email: str,
+    current_password: str,
+    password: str,
+    password2: str,
+) -> RedirectResponse:
+    forced = bool(user.must_change_password)
+    new_email = email.strip().lower() or None
+    email_changed = not forced and new_email != (user.email or None)
+    password_requested = bool(password or password2)
+
+    if forced:
+        if not password and not password2:
+            request.session["flash_err"] = "Choose a new password."
+            return RedirectResponse("/account", status_code=303)
+        err = validate_new_password(password, password2)
+        if err:
+            request.session["flash_err"] = err
+            return RedirectResponse("/account", status_code=303)
+        user.password_hash = hash_password(password)
+        user.must_change_password = False
+        write_audit(
+            db, actor=user, action="auth.password_change", entity_type="user", entity_id=user.id
+        )
+        db.commit()
+        request.session["flash_ok"] = "Password updated — you can use the gateway now."
+        return RedirectResponse("/me", status_code=303)
+
+    if not email_changed and not password_requested:
+        request.session["flash_ok"] = "No changes to save."
+        return RedirectResponse("/account", status_code=303)
+
+    if not verify_password(current_password, user.password_hash):
+        request.session["flash_err"] = "Current password is wrong."
+        return RedirectResponse("/account", status_code=303)
+
+    changed: list[str] = []
+
+    if email_changed:
+        if new_email:
+            other = (
+                db.query(AdminUser)
+                .filter(AdminUser.email == new_email, AdminUser.id != user.id)
+                .first()
+            )
+            if other:
+                request.session["flash_err"] = "Email already in use."
+                return RedirectResponse("/account", status_code=303)
+            user.email = new_email
+        else:
+            user.email = None
+        write_audit(
+            db,
+            actor=user,
+            action="auth.email_change",
+            entity_type="user",
+            entity_id=user.id,
+            detail=new_email or "(cleared)",
+        )
+        changed.append("email")
+
+    if password_requested:
+        err = validate_new_password(password, password2)
+        if err:
+            request.session["flash_err"] = err
+            return RedirectResponse("/account", status_code=303)
+        user.password_hash = hash_password(password)
+        user.must_change_password = False
+        write_audit(
+            db, actor=user, action="auth.password_change", entity_type="user", entity_id=user.id
+        )
+        changed.append("password")
+
+    db.commit()
+    if len(changed) == 2:
+        request.session["flash_ok"] = "Email and password updated."
+    elif "email" in changed:
+        request.session["flash_ok"] = "Email updated."
+    else:
+        request.session["flash_ok"] = "Password updated."
+    return RedirectResponse("/account", status_code=303)
+
+
+@router.post("/account/update")
+def account_update(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_user)],
+    email: str = Form(""),
+    current_password: str = Form(""),
+    password: str = Form(""),
+    password2: str = Form(""),
+):
+    return _apply_account_update(
+        request=request,
+        db=db,
+        user=user,
+        email=email,
+        current_password=current_password,
+        password=password,
+        password2=password2,
+    )
+
+
 @router.post("/account/password")
 def account_password(
     request: Request,
@@ -561,22 +670,15 @@ def account_password(
     password: str = Form(...),
     password2: str = Form(...),
 ):
-    err = validate_new_password(password, password2)
-    if err:
-        request.session["flash_err"] = err
-        return RedirectResponse("/account", status_code=303)
-    if not user.must_change_password:
-        if not verify_password(current_password, user.password_hash):
-            request.session["flash_err"] = "Current password is wrong."
-            return RedirectResponse("/account", status_code=303)
-    user.password_hash = hash_password(password)
-    user.must_change_password = False
-    write_audit(
-        db, actor=user, action="auth.password_change", entity_type="user", entity_id=user.id
+    return _apply_account_update(
+        request=request,
+        db=db,
+        user=user,
+        email=user.email or "",
+        current_password=current_password,
+        password=password,
+        password2=password2,
     )
-    db.commit()
-    request.session["flash_ok"] = "Password updated."
-    return RedirectResponse("/account", status_code=303)
 
 
 @router.post("/account/email")
@@ -585,31 +687,17 @@ def account_email(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_user)],
     email: str = Form(""),
-    current_password: str = Form(...),
+    current_password: str = Form(""),
 ):
-    if not verify_password(current_password, user.password_hash):
-        request.session["flash_err"] = "Current password is wrong."
-        return RedirectResponse("/account", status_code=303)
-    email = email.strip().lower()
-    if email:
-        other = db.query(AdminUser).filter(AdminUser.email == email, AdminUser.id != user.id).first()
-        if other:
-            request.session["flash_err"] = "Email already in use."
-            return RedirectResponse("/account", status_code=303)
-        user.email = email
-    else:
-        user.email = None
-    write_audit(
-        db,
-        actor=user,
-        action="auth.email_change",
-        entity_type="user",
-        entity_id=user.id,
-        detail=email or "(cleared)",
+    return _apply_account_update(
+        request=request,
+        db=db,
+        user=user,
+        email=email,
+        current_password=current_password,
+        password="",
+        password2="",
     )
-    db.commit()
-    request.session["flash_ok"] = "Email updated."
-    return RedirectResponse("/account", status_code=303)
 
 
 @router.get("/privacy", response_class=HTMLResponse)

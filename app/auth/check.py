@@ -34,20 +34,31 @@ class AuthResult:
     concurrency_lease: ConcurrencyLease | None = None
 
 
-def check_temperature() -> AuthResult | None:
+def check_temperature(db: Session, service: str) -> AuthResult | None:
     settings = get_settings()
     if settings.temp_guard_disabled:
         return None
+    from ..data.backends import get_source_by_name
+    from ..usage_pool import temp_guard_url_for_source
+
+    src = get_source_by_name(db, service)
+    guard_url = temp_guard_url_for_source(src)
+    if not guard_url:
+        return None
     try:
         with httpx.Client(timeout=2.0) as client:
-            resp = client.get(settings.temp_guard_url)
+            resp = client.get(guard_url)
     except Exception as exc:
+        if settings.temp_guard_fail_open:
+            return None
         return AuthResult(status=503, reason=f"temp_guard_unreachable:{exc}")
 
     if resp.status_code == 204:
         return None
     if resp.status_code == 403:
         return AuthResult(status=503, reason="local_temperature_above_limit")
+    if settings.temp_guard_fail_open:
+        return None
     return AuthResult(status=503, reason=f"temp_guard_status_{resp.status_code}")
 
 
@@ -454,7 +465,7 @@ def authorize(
             priority=priority,
         )
 
-    temp_block = check_temperature()
+    temp_block = check_temperature(db, service)
     if temp_block is not None:
         release_concurrency_lease(lease)
         return _fail(temp_block.status, temp_block.reason, api_key, priority=priority)

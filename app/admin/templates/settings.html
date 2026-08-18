@@ -1,15 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Settings · Gateway Admin{% endblock %}
+{% block title %}Gateway settings · Gateway Admin{% endblock %}
 {% block content %}
 <header class="page-head page-head--compact">
   <div>
     <p class="eyebrow">System</p>
-    <h1>Settings</h1>
-    <p class="lede">Access templates, limits, routing, and privacy. SMTP, alerts, and audit are in the subnav.</p>
+    <h1>Gateway settings</h1>
+    <p class="lede">Configure default access, budget rules, routing, and privacy. Delivery, alerts, and audit live in the same subnav.</p>
   </div>
 </header>
-{% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
-{% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
 
 {% if user.is_platform_admin and auth %}
 {% include "_settings_subnav.html" %}

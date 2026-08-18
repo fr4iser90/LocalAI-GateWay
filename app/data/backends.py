@@ -49,12 +49,16 @@ def source_chip_rows(
     for s in list_sources(db):
         if wanted is not None and s.name not in wanted:
             continue
+        hw = (s.hardware or "").strip()
+        tip = " · ".join(p for p in (s.kind, hw, (s.address or "").strip()) if p)
         rows.append(
             {
                 "name": s.name,
                 "kind": s.kind,
                 "address": s.address or "",
+                "hardware": hw,
                 "hint": "",
+                "tooltip": tip,
             }
         )
     return rows
@@ -257,7 +261,6 @@ def rename_source(db: Session, src: BackendSource, new_name: str) -> str | None:
         AuthSettings,
         CatalogModel,
         ModelAllowlist,
-        ModelFavorite,
         ModelLimit,
         ServiceGrant,
         UsageDaily,
@@ -270,7 +273,6 @@ def rename_source(db: Session, src: BackendSource, new_name: str) -> str | None:
     _swap(CatalogModel, CatalogModel.source_name)
     _swap(ServiceGrant, ServiceGrant.service)
     _swap(ModelAllowlist, ModelAllowlist.service)
-    _swap(ModelFavorite, ModelFavorite.service)
     _swap(ModelLimit, ModelLimit.service)
     _swap(UsageEvent, UsageEvent.service)
     _swap(UsageDaily, UsageDaily.service)
@@ -375,6 +377,7 @@ def upsert_source(
     route_models: str = "",
     api_style: str = "auto",
     gpu_power_url: str = "",
+    temp_guard_enabled: bool = True,
     hardware: str | None = None,
 ) -> BackendSource:
     from ..config import API_STYLES
@@ -386,6 +389,7 @@ def upsert_source(
     if style not in API_STYLES:
         style = "auto"
     gpu = (gpu_power_url or "").strip()
+    temp_on = bool(temp_guard_enabled)
     label = None if hardware is None else normalize_hardware_label(hardware)
     existing = get_source_by_name(db, name)
     if is_default:
@@ -396,6 +400,7 @@ def upsert_source(
         existing.route_models = models
         existing.api_style = style
         existing.gpu_power_url = gpu
+        existing.temp_guard_enabled = temp_on
         if label is not None:
             existing.hardware = label
         return existing
@@ -407,6 +412,7 @@ def upsert_source(
         route_models=models,
         api_style=style,
         gpu_power_url=gpu,
+        temp_guard_enabled=temp_on,
         hardware=label or "",
     )
     db.add(src)

@@ -6,17 +6,17 @@
     <p class="eyebrow">Backends</p>
     <h1>Models</h1>
     <p class="lede">
-      Catalog synced from sources. Enable/disable, tags, notes.
+      Catalog synced from your sources. Enable or disable models, then add tags and notes for discovery.
       {% if auto_vl_routing %}
-      Auto-VL is on — text + <span class="mono">-VL</span> siblings share one row.
+      Auto-VL is on, so text + <span class="mono">-VL</span> siblings share one row.
       {% else %}
-      Turn on Auto-VL in <a href="/settings/routing">Settings → Routing</a> to pair text + vision siblings.
+      Turn on Auto-VL in <a href="/settings/routing">Gateway settings → Routing</a> to pair text + vision siblings.
       {% endif %}
     </p>
   </div>
 </header>
 <details class="panel panel-details">
-  <summary class="muted">How meta{% if pool_model_weights_enabled %}, budget factor,{% endif %} and VL pairing work</summary>
+  <summary class="muted">How metadata{% if pool_model_weights_enabled %}, budget factor,{% endif %} and VL pairing work</summary>
   <p class="muted hint-after">
     <strong>ctx_size</strong> comes from upstream <span class="mono">--ctx-size</span> when listed.
     <strong>context_length</strong> in <span class="mono">GET /v1/models</span> mirrors <span class="mono">ctx_size</span> (OpenRouter-style for Continue/OpenCode).
@@ -44,8 +44,6 @@
     Empty until traffic hits that model through the gateway.
   </p>
 </details>
-{% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
-{% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
 {% if weight_status is defined and weight_status.ready and not pool_model_weights_enabled %}
 <div class="flash">
   {{ weight_status.message }}

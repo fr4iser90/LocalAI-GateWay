@@ -220,6 +220,8 @@ def test_user_cannot_open_other_users_key(sec):
     _login(client, "alice", ALICE_PASS)
     resp = client.get(f"/keys/{world.bob_key_id}", follow_redirects=False)
     assert resp.status_code == 403
+    resp = client.get(f"/keys/{world.bob_key_id}/partial", follow_redirects=False)
+    assert resp.status_code == 403
 
 
 def test_user_cannot_post_admin_settings(sec):

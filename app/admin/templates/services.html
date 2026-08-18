@@ -6,16 +6,12 @@
     <p class="eyebrow">Backends</p>
     <h1>Services</h1>
     <p class="lede">
-      Upstream sources for chat / embed / STT / TTS.
-      <span class="mono">/v1/…</span> picks a source by <strong>enabled catalog model</strong>.
-      Unknown or disabled models are rejected — they are not sent to another box.
-      All sources of a kind share the same <span class="mono">/v1</span> path; the request <strong>model</strong> picks the box.
-      Who may use a source is the user grant — set new-user defaults under <a href="/settings">Settings</a>.
+      Manage the boxes behind chat, embeddings, STT, and TTS.
+      Requests on <span class="mono">/v1/…</span> are routed by the selected model and the enabled catalog.
+      Access is controlled separately under <a href="/users">Users &amp; Access</a>.
     </p>
   </div>
 </header>
-{% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
-{% if flash_err %}<div class="error">{{ flash_err }}</div>{% endif %}
 
 <div class="panel">
   <div class="panel-head">
@@ -149,6 +145,10 @@
                   {% endfor %}
                 </select>
               </label>
+              <label class="svc-dialect" title="Enable per-source temperature guard via the co-located source-sidecar">
+                <input type="checkbox" name="temp_guard_enabled" {% if src.temp_guard_enabled %}checked{% endif %}>
+                Thermal guard
+              </label>
               <button class="btn-sm primary" type="submit">Save</button>
             </div>
             <p class="muted hint-tight">
@@ -216,6 +216,10 @@
           <option value="{{ st.id }}" title="{{ st.summary }}">{{ st.label }}</option>
           {% endfor %}
         </select>
+      </label>
+      <label>
+        <input type="checkbox" name="temp_guard_enabled" checked>
+        Thermal guard
       </label>
     </div>
     <button class="primary btn-start" type="submit">Add</button>
