@@ -59,8 +59,8 @@ class Settings(BaseSettings):
 
     temp_max_c: str = "30"
     temp_guard_disabled: bool = False
-    temp_guard_url: str = "http://temp-guard:8080/check"
-    # Optional GPU power probe (compose.gpu-power.yaml). Empty = off.
+    temp_guard_url: str = "http://source-sidecar:8080/check"
+    # Optional source-sidecar power probe. Empty = off.
     gpu_power_url: str = ""
     # Dashboard demo seed/clear — off by default; set DEMO_TOOLS=1 for local UI polish
     demo_tools: bool = False
@@ -120,19 +120,15 @@ def public_route_for_source(
     name: str,
     kind: str,
     *,
-    is_default: bool,
+    is_default: bool = False,
     settings: Settings | None = None,
 ) -> str:
+    """Client path for this kind. All sources of a kind share /v1; model picks the box."""
+    del name, is_default  # equal sources — catalog merge, not /s/{name} vs primary
     settings = settings or get_settings()
     base = (settings.public_host or "").strip() or "API-gateway"
-    if is_default:
-        hint = KIND_PATH_HINTS.get(kind, "/")
-        return f"{base}{hint}"
-    if kind == "chat":
-        return f"{base}/s/{name}/v1/… · /s/{name}/api/…"
-    hint = KIND_PATH_HINTS.get(kind, "/v1/…")
-    path_part = hint.split("·")[0].strip()
-    return f"{base}/s/{name}{path_part}"
+    hint = KIND_PATH_HINTS.get(kind, "/")
+    return f"{base}{hint}"
 
 
 SERVICES = KINDS

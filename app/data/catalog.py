@@ -497,6 +497,18 @@ def favorite_rank_maps(
     return by_pair, by_id
 
 
+def context_length_for_model(row: CatalogModel) -> int | None:
+    """OpenRouter-style max context for IDEs (Continue, OpenCode, …).
+
+    Prefer ctx_size (--ctx-size on the loaded slot); else last-known n_ctx_train.
+    """
+    if row.ctx_size is not None and row.ctx_size > 0:
+        return row.ctx_size
+    if row.n_ctx_train is not None and row.n_ctx_train > 0:
+        return row.n_ctx_train
+    return None
+
+
 def openai_models_payload(
     rows: list[CatalogModel],
     favorites: list[ModelFavorite] | None = None,
@@ -531,6 +543,9 @@ def openai_models_payload(
             entry["description"] = row.short_note
         if row.ctx_size is not None:
             entry["ctx_size"] = row.ctx_size
+        ctx_len = context_length_for_model(row)
+        if ctx_len is not None:
+            entry["context_length"] = ctx_len
         if row.n_ctx is not None:
             entry["n_ctx"] = row.n_ctx
         if row.n_ctx_train is not None:

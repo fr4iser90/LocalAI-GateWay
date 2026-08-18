@@ -270,7 +270,7 @@ DEFAULT_GRANT_NONE = "-"
 
 
 def configured_default_sources(db: Session) -> list[str]:
-    """Sources new non-admin users get. Unset or none → []. Never uses routing is_default."""
+    """Sources new non-admin users get. Unset or none → []. Independent of source routing."""
     auth = _auth_row(db)
     raw = (getattr(auth, "default_grant_sources", None) or "").strip() if auth else ""
     if not raw or raw == DEFAULT_GRANT_NONE:

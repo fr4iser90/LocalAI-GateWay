@@ -176,7 +176,40 @@ def test_last_known_meta_retained_on_unload(tmp_path: Path):
     payload = openai_models_payload([row])
     assert payload["data"][0]["n_embd"] == 640
     assert payload["data"][0]["ctx_size"] == 16384
+    assert payload["data"][0]["context_length"] == 16384
     assert payload["data"][0]["status"] == "unloaded"
+
+
+def test_context_length_from_ctx_size_only(tmp_path: Path):
+    db = _session(tmp_path)
+    row = CatalogModel(
+        source_name="chat",
+        kind="chat",
+        model_id="big-128k",
+        enabled=True,
+        ctx_size=131072,
+        n_ctx_train=32768,
+    )
+    db.add(row)
+    db.commit()
+    payload = openai_models_payload([row])
+    assert payload["data"][0]["context_length"] == 131072
+
+
+def test_context_length_falls_back_to_n_ctx_train(tmp_path: Path):
+    db = _session(tmp_path)
+    row = CatalogModel(
+        source_name="chat",
+        kind="chat",
+        model_id="m",
+        enabled=True,
+        n_ctx_train=65536,
+    )
+    db.add(row)
+    db.commit()
+    payload = openai_models_payload([row])
+    assert payload["data"][0]["context_length"] == 65536
+    assert "ctx_size" not in payload["data"][0]
 
 
 def test_fetch_piper_voices_returns_discovered():

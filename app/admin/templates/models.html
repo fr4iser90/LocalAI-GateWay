@@ -19,6 +19,7 @@
   <summary class="muted">How meta{% if pool_model_weights_enabled %}, budget factor,{% endif %} and VL pairing work</summary>
   <p class="muted hint-after">
     <strong>ctx_size</strong> comes from upstream <span class="mono">--ctx-size</span> when listed.
+    <strong>context_length</strong> in <span class="mono">GET /v1/models</span> mirrors <span class="mono">ctx_size</span> (OpenRouter-style for Continue/OpenCode).
     <strong>n_ctx / n_embd / n_params</strong> from upstream <span class="mono">meta</span> while loaded —
     last known values kept after unload (never invented). Tags/notes/docs are admin-owned; sync does not overwrite non-empty tags.
     STT/TTS usually expose no numeric meta.

@@ -580,6 +580,51 @@ a:hover { text-decoration: underline; }
   font-weight: 600;
 }
 .metric-section { margin-bottom: 1.5rem; }
+.cards-hero { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.card-link {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.card-link:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.fleet-panel { margin-bottom: 1rem; }
+.fleet-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0 0 0.25rem;
+}
+.fleet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-soft);
+  text-decoration: none;
+  color: inherit;
+  font-size: 0.85rem;
+  transition: border-color 0.15s ease;
+}
+.fleet-chip:hover { border-color: var(--accent); }
+.fleet-chip-name { font-weight: 600; }
+.fleet-chip-meta { color: var(--muted); font-size: 0.78rem; }
+.fleet-summary { color: var(--muted); }
+.panel-empty-hint { margin: 0 0 0.5rem; padding: 0 0.1rem; }
+
+.attention-panel { margin-bottom: 1.25rem; }
+.attention-table .btn-sm { white-space: nowrap; }
+.attention-sev-error { background: var(--danger-soft); color: var(--danger); }
+.attention-sev-warn { background: var(--warn-soft); color: var(--accent-2); }
+.attention-sev-info { background: var(--bg-soft); color: var(--muted); }
+.fleet-all-clear { margin-bottom: 1.25rem; }
 
 h1 {
   font-size: 1.6rem;
@@ -1795,6 +1840,9 @@ textarea { min-height: 110px; font-family: var(--mono); font-size: 0.85rem; }
 }
 .svc-name {
   width: 8.5rem;
+}
+.svc-hardware {
+  width: 10rem;
 }
 .svc-check {
   font-size: 0.85rem;

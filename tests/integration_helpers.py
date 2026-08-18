@@ -139,7 +139,7 @@ def gpu_power_url() -> str:
 
 
 def sample_gpu_watts(url: str | None = None) -> dict | None:
-    """One live reading from gpu-power sidecar."""
+    """One live reading from the source-sidecar power endpoint."""
     u = (url if url is not None else gpu_power_url()).strip()
     if not u:
         return None
@@ -263,7 +263,7 @@ class PowerProbe:
                 "Chat via gateway also stores metered Wh on UsageEvent."
                 if self.probe_url
                 else (
-                    "no gpu-power sidecar — set GPU_POWER_URL or CHAT_SOURCE "
+                    "no source-sidecar power endpoint — set GPU_POWER_URL or CHAT_SOURCE "
                     "(probe is http://<source-host>:9105/power)"
                 )
             ),

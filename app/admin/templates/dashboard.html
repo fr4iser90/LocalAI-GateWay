@@ -5,12 +5,15 @@
   <div>
     <p class="eyebrow">Operations</p>
     <h1>Dashboard</h1>
-    <p class="lede">Fleet traffic, limits, and backend load — not your personal key usage (<a href="/me">Home</a>).</p>
+    <p class="lede">Fleet health and traffic — personal keys live on <a href="/me">Home</a>.</p>
   </div>
   <div class="page-actions">
+    <a class="btn btn-sm" href="/services">Services</a>
+    <a class="btn btn-sm" href="/users">Users</a>
+    <a class="btn btn-sm" href="/usage">Usage</a>
     {% if demo_tools %}
     <form method="post" action="/demo/seed">
-      <button class="btn btn-sm" type="submit">Seed demo data</button>
+      <button class="btn btn-sm" type="submit">Seed demo</button>
     </form>
     <form method="post" action="/demo/clear" onsubmit="return confirm('Remove all demo usage?')">
       <button class="btn btn-sm btn-danger" type="submit">Clear demo</button>
@@ -20,151 +23,121 @@
 </header>
 
 {% if flash_ok %}<div class="flash">{{ flash_ok }}</div>{% endif %}
-{% if demo_count %}<div class="banner-info">Showing <strong>{{ '{:,}'.format(demo_count) }}</strong> demo events in the 7-day window — tagged in Usage as <span class="badge">demo</span>.</div>{% endif %}
+{% if demo_count %}<div class="banner-info">Showing <strong>{{ '{:,}'.format(demo_count) }}</strong> demo events in the 7-day window.</div>{% endif %}
 
-<div class="banner-info" role="status">
-  Ops view for all users. Your keys, personal averages, and connect tips:
-  <a href="/me"><strong>Home</strong></a>.
-</div>
-{% if not setup.complete %}
-<section class="panel setup-panel" id="setup">
+<section class="panel fleet-panel">
   <div class="panel-head">
-    <div>
-      <h2>Setup checklist</h2>
+    <div class="panel-head-text">
+      <h2>Fleet health</h2>
       <p class="panel-sub">
-        Finish the <a href="/setup">setup wizard</a>
-        ({{ setup.done_n }}/{{ setup.total_n }}). Until then the rest of the admin UI stays locked.
+        Live probe — same as <a href="/services">Services</a>.
+        {% if fleet %}
+        <span class="fleet-summary">{{ fleet_summary.ok }} ok{% if fleet_summary.loading %} · {{ fleet_summary.loading }} loading{% endif %}{% if fleet_summary.down %} · {{ fleet_summary.down }} down{% endif %}</span>
+        {% endif %}
       </p>
     </div>
   </div>
-  <ol class="setup-steps">
-    {% for step in setup.steps %}
-    <li class="setup-step {% if step.done %}is-done{% else %}is-todo{% endif %}">
-      <div class="setup-step-main">
-        <span class="setup-mark">{% if step.done %}✓{% else %}{{ loop.index }}{% endif %}</span>
-        <div>
-          <strong>{{ step.title }}</strong>
-          <p class="muted text-sm mt-block">{{ step.detail }}</p>
-        </div>
-      </div>
-      {% if not step.done %}
-      <a class="btn btn-sm primary" href="{{ step.href }}">{{ step.cta }}</a>
-      {% else %}
-      <a class="btn btn-sm" href="{{ step.href }}">Open</a>
+  {% if fleet %}
+  <div class="fleet-strip" role="list">
+    {% for s in fleet %}
+    <a class="fleet-chip state-{{ s.state }}" href="/services" role="listitem" title="{{ s.detail or s.backend }}">
+      <span class="fleet-chip-name mono">{{ s.service }}</span>
+      <span class="pill state-{{ s.state }}">{{ s.state }}</span>
+      {% if hardware_by_name.get(s.service) %}
+      <span class="fleet-chip-meta">{{ hardware_by_name.get(s.service) }}</span>
       {% endif %}
-    </li>
+      {% if s.slots_total is not none %}
+      <span class="fleet-chip-meta">{{ s.slots_busy }}/{{ s.slots_total }} busy</span>
+      {% elif s.gpu_power == 'ok' and s.gpu_watts is not none %}
+      <span class="fleet-chip-meta">{{ '%.0f'|format(s.gpu_watts) }}W</span>
+      {% endif %}
+    </a>
     {% endfor %}
-  </ol>
+  </div>
+  {% else %}
+  <p class="muted panel-empty-hint">No sources yet — <a href="/services">add a backend</a> to see health here.</p>
+  {% endif %}
 </section>
+
+{% if attention %}
+<section class="panel attention-panel">
+  <div class="panel-head">
+    <div class="panel-head-text">
+      <h2>Needs attention</h2>
+      <p class="panel-sub">{{ attention|length }} item{% if attention|length != 1 %}s{% endif %} — newest problems first.</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="table-compact attention-table">
+      <thead>
+        <tr><th>Severity</th><th>Issue</th><th>Detail</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for item in attention %}
+        <tr class="attention-row attention-{{ item.severity }}">
+          <td><span class="pill attention-sev attention-sev-{{ item.severity }}">{{ item.severity }}</span></td>
+          <td><strong>{{ item.title }}</strong></td>
+          <td class="muted">{{ item.detail }}</td>
+          <td><a class="btn-sm" href="{{ item.href }}">{{ item.cta }}</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% else %}
+<div class="banner-info fleet-all-clear" role="status">All clear — no backends down and nothing flagged.</div>
 {% endif %}
 
 <section class="metric-section">
-  <h2 class="section-title">Requests</h2>
-  <div class="cards">
+  <h2 class="section-title">Last 24 hours</h2>
+  <div class="cards cards-hero">
     <div class="card">
-      <div class="label">Successful · 24h</div>
+      <div class="label">Successful</div>
       <div class="value">{{ '{:,}'.format(total_day) }}</div>
-      <div class="hint">OK responses</div>
+      <div class="hint">{{ '{:,}'.format(total_week) }} · 7d OK</div>
     </div>
-    <div class="card">
-      <div class="label">Successful · 7d</div>
-      <div class="value">{{ '{:,}'.format(total_week) }}</div>
-      <div class="hint">OK responses</div>
-    </div>
-    <div class="card card-warn">
-      <div class="label">Denied · 24h</div>
+    <a class="card card-link card-warn" href="/usage?result=deny">
+      <div class="label">Denied</div>
       <div class="value">{{ '{:,}'.format(denies) }}</div>
       <div class="hint">Auth / quota / allowlist</div>
-    </div>
-    <div class="card card-warn">
-      <div class="label">Rate limited · 24h</div>
+    </a>
+    <a class="card card-link card-warn" href="/usage?result=rate_limit">
+      <div class="label">Rate limited</div>
       <div class="value">{{ '{:,}'.format(rate_limits) }}</div>
       <div class="hint">HTTP 429</div>
+    </a>
+    <div class="card">
+      <div class="label">Latency p95</div>
+      <div class="value">{% if latency_p95 %}{{ '%.0f'|format(latency_p95) }}<span class="unit">ms</span>{% else %}—{% endif %}</div>
+      <div class="hint">Chat upstream</div>
     </div>
     <div class="card">
       <div class="label">Active keys</div>
       <div class="value">{{ '{:,}'.format(active_keys) }}</div>
-      <div class="hint">Enabled API keys</div>
+      <div class="hint">{% if teams_enabled %}{{ teams_count }} team(s){% else %}Enabled API keys{% endif %}</div>
     </div>
-    {% if teams_enabled %}
+    {% if gpu_power_enabled %}
     <div class="card">
-      <div class="label">Teams</div>
-      <div class="value">{{ '{:,}'.format(teams_count) }}</div>
-      <div class="hint">Access groups</div>
+      <div class="label">GPU energy</div>
+      <div class="value">{% if watt_hours_day %}{{ '%.2f'|format(watt_hours_day) }}<span class="unit">Wh</span>{% else %}—{% endif %}</div>
+      <div class="hint">Estimate · 24h</div>
     </div>
-    {% endif %}
-  </div>
-</section>
-
-<section class="metric-section">
-  <h2 class="section-title">LLM / STT / TTS · 24h</h2>
-  <div class="cards">
+    {% else %}
     <div class="card">
       <div class="label">Tokens in</div>
       <div class="value">{{ '{:,}'.format(tokens_in) }}</div>
       <div class="hint">Prompt / embed estimate</div>
     </div>
-    <div class="card">
-      <div class="label">Tokens out</div>
-      <div class="value">{{ '{:,}'.format(tokens_out) }}</div>
-      <div class="hint">Completion (demo / future)</div>
-    </div>
-    <div class="card">
-      <div class="label">STT audio</div>
-      <div class="value">{{ audio_seconds }}<span class="unit">s</span></div>
-      <div class="hint">Seconds transcribed</div>
-    </div>
-    <div class="card">
-      <div class="label">TTS chars</div>
-      <div class="value">{{ '{:,}'.format(response_chars) }}</div>
-      <div class="hint">Characters spoken</div>
-    </div>
-    <div class="card">
-      <div class="label">Latency p50</div>
-      <div class="value">{% if latency_p50 %}{{ '%.0f'|format(latency_p50) }}<span class="unit">ms</span>{% else %}—{% endif %}</div>
-      <div class="hint">Median upstream (chat)</div>
-    </div>
-    <div class="card">
-      <div class="label">Latency p95</div>
-      <div class="value">{% if latency_p95 %}{{ '%.0f'|format(latency_p95) }}<span class="unit">ms</span>{% else %}—{% endif %}</div>
-      <div class="hint">95th percentile</div>
-    </div>
+    {% endif %}
   </div>
 </section>
-
-{% if gpu_power_enabled %}
-<section class="metric-section">
-  <h2 class="section-title">Energy · estimate</h2>
-  <div class="cards">
-    <div class="card">
-      <div class="label">GPU energy · 24h</div>
-      <div class="value">{% if watt_hours_day %}{{ '%.3f'|format(watt_hours_day) }}<span class="unit">Wh</span>{% else %}—{% endif %}</div>
-      <div class="hint">Wh = mean W × call duration</div>
-    </div>
-    <div class="card">
-      <div class="label">GPU energy · 7d</div>
-      <div class="value">{% if watt_hours_week %}{{ '%.2f'|format(watt_hours_week) }}<span class="unit">Wh</span>{% else %}—{% endif %}</div>
-      <div class="hint">Sum of per-request Wh</div>
-    </div>
-    <div class="card">
-      <div class="label">Avg draw · 24h</div>
-      <div class="value">{% if watts_avg %}{{ '%.0f'|format(watts_avg) }}<span class="unit">W</span>{% else %}—{% endif %}</div>
-      <div class="hint">Mean sampled watts during calls</div>
-    </div>
-    <div class="card">
-      <div class="label">Pool cost · 24h</div>
-      <div class="value">{% if pool_cost_day %}{{ '%.1f'|format(pool_cost_day) }}{% else %}—{% endif %}</div>
-      <div class="hint">Budget units charged (tokens)</div>
-    </div>
-  </div>
-</section>
-{% endif %}
 
 <section class="panel panel-chart">
   <div class="panel-head">
     <div>
       <h2>Traffic · last 7 days</h2>
-      <p class="panel-sub">Stacked requests per day ({{ display_timezone }}). Daily total above each bar; OK · deny · rate-limit below.</p>
+      <p class="panel-sub">Stacked requests per day ({{ display_timezone }}).</p>
     </div>
   </div>
   {{ chart_daily | safe }}
@@ -196,8 +169,7 @@
 </section>
 
 <p class="footnote">
-  Live traffic estimates prompt tokens from request body size (chars÷4). Completion tokens and exact STT duration need response-side logging.
-  Chat latency / Wh use real upstream time (gateway proxy). Other routes still record auth-check latency.
-  {% if gpu_power_enabled %}Wh = mean GPU watts during the call × real seconds / 3600.{% endif %}
+  Token estimates use request body size (chars÷4). Latency and Wh use upstream proxy timing where available.
+  Drill down in <a href="/usage">Usage</a> · backend detail on <a href="/services">Services</a>.
 </p>
 {% endblock %}

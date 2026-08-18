@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
+from ..forgot_limit import forgot_limiter
 from ..audit import write_audit
 from ..config import get_settings
 from ..crypto_util import encrypt_secret
@@ -130,30 +131,36 @@ def assert_can_create_key(db: Session, owner: AdminUser | None) -> str | None:
 
 
 @router.get("/register", response_class=HTMLResponse)
-def register_page(request: Request, db: Annotated[Session, Depends(get_db)]):
+def register_page(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    invite: str = "",
+):
     if current_user(request, db):
         return RedirectResponse("/me", status_code=303)
     auth = get_auth_settings(db)
-    if not auth.allow_self_registration:
-        return templates.TemplateResponse(
-            request,
-            "register.html",
-            {
-                "error": "Self-registration is disabled. Ask an admin for an account.",
-                "enabled": False,
-                "require_email": auth.require_email,
-            },
-            status_code=403,
-        )
+    from .invites import lookup_valid_invite
+
+    inv = lookup_valid_invite(db, invite)
+    enabled = bool(auth.allow_self_registration or inv)
+    if not enabled and invite.strip():
+        error = "This invite link is invalid or expired. Ask an admin for a new one."
+    elif not enabled:
+        error = "Self-registration is disabled. Ask an admin for an invite link."
+    else:
+        error = None
     return templates.TemplateResponse(
         request,
         "register.html",
         {
-            "error": None,
-            "enabled": True,
-            "require_email": auth.require_email,
-            "pw_policy": policy_for_template(),
+            "error": error,
+            "enabled": enabled,
+            "invite_mode": bool(inv),
+            "invite_token": invite.strip() if inv else "",
+            "require_email": True,
+            "pw_policy": policy_for_template() if enabled else None,
         },
+        status_code=403 if not enabled else 200,
     )
 
 
@@ -165,15 +172,21 @@ def register_submit(
     password: str = Form(...),
     password2: str = Form(...),
     email: str = Form(""),
+    invite: str = Form(""),
 ):
     auth = get_auth_settings(db)
-    if not auth.allow_self_registration:
+    from .invites import consume_invite, lookup_valid_invite
+
+    inv = lookup_valid_invite(db, invite)
+    if not auth.allow_self_registration and not inv:
         return templates.TemplateResponse(
             request,
             "register.html",
             {
                 "error": "Self-registration is disabled.",
                 "enabled": False,
+                "invite_mode": False,
+                "invite_token": "",
                 "require_email": auth.require_email,
             },
             status_code=403,
@@ -186,7 +199,14 @@ def register_submit(
         return templates.TemplateResponse(
             request,
             "register.html",
-            {"error": limit_msg, "enabled": True, "require_email": auth.require_email},
+            {
+                "error": limit_msg,
+                "enabled": True,
+                "invite_mode": bool(inv),
+                "invite_token": invite.strip() if inv else "",
+                "require_email": auth.require_email,
+                "pw_policy": policy_for_template(),
+            },
             status_code=429,
         )
 
@@ -199,7 +219,10 @@ def register_submit(
             {
                 "error": "Username must be at least 3 characters.",
                 "enabled": True,
+                "invite_mode": bool(inv),
+                "invite_token": invite.strip() if inv else "",
                 "require_email": auth.require_email,
+                "pw_policy": policy_for_template(),
             },
             status_code=400,
         )
@@ -211,19 +234,24 @@ def register_submit(
             {
                 "error": err,
                 "enabled": True,
+                "invite_mode": bool(inv),
+                "invite_token": invite.strip() if inv else "",
                 "require_email": auth.require_email,
                 "pw_policy": policy_for_template(),
             },
             status_code=400,
         )
-    if auth.require_email and not email_n:
+    if not email_n:
         return templates.TemplateResponse(
             request,
             "register.html",
             {
                 "error": "Email is required.",
                 "enabled": True,
+                "invite_mode": bool(inv),
+                "invite_token": invite.strip() if inv else "",
                 "require_email": True,
+                "pw_policy": policy_for_template(),
             },
             status_code=400,
         )
@@ -234,7 +262,10 @@ def register_submit(
             {
                 "error": "Username already taken.",
                 "enabled": True,
+                "invite_mode": bool(inv),
+                "invite_token": invite.strip() if inv else "",
                 "require_email": auth.require_email,
+                "pw_policy": policy_for_template(),
             },
             status_code=400,
         )
@@ -245,7 +276,10 @@ def register_submit(
             {
                 "error": "Email already in use.",
                 "enabled": True,
+                "invite_mode": bool(inv),
+                "invite_token": invite.strip() if inv else "",
                 "require_email": auth.require_email,
+                "pw_policy": policy_for_template(),
             },
             status_code=400,
         )
@@ -268,10 +302,26 @@ def register_submit(
         from ..data.grants import apply_default_grant
 
         apply_default_grant(db, user)
+    if inv:
+        inv = lookup_valid_invite(db, invite)
+        if not inv:
+            return templates.TemplateResponse(
+                request,
+                "register.html",
+                {
+                    "error": "This invite link is no longer valid.",
+                    "enabled": False,
+                    "invite_mode": False,
+                    "invite_token": "",
+                    "require_email": auth.require_email,
+                },
+                status_code=403,
+            )
+        consume_invite(db, inv, user)
     write_audit(
         db,
         actor=user,
-        action="auth.register",
+        action="auth.register_invite" if invite.strip() else "auth.register",
         entity_type="user",
         entity_id=user.id,
         detail=username,

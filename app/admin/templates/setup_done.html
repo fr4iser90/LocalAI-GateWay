@@ -21,9 +21,10 @@
     or tweak <a href="/models">Models</a> / <a href="/services">Services</a>.
   </p>
   <p class="muted mt-block">
-    Optional Wh metering: on each GPU host run
-    <span class="mono">docker compose -f services/gpu-power/compose.yaml up -d --build</span>,
-    then check <a href="/services">Services</a> → GPU column (auto <span class="mono">host:9105</span>).
+    Optional host sidecar: on each GPU host run
+    <span class="mono">docker compose -f services/source-sidecar/compose.yaml up -d --build</span>,
+    then check <a href="/services">Services</a> → GPU column and thermal guard via
+    <span class="mono">host:9105</span>.
   </p>
   <div class="actions actions-mt">
     <a class="btn primary" href="/">Go to dashboard</a>

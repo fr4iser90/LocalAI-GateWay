@@ -1,6 +1,6 @@
 """Usage pool: prompt-token budget × model weight, windowed reset.
 
-Optional GPU Wh from gpu-power sidecar (estimate at auth time).
+Optional GPU Wh from the source-sidecar (estimate at auth time).
 Budget is in tokens (tokens_per_unit is always 1 after migrate).
 """
 
@@ -166,7 +166,7 @@ def compute_cost(
 
 
 def fetch_gpu_watts(url: str | None = None) -> float | None:
-    """Probe gpu-power sidecar. None if disabled/unreachable."""
+    """Probe the source-sidecar power endpoint. None if disabled/unreachable."""
     u = (url if url is not None else get_settings().gpu_power_url or "").strip()
     if not u:
         return None

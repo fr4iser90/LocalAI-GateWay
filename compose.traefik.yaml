@@ -16,8 +16,6 @@ services:
     <<: [*restart, *proxy-net]
     build: .
     container_name: llm-auth-gateway
-    depends_on:
-      - temp-guard
     env_file: .env
     environment:
       DATA_DIR: /data
@@ -43,7 +41,6 @@ services:
     image: nginx:alpine
     container_name: llm-gateway
     depends_on:
-      - temp-guard
       - auth-gateway
     env_file: .env
     volumes:
@@ -61,19 +58,6 @@ services:
       - traefik.http.routers.llm-gateway-http.rule=Host(`${PUBLIC_HOST}`)
       - traefik.http.routers.llm-gateway-http.entrypoints=web
       - traefik.http.routers.llm-gateway-http.middlewares=gateway-https-redirect
-
-  temp-guard:
-    <<: [*restart, *proxy-net]
-    image: python:3.13-alpine
-    container_name: llm-temp-guard
-    environment:
-      TEMP_MAX_C: ${TEMP_MAX_C:-30}
-      TEMP_SENSOR_TYPE: ${TEMP_SENSOR_TYPE:-x86_pkg_temp}
-      TEMP_THERMAL_ROOT: /host/sys/class/thermal
-    volumes:
-      - ./services/temp-guard/main.py:/app/temp-guard.py:ro
-      - /sys:/host/sys:ro
-    command: ["python", "/app/temp-guard.py"]
 
 volumes:
   auth-gateway-data:

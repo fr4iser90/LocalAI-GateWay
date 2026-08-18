@@ -26,11 +26,15 @@
   {% endif %}
 
   <h3 class="section-label field-gap-xl">Registration &amp; teams</h3>
+  <p class="muted mt-0">
+    With self-registration off, create one-time links under
+    <a href="/users">Users → Invite link</a> — only people you invite can sign up.
+  </p>
   <form method="post" action="/settings/access">
     <div class="checkboxes checkboxes-block">
       <label><input type="checkbox" name="allow_self_registration" {% if auth.allow_self_registration %}checked{% endif %}> Allow self-registration</label>
-      <label><input type="checkbox" name="require_email" {% if auth.require_email %}checked{% endif %}> Require email on register</label>
     </div>
+    <p class="muted mt-0">Email is always required when signing up (password reset, account contact).</p>
 
     <h3 class="section-label">Teams (optional)</h3>
     <p class="muted mt-0">Off by default. Turn on only if people should share a key pool.</p>

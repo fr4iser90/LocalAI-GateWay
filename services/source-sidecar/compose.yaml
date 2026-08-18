@@ -1,0 +1,26 @@
+# Standalone source host sidecar — run on the inference/GPU host, not on the gateway.
+#
+#   docker compose up -d --build
+#   curl http://127.0.0.1:9105/power
+#   curl http://127.0.0.1:9105/thermal
+#
+# On the gateway server .env:
+#   GPU_POWER_URL=http://JARVIS_LAN_IP:9105/power
+#   TEMP_GUARD_URL=http://JARVIS_LAN_IP:9105/check
+
+services:
+  source-sidecar:
+    restart: unless-stopped
+    build: .
+    container_name: llm-source-sidecar
+    environment:
+      PORT: "8080"
+      SYS_ROOT: /host/sys
+      TEMP_THERMAL_ROOT: /host/sys/class/thermal
+      TEMP_SENSOR_NAME: ${TEMP_SENSOR_NAME:-amdgpu}
+      TEMP_SENSOR_LABEL: ${TEMP_SENSOR_LABEL:-edge}
+      TEMP_MAX_C: ${TEMP_MAX_C:-85}
+    volumes:
+      - /sys:/host/sys:ro
+    ports:
+      - "${SOURCE_SIDECAR_PORT:-9105}:8080"

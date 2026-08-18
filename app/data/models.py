@@ -387,9 +387,11 @@ class BackendSource(Base):
     route_models: Mapped[str] = mapped_column(Text, default="")
     # auto|openai|piper|whisper_cpp — how to map /v1 client paths to upstream
     api_style: Mapped[str] = mapped_column(String(32), default="auto")
-    # Optional gpu-power sidecar is always co-located: http://<address-host>:9105/power
+    # Optional source-sidecar is always co-located: http://<address-host>:9105/power
     # (column kept for migrations; not used for overrides)
     gpu_power_url: Mapped[str] = mapped_column(String(512), default="")
+    # Optional operator label: "Strix Halo", "Jetson Orin Super" — display only.
+    hardware: Mapped[str] = mapped_column(String(64), default="")
 
 
 class CatalogModel(Base):
@@ -484,6 +486,25 @@ class PasswordResetToken(Base):
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_by_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class RegistrationInvite(Base):
+    """One-time signup token when public self-registration is off."""
+
+    __tablename__ = "registration_invites"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    used_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_by_id: Mapped[int] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="CASCADE"), index=True
+    )
+    note: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 def make_engine(db_path: str):

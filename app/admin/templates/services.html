@@ -9,6 +9,7 @@
       Upstream sources for chat / embed / STT / TTS.
       <span class="mono">/v1/…</span> picks a source by <strong>enabled catalog model</strong>.
       Unknown or disabled models are rejected — they are not sent to another box.
+      All sources of a kind share the same <span class="mono">/v1</span> path; the request <strong>model</strong> picks the box.
       Who may use a source is the user grant — set new-user defaults under <a href="/settings">Settings</a>.
     </p>
   </div>
@@ -44,13 +45,11 @@
     </thead>
     <tbody>
     {% for s in statuses %}
-      {% set src = sources_by_name.get(s.service) %}
       <tr data-service="{{ s.service }}">
         <td>
           <span class="badge">{{ s.service }}</span>
-          {% if src and src.is_default %}<span class="badge ok">fallback</span>{% endif %}
-          {% if src and src.is_default %}
-          <div class="muted hint-micro">/v1 URL for this kind — still only enabled models</div>
+          {% if hardware_by_name.get(s.service) %}
+          <div class="muted hint-micro">{{ hardware_by_name.get(s.service) }}</div>
           {% endif %}
         </td>
         <td class="muted">{{ s.kind }}</td>
@@ -66,7 +65,7 @@
           {% elif s.gpu_power == 'unreachable' %}
             <span class="pill state-down" title="{{ s.gpu_power_url }}">sidecar missing</span>
             <div class="muted hint-micro">
-              Start gpu-power on {{ s.backend.split(':')[0] }}:9105
+              Start source-sidecar on {{ s.backend.split(':')[0] }}:9105
             </div>
           {% else %}
             <span class="muted" title="No source address">—</span>
@@ -104,7 +103,7 @@
     Add each upstream here (name + kind + <span class="mono">host:port</span>), then continue on the Dashboard checklist.
   </p>
   <p class="muted m-0 text-sm">
-    Example: name <span class="mono">chat</span>, kind <span class="mono">chat</span>, address <span class="mono">192.168.178.25:11535</span>, dialect <span class="mono">auto</span>, check <em>default</em>.
+    Example: name <span class="mono">chat</span>, kind <span class="mono">chat</span>, address <span class="mono">192.168.178.25:11535</span>, dialect <span class="mono">auto</span>.
   </p>
 </div>
 {% endif %}
@@ -125,10 +124,7 @@
       <tr>
         <td>
           <span class="badge">{{ src.name }}</span>
-          {% if src.is_default %}<span class="badge ok">fallback</span>{% endif %}
-          {% if src.is_default %}
-          <div class="muted hint-micro">/v1 URL for this kind — still only enabled models</div>
-          {% endif %}
+          {% if src.hardware %}<div class="muted hint-micro">{{ src.hardware }}</div>{% endif %}
         </td>
         <td>{{ src.kind }}</td>
         <td class="mono text-xs">{{ route }}</td>
@@ -141,9 +137,9 @@
               <label class="sr-only" for="addr-{{ src.id }}">Address for {{ src.name }}</label>
               <input id="addr-{{ src.id }}" class="mono svc-address" type="text" name="address" value="{{ src.address }}"
                      placeholder="192.168.1.10:8080">
-              <label class="svc-check">
-                <input type="checkbox" name="is_default" value="1" {% if src.is_default %}checked{% endif %}> /v1 URL
-              </label>
+              <label class="sr-only" for="hw-{{ src.id }}">Hardware for {{ src.name }}</label>
+              <input id="hw-{{ src.id }}" class="svc-hardware" type="text" name="hardware" value="{{ src.hardware or '' }}"
+                     maxlength="64" placeholder="Strix Halo" title="Optional — which box this source runs on">
               <label class="svc-dialect" title="Path rewrite for this upstream — Auto picks by kind, not a live scan">
                 Dialect
                 <select name="api_style">
@@ -208,9 +204,12 @@
         <label>Address</label>
         <input class="mono" type="text" name="address" placeholder="192.168.1.10:11434">
       </div>
+      <div class="field">
+        <label>Hardware (optional)</label>
+        <input type="text" name="hardware" maxlength="64" placeholder="Strix Halo, Jetson Orin Super, …">
+      </div>
     </div>
     <div class="checkboxes checkboxes-block">
-      <label><input type="checkbox" name="is_default" value="1"> Primary /v1 URL for this kind (unknown models are still rejected)</label>
       <label>Dialect
         <select name="api_style">
           {% for st in api_styles %}
@@ -240,10 +239,7 @@
       <tr>
         <td>
           <span class="badge">{{ src.name }}</span>
-          {% if src.is_default %}<span class="badge ok">fallback</span>{% endif %}
-          {% if src.is_default %}
-          <div class="muted hint-micro">/v1 URL for this kind — still only enabled models</div>
-          {% endif %}
+          {% if src.hardware %}<div class="muted hint-micro">{{ src.hardware }}</div>{% endif %}
         </td>
         <td>{{ src.kind }}</td>
         <td class="mono cell-sm">{{ route }}</td>
@@ -291,7 +287,7 @@
         } else if (s.gpu_power === 'unreachable') {
           var host = (s.backend || '').split(':')[0] || 'HOST';
           gpu.innerHTML = '<span class="pill state-down">sidecar missing</span>'
-            + '<div class="muted hint-micro">Start gpu-power on '
+            + '<div class="muted hint-micro">Start source-sidecar on '
             + host + ':9105</div>';
         } else {
           gpu.innerHTML = '<span class="muted">—</span>';

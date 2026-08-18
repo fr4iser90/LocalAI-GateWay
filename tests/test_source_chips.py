@@ -18,18 +18,14 @@ def _session(tmp_path: Path):
     return make_session_factory(eng)()
 
 
-def test_default_grant_uses_is_default(tmp_path: Path):
+def test_all_addressed_sources_are_equal(tmp_path: Path):
     db = _session(tmp_path)
-    upsert_source(db, name="chat", kind="chat", address="10.0.0.1:1", is_default=True)
-    upsert_source(
-        db, name="chat2", kind="chat", address="10.0.0.1:2", is_default=False
-    )
-    upsert_source(db, name="embed", kind="embed", address="10.0.0.1:3", is_default=True)
+    upsert_source(db, name="chat", kind="chat", address="10.0.0.1:1")
+    upsert_source(db, name="chat2", kind="chat", address="10.0.0.1:2")
+    upsert_source(db, name="embed", kind="embed", address="10.0.0.1:3")
     db.commit()
     names = default_grant_source_names(db)
-    assert "chat" in names
-    assert "embed" in names
-    assert "chat2" not in names
+    assert names == ["chat", "chat2", "embed"]
 
 
 def test_source_chip_rows_are_equal_sources(tmp_path: Path):

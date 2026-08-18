@@ -26,7 +26,7 @@ _BACKEND_RE = re.compile(
 def list_sources(db: Session) -> list[BackendSource]:
     return (
         db.query(BackendSource)
-        .order_by(BackendSource.kind, BackendSource.is_default.desc(), BackendSource.name)
+        .order_by(BackendSource.kind, BackendSource.name)
         .all()
     )
 
@@ -36,12 +36,8 @@ def source_names(db: Session) -> list[str]:
 
 
 def default_grant_source_names(db: Session) -> list[str]:
-    """Kind-default sources (routing fallback). Not used for new-user grants."""
-    return [
-        s.name
-        for s in list_sources(db)
-        if s.is_default and (s.address or "").strip()
-    ]
+    """Addressed sources (all equal). Grants use Settings → Default access, not this."""
+    return [s.name for s in list_sources(db) if (s.address or "").strip()]
 
 
 def source_chip_rows(
@@ -58,11 +54,23 @@ def source_chip_rows(
                 "name": s.name,
                 "kind": s.kind,
                 "address": s.address or "",
-                "is_default": bool(s.is_default),
                 "hint": "",
             }
         )
     return rows
+
+
+def normalize_hardware_label(raw: str | None) -> str:
+    """Optional box label (Strix Halo, Jetson …). Display only — not used for routing."""
+    return " ".join((raw or "").split())[:64]
+
+
+def hardware_labels(db: Session) -> dict[str, str]:
+    return {
+        s.name: (s.hardware or "").strip()
+        for s in list_sources(db)
+        if (s.hardware or "").strip()
+    }
 
 
 def get_source_by_name(db: Session, name: str) -> BackendSource | None:
@@ -162,7 +170,7 @@ def resolve_source_for_kind(
     if not sources:
         return None
 
-    ranked: list[tuple[int, int, str, BackendSource]] = []
+    ranked: list[tuple[int, str, BackendSource]] = []
     for src in sources:
         if allowed_services is not None and src.name not in allowed_services:
             continue
@@ -178,25 +186,25 @@ def resolve_source_for_kind(
                 best_score = s
         if best_score is None:
             continue
-        ranked.append((best_score, 0 if not src.is_default else 1, src.name, src))
+        ranked.append((best_score, src.name, src))
     if not ranked:
         return None
 
-    ranked.sort(key=lambda t: (-t[0], t[1], t[2]))
+    ranked.sort(key=lambda t: (-t[0], t[1]))
     top_score = ranked[0][0]
     tied = [t for t in ranked if t[0] == top_score]
     if len(tied) == 1 or not load_aware:
-        return tied[0][3]
+        return tied[0][2]
 
     from .source_load import load_cache, load_sort_key
 
-    def _pick_key(t: tuple[int, int, str, BackendSource]) -> tuple:
-        src = t[3]
+    def _pick_key(t: tuple[int, str, BackendSource]) -> tuple:
+        src = t[2]
         snap = load_cache.snapshot_for(src, kind=kind, model=model)
-        return (load_sort_key(snap), t[1], t[2])
+        return (load_sort_key(snap), t[1])
 
     tied.sort(key=_pick_key)
-    return tied[0][3]
+    return tied[0][2]
 
 
 def address_for_source(db: Session, name: str) -> str:
@@ -363,10 +371,11 @@ def upsert_source(
     name: str,
     kind: str,
     address: str,
-    is_default: bool,
+    is_default: bool = False,
     route_models: str = "",
     api_style: str = "auto",
     gpu_power_url: str = "",
+    hardware: str | None = None,
 ) -> BackendSource:
     from ..config import API_STYLES
 
@@ -377,21 +386,19 @@ def upsert_source(
     if style not in API_STYLES:
         style = "auto"
     gpu = (gpu_power_url or "").strip()
+    label = None if hardware is None else normalize_hardware_label(hardware)
     existing = get_source_by_name(db, name)
     if is_default:
         clear_default_for_kind(db, kind, except_id=existing.id if existing else None)
     if existing:
         existing.kind = kind
         existing.address = address
-        existing.is_default = is_default
         existing.route_models = models
         existing.api_style = style
         existing.gpu_power_url = gpu
+        if label is not None:
+            existing.hardware = label
         return existing
-    # If this is the first of its kind, force default
-    siblings = db.query(BackendSource).filter(BackendSource.kind == kind).count()
-    if siblings == 0:
-        is_default = True
     src = BackendSource(
         name=name,
         kind=kind,
@@ -400,6 +407,7 @@ def upsert_source(
         route_models=models,
         api_style=style,
         gpu_power_url=gpu,
+        hardware=label or "",
     )
     db.add(src)
     db.flush()
@@ -407,19 +415,8 @@ def upsert_source(
 
 
 def delete_source(db: Session, src: BackendSource) -> None:
-    kind = src.kind
-    was_default = src.is_default
     db.delete(src)
     db.flush()
-    if was_default:
-        nxt = (
-            db.query(BackendSource)
-            .filter(BackendSource.kind == kind)
-            .order_by(BackendSource.name)
-            .first()
-        )
-        if nxt:
-            nxt.is_default = True
 
 
 def migrate_backend_config_to_sources(db: Session) -> None:
@@ -493,9 +490,7 @@ def source_rows(
     """(source, public_route_display)."""
     rows = []
     for src in list_sources(db):
-        route = public_route_for_source(
-            src.name, src.kind, is_default=src.is_default, settings=settings
-        )
+        route = public_route_for_source(src.name, src.kind, settings=settings)
         rows.append((src, route))
     return rows
 

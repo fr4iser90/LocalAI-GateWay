@@ -58,7 +58,7 @@
       },
       {
         "rule_id": "B104",
-        "path_regex": "^services/(gpu-power/main\\.py|temp-guard/main\\.py)$",
+        "path_regex": "^services/source-sidecar/main\\.py$",
         "message_regex": "binding to all interfaces",
         "reason": "Sidecars listen on 0.0.0.0 inside container/host network by design; not exposed beyond trusted LAN/compose."
       },
@@ -70,19 +70,19 @@
       },
       {
         "rule_id": "B404",
-        "path_regex": "^services/gpu-power/main\\.py$",
+        "path_regex": "^services/source-sidecar/main\\.py$",
         "message_regex": "subprocess module",
         "reason": "Sidecar reads GPU metrics via fixed nvidia-smi/rocm-smi commands; no user-controlled shell input."
       },
       {
         "rule_id": "B603",
-        "path_regex": "^services/gpu-power/main\\.py$",
+        "path_regex": "^services/source-sidecar/main\\.py$",
         "message_regex": "subprocess call",
         "reason": "subprocess invoked with static argv lists for vendor GPU tools only."
       },
       {
         "rule_id": "B607",
-        "path_regex": "^services/gpu-power/main\\.py$",
+        "path_regex": "^services/source-sidecar/main\\.py$",
         "message_regex": "partial executable path",
         "reason": "nvidia-smi/rocm-smi resolved from PATH inside dedicated GPU sidecar image."
       }

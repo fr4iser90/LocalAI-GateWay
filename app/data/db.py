@@ -131,6 +131,7 @@ def _ensure_columns(eng) -> None:
             ("route_models", "TEXT DEFAULT ''"),
             ("api_style", "VARCHAR(32) DEFAULT 'auto'"),
             ("gpu_power_url", "VARCHAR(512) DEFAULT ''"),
+            ("hardware", "VARCHAR(64) DEFAULT ''"),
         ],
         "service_grants": [
             ("user_id", "INTEGER"),

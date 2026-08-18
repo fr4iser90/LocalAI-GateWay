@@ -129,10 +129,10 @@ def test_grant_aware_limits_candidates(tmp_path: Path):
     assert picked.name == "nano"
 
 
-def test_load_aware_off_uses_static_tiebreak(tmp_path: Path):
+def test_load_aware_off_ties_break_by_name(tmp_path: Path):
     db = _session(tmp_path)
-    upsert_source(db, name="chat", kind="chat", address="h1:1", is_default=True)
-    upsert_source(db, name="fast", kind="chat", address="h2:1", is_default=False)
+    upsert_source(db, name="chat", kind="chat", address="h1:1")
+    upsert_source(db, name="fast", kind="chat", address="h2:1")
     _cat(db, "chat", "jarvis")
     _cat(db, "fast", "jarvis")
     db.commit()
@@ -140,4 +140,5 @@ def test_load_aware_off_uses_static_tiebreak(tmp_path: Path):
     picked = resolve_source_for_kind(
         db, "chat", model="jarvis", load_aware=False
     )
-    assert picked.name == "fast"
+    assert picked is not None
+    assert picked.name == "chat"

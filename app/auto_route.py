@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 # Recommended Halo daily / quality / long-agent targets (Settings defaults).
 DEFAULT_AUTO_MODEL = "Qwen3.6-35B-A3B-MTP-UD-Q4_K_XL"
 DEFAULT_AUTO_QUALITY = "Qwen3.6-35B-A3B-MTP-UD-Q5_K_XL"
-DEFAULT_AUTO_LONG = "Qwen3.6-35B-A3B-MTP-UD-Q4_K_XL-128k"
+DEFAULT_AUTO_LONG = "Qwen3.6-35B-A3B-MTP-UD-Q5_K_XL"
 
 _ALIASES = {
     "auto": "default",
@@ -27,7 +27,7 @@ _ALIASES = {
 _SLOT_LABEL = {
     "default": "Daily coding / chat (MoE + MTP)",
     "quality": "Higher quality MoE (Q5 MTP)",
-    "long": "Long context / large repo (128k)",
+    "long": "Higher quality MoE for agents (Q5 MTP, 128k ctx)",
 }
 
 

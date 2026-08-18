@@ -29,7 +29,7 @@
     <tbody>
     {% for src, route in backend_rows %}
       <tr>
-        <td><span class="badge">{{ src.name }}</span>{% if src.is_default %} · {{ src.kind }} fallback{% endif %}</td>
+        <td><span class="badge">{{ src.name }}</span></td>
         <td class="mono cell-sm">{{ route }}</td>
         <td class="mono">{{ src.address if src.address else '— (disabled)' }}</td>
       </tr>
@@ -39,7 +39,7 @@
 </section>
 
 <section class="panel">
-  <h2>Temp guard</h2>
+  <h2>Thermal guard</h2>
   <table>
     <tr><th>Disabled</th><td class="mono">{{ 'yes' if temp_guard_disabled else 'no' }}</td></tr>
     <tr><th>Max °C</th><td class="mono">{{ temp_max_c }}</td></tr>

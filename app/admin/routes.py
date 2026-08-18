@@ -486,7 +486,6 @@ def setup_sources_save(
         validate_kind,
         validate_source_name,
     )
-    from ..data.models import BackendSource
 
     err = validate_source_name(name) or validate_kind(kind) or validate_backend(address)
     if err:
@@ -497,20 +496,11 @@ def setup_sources_save(
         request.session["flash_err"] = f"Source '{name}' already exists — change the name or edit under Services."
         return RedirectResponse("/setup/sources", status_code=303)
 
-    # First source of this kind becomes the /v1/… default; extras stay non-default
-    # (reachable via /s/{name}/…). No checkbox in the wizard.
-    has_kind = (
-        db.query(BackendSource)
-        .filter(BackendSource.kind == kind)
-        .count()
-        > 0
-    )
     src = upsert_source(
         db,
         name=name,
         kind=kind,
         address=address,
-        is_default=not has_kind,
         route_models="",
         api_style="auto",
     )
@@ -837,7 +827,9 @@ def dashboard(
         week_window_start,
         zone_from_request,
     )
+    from .dashboard_ops import attention_items, fleet_statuses, fleet_summary
     from .setup import setup_status
+    from ..data.backends import hardware_labels
 
     zone = zone_from_request(request, user)
     now = utcnow()
@@ -845,6 +837,8 @@ def dashboard(
     week_ago = week_window_start(zone)
     day = usage_stats(db, since=day_ago, tz=zone)
     week = usage_stats(db, since=week_ago, tz=zone)
+    fleet = fleet_statuses(db)
+    gpu_on = _gpu_power_enabled(request, db)
     tz_label = str(zone)
     active_keys = db.query(func.count(ApiKey.id)).filter(ApiKey.is_active.is_(True)).scalar() or 0
     teams_on = _teams_on(db)
@@ -854,6 +848,12 @@ def dashboard(
     flash_ok = request.session.pop("flash_ok", None)
     setup = setup_status(db)
     demo_tools = bool(getattr(_settings(request), "demo_tools", False))
+    attention = attention_items(
+        db,
+        fleet=fleet,
+        denies_24h=day["denies"],
+        rate_limits_24h=day["rate_limits"],
+    )
 
     return templates.TemplateResponse(
         request,
@@ -868,18 +868,9 @@ def dashboard(
             "by_service": day["by_service"],
             "by_model": day["by_model"],
             "tokens_in": day["tokens_in"],
-            "tokens_out": day["tokens_out"],
-            "audio_seconds": day["audio_seconds"],
-            "response_chars": day["response_chars"],
             "watt_hours_day": day["watt_hours"],
-            "watt_hours_week": week["watt_hours"],
-            "pool_cost_day": day["pool_cost"],
-            "watts_avg": day["watts_avg"],
-            "latency_p50": day["latency_p50"],
             "latency_p95": day["latency_p95"],
-            "latency_avg": day["latency_avg"],
             "demo_count": week["demo_count"] if demo_tools else 0,
-            "daily_series": week["daily_series"],
             "chart_service": bar_chart_svg(day["by_service"], unit="requests"),
             "chart_model": bar_chart_svg([(m, c) for m, c in day["by_model"]], unit="requests"),
             "chart_keys": bar_chart_svg(day["top_keys"], unit="requests"),
@@ -893,7 +884,11 @@ def dashboard(
             "nav": "dashboard",
             "is_admin": True,
             "setup": setup,
-            "gpu_power_enabled": _gpu_power_enabled(request, db),
+            "gpu_power_enabled": gpu_on,
+            "fleet": fleet,
+            "fleet_summary": fleet_summary(fleet),
+            "hardware_by_name": hardware_labels(db),
+            "attention": attention,
         },
     )
 
@@ -1680,6 +1675,7 @@ def users_list(
     )
     from ..data.usage_weights import catalog_weight_suggestions
     from .accounts import get_auth_settings
+    from .invites import pending_invites
     from ..mailer import get_smtp, smtp_ready
     from .user_limits import user_limits_summary
 
@@ -1709,6 +1705,14 @@ def users_list(
         u.id: user_limits_summary(u, pool_window_hours=pool_window) for u in users
     }
     weight_status = catalog_weight_suggestions(db)
+    pending = pending_invites(db)
+    creator_ids = {i.created_by_id for i in pending}
+    invite_creators: dict[int, str] = {}
+    if creator_ids:
+        invite_creators = {
+            u.id: u.username
+            for u in db.query(AdminUser).filter(AdminUser.id.in_(creator_ids)).all()
+        }
 
     return templates.TemplateResponse(
         request,
@@ -1734,6 +1738,8 @@ def users_list(
                 db, AccessCeiling(unrestricted=True)
             ),
             "selected_models": display_default_models(db),
+            "pending_invites": pending,
+            "invite_creators": invite_creators,
         },
     )
 
@@ -2294,6 +2300,82 @@ def users_send_reset(
     return RedirectResponse("/users", status_code=303)
 
 
+@router.post("/users/invites")
+def users_invite_create(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+    email: str = Form(""),
+    note: str = Form(""),
+):
+    from .invites import create_registration_invite, invite_register_url
+    from ..mailer import MailError, get_smtp, send_mail, smtp_ready
+
+    raw = create_registration_invite(db, created_by=user, note=note)
+    cfg = get_smtp(db)
+    base = str(request.base_url).rstrip("/")
+    if cfg and cfg.public_base_url:
+        base = cfg.public_base_url.rstrip("/")
+    link = invite_register_url(base, raw)
+    email_n = email.strip().lower()
+    mailed = False
+    if email_n and smtp_ready(cfg):
+        try:
+            assert cfg is not None
+            send_mail(
+                db,
+                to_email=email_n,
+                subject="You're invited — LocalAI Gateway",
+                body_text=(
+                    "You've been invited to create an account on LocalAI Gateway.\n\n"
+                    f"One-time signup link (7 days):\n{link}\n\n"
+                    "After signup you'll get the default access configured in Settings."
+                ),
+            )
+            mailed = True
+        except MailError as exc:
+            request.session["flash_err"] = str(exc)
+    write_audit(
+        db,
+        actor=user,
+        action="user.invite_create",
+        entity_type="registration_invite",
+        detail=email_n or note or "link",
+    )
+    db.commit()
+    if mailed:
+        request.session["flash_ok"] = f"Invite sent to {email_n}."
+    else:
+        request.session["flash_ok"] = f"Invite link (7 days, one use): {link}"
+    return RedirectResponse("/users", status_code=303)
+
+
+@router.post("/users/invites/{invite_id}/revoke")
+def users_invite_revoke(
+    invite_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[AdminUser, Depends(require_platform_admin)],
+):
+    from ..data.models import RegistrationInvite
+
+    inv = db.get(RegistrationInvite, invite_id)
+    if inv is None or inv.used_at is not None:
+        request.session["flash_err"] = "Invite not found or already used."
+        return RedirectResponse("/users", status_code=303)
+    write_audit(
+        db,
+        actor=user,
+        action="user.invite_revoke",
+        entity_type="registration_invite",
+        entity_id=inv.id,
+    )
+    db.delete(inv)
+    db.commit()
+    request.session["flash_ok"] = "Invite revoked."
+    return RedirectResponse("/users", status_code=303)
+
+
 # ---- Usage ----
 
 
@@ -2639,13 +2721,12 @@ def services_page(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_user)],
 ):
-    from ..data.backends import catalog_route_models, source_rows
+    from ..data.backends import catalog_route_models, hardware_labels, source_rows
     from ..data.probe import probe_all
 
     settings = _settings(request)
     rows = source_rows(db, settings)
     statuses = probe_all(db)
-    sources_by_name = {src.name: src for src, _ in rows}
     catalog_by_source = {src.name: catalog_route_models(db, src.name) for src, _ in rows}
     engine_by = {s.service: s.engine for s in statuses}
     dialect_blurbs = {
@@ -2660,8 +2741,8 @@ def services_page(
             "user": user,
             "rows": rows,
             "statuses": statuses,
-            "sources_by_name": sources_by_name,
             "catalog_by_source": catalog_by_source,
+            "hardware_by_name": hardware_labels(db),
             "engine_by": engine_by,
             "kinds": KINDS,
             "api_styles": dialect_choices(),
@@ -2693,8 +2774,8 @@ def services_create(
     name: str = Form(""),
     kind: str = Form("chat"),
     address: str = Form(""),
-    is_default: str = Form(""),
     api_style: str = Form("auto"),
+    hardware: str = Form(""),
 ):
     from ..data.backends import (
         upsert_source,
@@ -2716,9 +2797,9 @@ def services_create(
         name=name,
         kind=kind,
         address=address,
-        is_default=bool(is_default),
         route_models="",
         api_style=api_style,
+        hardware=hardware,
     )
     write_audit(
         db,
@@ -2726,7 +2807,7 @@ def services_create(
         action="source.create",
         entity_type="backend_source",
         entity_id=src.id,
-        detail=f"{src.name} kind={src.kind} default={src.is_default} style={src.api_style}",
+        detail=f"{src.name} kind={src.kind} style={src.api_style}",
     )
     db.commit()
     request.session["flash_ok"] = f"Source '{src.name}' added."
@@ -2740,13 +2821,13 @@ def services_update(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_platform_admin)],
     address: str = Form(""),
-    is_default: str = Form(""),
     api_style: str = Form("auto"),
     name: str = Form(""),
+    hardware: str = Form(""),
 ):
     from ..data.backends import (
-        clear_default_for_kind,
         normalize_backend,
+        normalize_hardware_label,
         rename_source,
         validate_backend,
     )
@@ -2768,16 +2849,11 @@ def services_update(
     src.gpu_power_url = ""  # always derived from address host:9105
     src.route_models = ""  # merge targets come from catalog sync only
     src.api_style = style
+    src.hardware = normalize_hardware_label(hardware)
     err = rename_source(db, src, name or src.name)
     if err:
         request.session["flash_err"] = err
         return RedirectResponse("/services", status_code=303)
-    make_default = bool(is_default)
-    if make_default:
-        clear_default_for_kind(db, src.kind, except_id=src.id)
-        src.is_default = True
-    elif src.is_default and not make_default:
-        pass
     write_audit(
         db,
         actor=user,
@@ -2786,7 +2862,7 @@ def services_update(
         entity_id=src.id,
         detail=(
             f"{src.name} addr={'set' if src.address else 'empty'} "
-            f"default={src.is_default} style={src.api_style}"
+            f"style={src.api_style}"
         ),
     )
     db.commit()
@@ -3008,7 +3084,6 @@ def settings_access_save(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_platform_admin)],
     allow_self_registration: str = Form(""),
-    require_email: str = Form(""),
     teams_enabled: str = Form(""),
     default_team_id: str = Form(""),
     max_keys_per_user: str = Form("3"),
@@ -3017,7 +3092,7 @@ def settings_access_save(
 
     auth = get_auth_settings(db)
     auth.allow_self_registration = allow_self_registration == "on"
-    auth.require_email = require_email == "on"
+    auth.require_email = True
     auth.teams_enabled = teams_enabled == "on"
     try:
         auth.max_keys_per_user = max(0, min(100, int(max_keys_per_user or "3")))

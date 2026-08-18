@@ -29,12 +29,12 @@ docker compose up -d --build
 |------|-------------|
 | `/v1/chat/completions` (etc.) | Source chosen by request **`model`** among **enabled** catalog rows. Unknown / disabled / missing model → error (no dump onto another box) |
 | `/v1/embeddings` | Same for embed sources + `model` |
-| `/api/…` | Named or chat paths as configured — still only enabled models on `/v1` |
-| `/s/{name}/v1/…` | Force source `{name}`; model must still be enabled on that source |
+| `/api/…` | Chat-kind paths as configured — still only enabled models on `/v1` |
+| `/s/{name}/v1/…` | Optional pin to source `{name}`; not required. Same catalog rules. |
 | `/v1/audio/transcriptions` | STT source for the requested enabled model |
 | `/v1/audio/speech` | TTS source for the requested enabled model |
 
-**Model merge:** `/v1` picks a source by request `model` from the **enabled** catalog. No match → 404 `unknown_model` (or 400 `missing_model`). Who may call a source is the **user/key grant**. `/s/{name}/` still forces a source, but disabled/unknown models are rejected.  
+**Model merge:** All sources of a kind are equal. `/v1` picks a source by request `model` from the **enabled** catalog. No match → 404 `unknown_model` (or 400 `missing_model`). Who may call a source is the **user/key grant**. `/s/{name}/` is only an optional pin.  
 **API dialects:** `api_style` on each source — see `app/data/dialects.py`.  
 **Model catalog:** Admin → Models — sync, disable, tags/notes/docs links.  
 Keys/Teams pick models via checkboxes (empty = all). Favorites pin order in `/v1/models` (key overrides team).  
@@ -56,16 +56,16 @@ docker compose -f compose.traefik.yaml up -d --build
 | `.env` | Web UI |
 |--------|--------|
 | `DOMAIN`, `PUBLIC_HOST`, `SESSION_SECRET`, bootstrap admin | API keys, users, SMTP, teams |
-| Ports, temp-guard (prod example) | Named sources (kind + address); grant keys per source |
+| Ports, thermal sidecar (prod example) | Named sources (kind + address); grant keys per source |
 
 ## Layout
 
 ```
-app/                  # FastAPI auth + admin
-services/temp-guard/  # optional thermal sidecar
-compose.yaml          # default
-compose.traefik.yaml  # optional Traefik example
-tests/                # pytest (unit + optional integration)
+app/                     # FastAPI auth + admin
+services/source-sidecar/ # optional source-host sidecar (power + thermal)
+compose.yaml             # default
+compose.traefik.yaml     # optional Traefik example
+tests/                   # pytest (unit + optional integration)
 ```
 
 ## Tests

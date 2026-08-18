@@ -36,6 +36,48 @@
 <div class="panel">
   <div class="panel-head">
     <div class="panel-head-text">
+      <h2>Invite link</h2>
+      <p class="panel-sub">Self-registration can stay off. One-time links (7 days) let invited people sign up with <a href="/settings/access">Settings → Default access</a>.</p>
+    </div>
+  </div>
+  <form method="post" action="/users/invites" class="row row--wrap row--align-end">
+    <div class="field">
+      <label for="invite-email">Send to email (optional)</label>
+      <input id="invite-email" type="email" name="email" placeholder="Signal friend? leave blank and copy link" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="invite-note">Note (optional)</label>
+      <input id="invite-note" type="text" name="note" placeholder="e.g. Anna" autocomplete="off">
+    </div>
+    <button class="primary" type="submit">Create invite link</button>
+  </form>
+  {% if pending_invites %}
+  <div class="table-wrap mt-1">
+    <table class="table-compact">
+      <thead><tr><th>Created</th><th>Expires</th><th>By</th><th>Note</th><th></th></tr></thead>
+      <tbody>
+      {% for inv in pending_invites %}
+        <tr>
+          <td class="mono">{{ inv.created_at.strftime('%Y-%m-%d %H:%M') }} UTC</td>
+          <td class="mono">{{ inv.expires_at.strftime('%Y-%m-%d') }}</td>
+          <td>{{ invite_creators.get(inv.created_by_id, '—') }}</td>
+          <td>{{ inv.note or '—' }}</td>
+          <td>
+            <form method="post" action="/users/invites/{{ inv.id }}/revoke">
+              <button class="btn-sm" type="submit">Revoke</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <div class="panel-head">
+    <div class="panel-head-text">
       <h2>Create user</h2>
       <p class="panel-sub">Ceiling for this account. Pre-checked from Settings → Default access; check any other sources this person should have.</p>
     </div>

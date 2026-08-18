@@ -126,3 +126,22 @@ def test_apply_source_row_edits_swap_names(tmp_path: Path):
     db.refresh(b)
     assert a.name == "chat2"
     assert b.name == "chat"
+
+
+def test_hardware_label_optional_and_trimmed(tmp_path: Path):
+    from app.data.backends import hardware_labels, normalize_hardware_label
+
+    assert normalize_hardware_label("  Strix   Halo  ") == "Strix Halo"
+    assert len(normalize_hardware_label("x" * 80)) == 64
+
+    db = _session(tmp_path)
+    upsert_source(db, name="test", kind="chat", address="a:1", hardware="  Jetson Orin Super ")
+    db.commit()
+    labels = hardware_labels(db)
+    assert labels == {"test": "Jetson Orin Super"}
+    upsert_source(db, name="test", kind="chat", address="a:1")
+    db.commit()
+    assert hardware_labels(db) == {"test": "Jetson Orin Super"}
+    upsert_source(db, name="test", kind="chat", address="a:1", hardware="")
+    db.commit()
+    assert hardware_labels(db) == {}

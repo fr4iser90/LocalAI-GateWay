@@ -4,6 +4,7 @@ from app.config import (
     KINDS,
     SOURCE_NAME_RE,
     kind_from_upstream_path,
+    public_route_for_source,
     split_source_path,
     upstream_path_for_proxy,
 )
@@ -49,3 +50,12 @@ def test_named_source_prefix():
     # reserved / invalid slug rejected
     assert split_source_path("/s/Bad/v1/x")[0] == "bad"  # normalized lower
     assert split_source_path("/s/2bad/v1/x")[0] is None
+
+
+def test_public_route_same_for_every_source_of_kind():
+    chat = public_route_for_source("chat", "chat")
+    test = public_route_for_source("test", "chat")
+    assert chat == test
+    assert "/v1/chat/completions" in chat
+    assert "/s/" not in chat
+    assert "/s/" not in public_route_for_source("embed-lab", "embed")
