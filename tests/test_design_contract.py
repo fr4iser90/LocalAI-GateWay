@@ -73,7 +73,6 @@ PAGE_KIND: dict[str, str] = {
     "privacy.html": "task",
     "key_form.html": "task",
     "team_form.html": "task",
-    "user_grant.html": "task",
     # Wizard
     "setup_base.html": "wizard",
     "setup_sources.html": "wizard",

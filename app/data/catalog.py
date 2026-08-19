@@ -19,6 +19,8 @@ TAG_SUGGESTIONS = (
     "vision",
     "code",
     "fast",
+    "medium",
+    "slow",
     "long-ctx",
     "reasoning",
     "multilingual",
@@ -74,6 +76,20 @@ def suggest_docs_url(model_id: str) -> str:
     return f"https://huggingface.co/{org}/{name}"
 
 
+def infer_speed_tag(model_id: str, kind: str) -> str | None:
+    """Vulkan bench tiers (tg128) — Strix Halo; used for gateway routing hints."""
+    if kind != "chat":
+        return None
+    mid = (model_id or "").lower()
+    if any(x in mid for x in ("qwen3.8-27b", "qwen3-8b")):
+        return "slow"
+    if any(x in mid for x in ("qwen3.6-35b", "agentworld-35b")):
+        return "medium"
+    if any(x in mid for x in ("coder-30b", "qwen3-4b", "nemotron-3-nano-4b", "nemotron-3-nano-30b")):
+        return "fast"
+    return None
+
+
 def infer_tags(model_id: str, kind: str) -> list[str]:
     """Heuristic tags from id/kind — providers rarely expose capabilities."""
     mid = (model_id or "").lower()
@@ -91,7 +107,10 @@ def infer_tags(model_id: str, kind: str) -> list[str]:
             tags.append("code")
         if any(x in mid for x in ("qwen", "nemotron", "agent", "tool")):
             tags.append("tools")
-        if any(x in mid for x in ("nano", "270m", "0.5b", "1b", "1.5b", "3b", "4b")):
+        speed = infer_speed_tag(model_id, kind)
+        if speed:
+            tags.append(speed)
+        elif any(x in mid for x in ("nano", "270m", "0.5b", "1b", "1.5b", "3b", "4b")):
             tags.append("fast")
         if any(x in mid for x in ("qwen", "mistral", "gemma")):
             tags.append("multilingual")

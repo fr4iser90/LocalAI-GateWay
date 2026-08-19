@@ -168,7 +168,7 @@
               <div class="tag-row grant-source-badges" title="Click a badge for models · + to add sources">
                 {% for s in srcs %}
                 <span class="grant-source-chip">
-                  <a class="badge badge-link" href="/users/{{ u.id }}/grant" data-grant-user="{{ u.id }}" data-grant-source="{{ s }}">{{ s }}</a>
+                  <a class="badge badge-link" href="#" aria-label="Edit models for {{ s }}" data-grant-user="{{ u.id }}" data-grant-source="{{ s }}">{{ s }}</a>
                   <form method="post" action="/users/{{ u.id }}/grant/source/remove" class="grant-source-revoke-form"
                         onsubmit="return confirm('Remove source {{ s }} from {{ u.username }}?');">
                     <input type="hidden" name="source" value="{{ s }}">
@@ -190,7 +190,6 @@
                         title="Edit RPM, concurrency, daily quota, token budget">
                   {{ limit_summaries.get(u.id, 'No limits (∞)') }}
                 </button>
-                <a href="/users/{{ u.id }}/grant">Full grant editor</a>
               </div>
             {% endif %}
           </td>

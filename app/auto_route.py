@@ -13,11 +13,6 @@ from .vision_route import rewrite_json_model
 if TYPE_CHECKING:
     from .data.models import AuthSettings
 
-# Recommended Halo daily / quality / long-agent targets (Settings defaults).
-DEFAULT_AUTO_MODEL = "Qwen3.6-35B-A3B-MTP-UD-Q4_K_XL"
-DEFAULT_AUTO_QUALITY = "Qwen3.6-35B-A3B-MTP-UD-Q5_K_XL"
-DEFAULT_AUTO_LONG = "Qwen3.6-35B-A3B-MTP-UD-Q5_K_XL"
-
 _ALIASES = {
     "auto": "default",
     "auto-quality": "quality",
@@ -39,21 +34,16 @@ def auto_alias_slot(model: str | None) -> str | None:
 
 
 def target_for_slot(auth: AuthSettings | None, slot: str) -> str | None:
-    """Configured catalog id, or Halo built-in default for that slot."""
-    fallback = {
-        "default": DEFAULT_AUTO_MODEL,
-        "quality": DEFAULT_AUTO_QUALITY,
-        "long": DEFAULT_AUTO_LONG,
-    }.get(slot)
+    """Return configured catalog id for this alias slot (or None)."""
     if auth is None:
-        return fallback
+        return None
     raw = {
         "default": getattr(auth, "auto_model_default", None),
         "quality": getattr(auth, "auto_model_quality", None),
         "long": getattr(auth, "auto_model_long", None),
     }.get(slot)
     mid = (raw or "").strip()
-    return mid or fallback
+    return mid or None
 
 
 def resolve_auto_model(auth: AuthSettings | None, model: str | None) -> str | None:

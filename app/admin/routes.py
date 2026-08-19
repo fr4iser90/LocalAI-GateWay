@@ -1679,21 +1679,6 @@ def users_list(
     )
 
 
-def _user_grant_panel(db: Session, target: AdminUser) -> dict:
-    from ..data.grants import AccessCeiling, catalog_groups_for_ceiling, ceiling_from_user, grant_summary
-
-    selected_services = [g.service for g in target.service_grants]
-    if not selected_services:
-        selected_services = configured_default_sources(db)
-    return {
-        "source_chips": source_chip_rows(db),
-        "selected_services": selected_services,
-        "catalog_groups": catalog_groups_for_ceiling(db, AccessCeiling(unrestricted=True)),
-        "selected_models": _selected_model_keys(target.model_allowlists),
-        "grant_summary": grant_summary(ceiling_from_user(target)),
-    }
-
-
 def _load_grant_target(db: Session, user_id: int) -> AdminUser | None:
     return (
         db.query(AdminUser)
@@ -1978,89 +1963,6 @@ async def users_grant_source_save(
     )
     db.commit()
     request.session["flash_ok"] = f"Saved {source} models for {target.username}."
-    return RedirectResponse("/users", status_code=303)
-
-
-@router.get("/users/{user_id}/grant", response_class=HTMLResponse)
-def users_grant_edit(
-    user_id: int,
-    request: Request,
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[AdminUser, Depends(require_platform_admin)],
-):
-    if _teams_on(db):
-        request.session["flash_err"] = (
-            "Teams are enabled — set grants on the Team, not on individual users."
-        )
-        return RedirectResponse("/users", status_code=303)
-    target = (
-        db.query(AdminUser)
-        .options(
-            joinedload(AdminUser.service_grants),
-            joinedload(AdminUser.model_allowlists),
-        )
-        .filter(AdminUser.id == user_id)
-        .first()
-    )
-    if target is None:
-        return RedirectResponse("/users", status_code=303)
-    panel = _user_grant_panel(db, target)
-    return templates.TemplateResponse(
-        request,
-        "user_grant.html",
-        {
-            "user": user,
-            "target": target,
-            "nav": "users",
-            "flash_ok": request.session.pop("flash_ok", None),
-            "flash_err": request.session.pop("flash_err", None),
-            **panel,
-        },
-    )
-
-
-@router.post("/users/{user_id}/grant")
-async def users_grant_save(
-    user_id: int,
-    request: Request,
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[AdminUser, Depends(require_platform_admin)],
-):
-    from ..data.grants import sync_user_grants, sync_user_models
-
-    if _teams_on(db):
-        request.session["flash_err"] = "Teams are enabled — edit the Team grant instead."
-        return RedirectResponse("/users", status_code=303)
-    target = db.get(AdminUser, user_id)
-    if not target:
-        return RedirectResponse("/users", status_code=303)
-    form = await request.form()
-    names = source_names(db)
-    services = _parse_services(form.getlist("services"), names)
-    models = _collect_models_from_form(form, db)
-    # Only keep models for granted sources
-    models = [(s, m) for s, m in models if s in services]
-    sync_user_grants(db, target, services)
-    sync_user_models(db, target, models)
-
-    from .user_limits import apply_user_limits_from_form
-
-    apply_user_limits_from_form(target, form)
-
-    write_audit(
-        db,
-        actor=user,
-        action="user.grant",
-        entity_type="user",
-        entity_id=target.id,
-        detail=(
-            f"services={services} models={len(models)} "
-            f"rpm={target.rpm_limit} conc={target.concurrency_limit} "
-            f"daily={target.daily_quota} pool={target.pool_limit}"
-        ),
-    )
-    db.commit()
-    request.session["flash_ok"] = f"Grant saved for {target.username}."
     return RedirectResponse("/users", status_code=303)
 
 
@@ -2866,7 +2768,6 @@ def _settings_page_context(
 ) -> dict:
     import os
 
-    from ..auto_route import DEFAULT_AUTO_LONG, DEFAULT_AUTO_MODEL, DEFAULT_AUTO_QUALITY
     from ..data.backends import source_rows
     from ..data.grants import (
         AccessCeiling,
@@ -2929,9 +2830,6 @@ def _settings_page_context(
         "gpu_power_enabled": _gpu_power_enabled(request, db),
         "observed_tok_s": observed_tok_s,
         "weight_status": weight_status,
-        "default_auto_model": DEFAULT_AUTO_MODEL,
-        "default_auto_quality": DEFAULT_AUTO_QUALITY,
-        "default_auto_long": DEFAULT_AUTO_LONG,
         **grant_ctx,
     }
 

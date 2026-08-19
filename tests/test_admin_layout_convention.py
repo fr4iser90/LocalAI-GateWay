@@ -30,7 +30,6 @@ TASK_PAGES = frozenset({
     "privacy.html",
     "key_form.html",
     "team_form.html",
-    "user_grant.html",
 })
 
 # Mode A — Browse pages: main column scrolls; must not use content--fill
@@ -199,8 +198,6 @@ def test_layout_doc_exists():
 
 def _task_page_source(name: str) -> str:
     text = (TEMPLATES / name).read_text(encoding="utf-8")
-    if name == "user_grant.html":
-        text += (TEMPLATES / "_user_grant_form.html").read_text(encoding="utf-8")
     return text
 
 
@@ -402,7 +399,6 @@ def test_core_ops_pages_inline_budget_tight():
         "alerts.html": 0,
         "smtp.html": 0,
         "me.html": 0,
-        "user_grant.html": 0,
         "key_form.html": 0,
         "setup_done.html": 0,
         "setup_sources.html": 0,

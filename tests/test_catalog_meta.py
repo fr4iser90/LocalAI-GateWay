@@ -40,6 +40,9 @@ def test_infer_tags():
     from app.data.catalog import infer_tags
 
     assert "vision" in infer_tags("Qwen3.6-35B-A3B-UD-Q4_K_M-VL", "chat")
+    assert "medium" in infer_tags("Qwen3.6-35B-A3B-MTP-UD-Q4_K_XL", "chat")
+    assert "slow" in infer_tags("Qwen3.8-27B-Q8_0-MTP", "chat")
+    assert "fast" in infer_tags("Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL", "chat")
     assert "embed" in infer_tags("bge-m3-Q4_K_M", "embed")
     assert "code" in infer_tags("GemCod-R-Sapphire-270M", "chat")
     assert "stt" in infer_tags("stt", "stt")

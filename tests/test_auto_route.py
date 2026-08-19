@@ -6,9 +6,6 @@ import json
 from types import SimpleNamespace
 
 from app.auto_route import (
-    DEFAULT_AUTO_LONG,
-    DEFAULT_AUTO_MODEL,
-    DEFAULT_AUTO_QUALITY,
     auto_alias_list_entries,
     auto_alias_slot,
     resolve_auto_model,
@@ -25,12 +22,12 @@ def test_alias_slots():
     assert auto_alias_slot(None) is None
 
 
-def test_empty_settings_use_halo_defaults():
+def test_empty_settings_disable_auto_rewrite():
     auth = SimpleNamespace(auto_model_default="", auto_model_quality="", auto_model_long="")
-    assert resolve_auto_model(auth, "auto") == DEFAULT_AUTO_MODEL
-    assert resolve_auto_model(auth, "auto-quality") == DEFAULT_AUTO_QUALITY
-    assert resolve_auto_model(auth, "auto-long") == DEFAULT_AUTO_LONG
-    assert target_for_slot(None, "default") == DEFAULT_AUTO_MODEL
+    assert resolve_auto_model(auth, "auto") is None
+    assert resolve_auto_model(auth, "auto-quality") is None
+    assert resolve_auto_model(auth, "auto-long") is None
+    assert target_for_slot(None, "default") is None
 
 
 def test_settings_override_targets():
@@ -64,6 +61,4 @@ def test_rewrite_skips_real_model_id():
 def test_v1_models_lists_aliases_first():
     auth = SimpleNamespace(auto_model_default="", auto_model_quality="", auto_model_long="")
     ids = [e["id"] for e in auto_alias_list_entries(auth)]
-    assert ids == ["auto", "auto-quality", "auto-long"]
-    assert "Qwen3.6" in auto_alias_list_entries(auth)[0]["description"]
-    assert DEFAULT_AUTO_QUALITY == "Qwen3.6-35B-A3B-MTP-UD-Q5_K_XL"
+    assert ids == []

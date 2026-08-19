@@ -15,19 +15,19 @@
     <h3 class="section-label field-gap-md">Auto model aliases</h3>
     <p class="muted mt-0">
       Clients may send <span class="mono">auto</span>, <span class="mono">auto-quality</span>, or <span class="mono">auto-long</span>.
-      Empty fields use built-in defaults.
+      Empty fields disable the rewrite for that alias slot.
     </p>
     <div class="field field-gap-md">
       <label for="auto-default"><span class="mono">auto</span></label>
-      <input id="auto-default" type="text" name="auto_model_default" value="{{ auth.auto_model_default or '' }}" placeholder="{{ default_auto_model }}" autocomplete="off">
+      <input id="auto-default" type="text" name="auto_model_default" value="{{ auth.auto_model_default or '' }}" placeholder="optional (leave empty to disable)" autocomplete="off">
     </div>
     <div class="field field-gap-md">
       <label for="auto-quality"><span class="mono">auto-quality</span></label>
-      <input id="auto-quality" type="text" name="auto_model_quality" value="{{ auth.auto_model_quality or '' }}" placeholder="{{ default_auto_quality }}" autocomplete="off">
+      <input id="auto-quality" type="text" name="auto_model_quality" value="{{ auth.auto_model_quality or '' }}" placeholder="optional (leave empty to disable)" autocomplete="off">
     </div>
     <div class="field field-gap-md">
       <label for="auto-long"><span class="mono">auto-long</span></label>
-      <input id="auto-long" type="text" name="auto_model_long" value="{{ auth.auto_model_long or '' }}" placeholder="{{ default_auto_long }}" autocomplete="off">
+      <input id="auto-long" type="text" name="auto_model_long" value="{{ auth.auto_model_long or '' }}" placeholder="optional (leave empty to disable)" autocomplete="off">
     </div>
     <button class="primary" type="submit">Save routing</button>
   </form>

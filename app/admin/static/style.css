@@ -1310,25 +1310,36 @@ tr.grant-expand-row > td {
 }
 .grant-source-chip {
   display: inline-flex;
-  align-items: center;
-  gap: 0.1rem;
+  align-items: stretch;
+  background: var(--bg-soft);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.grant-source-chip a.badge-link {
+  background: transparent;
+  border-radius: 999px 0 0 999px;
+  margin-right: 0 !important;
+  padding-right: 0.3rem;
 }
 .grant-source-revoke-form {
-  display: inline;
+  display: flex;
   margin: 0;
   padding: 0;
 }
 .grant-source-revoke {
   appearance: none;
   border: none;
+  border-left: 1px solid var(--border);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
   font: inherit;
-  font-size: 1rem;
+  font-size: 0.72rem;
   line-height: 1;
-  padding: 0 0.15rem 0.05rem;
-  border-radius: var(--radius-sm);
+  padding: 0 0.4rem;
+  border-radius: 0 999px 999px 0;
+  display: flex;
+  align-items: center;
 }
 .grant-source-revoke:hover {
   color: var(--danger);

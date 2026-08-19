@@ -13,6 +13,7 @@ services:
     <<: *restart
     build: .
     container_name: llm-auth-gateway
+    user: "${UID}:${GID}"
     env_file: .env
     environment:
       DATA_DIR: /data
