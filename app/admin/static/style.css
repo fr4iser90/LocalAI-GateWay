@@ -1467,11 +1467,46 @@ tr.grant-expand-row > td {
   justify-content: flex-start;
   margin-top: 0.65rem;
 }
+.legal-topnav {
+  margin: 0 0 1rem;
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.legal-topnav .legal-links {
+  /* Top navigation block on legal pages (not the sticky footer). */
+  justify-content: flex-start;
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  flex: 1 1 auto;
+}
+.legal-auth {
+  margin: 0;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.legal-auth a {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 0.7rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  color: var(--accent);
+  font-weight: 650;
+}
+.legal-auth a:hover { border-color: var(--border-strong); text-decoration: none; }
 body:not(:has(.layout)) > .legal-links {
   position: sticky;
   bottom: 0;
   padding: 0.85rem 1rem 1.15rem;
-  background: var(--bg);
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
 }
 .legal-doc {
   max-width: 42rem;
