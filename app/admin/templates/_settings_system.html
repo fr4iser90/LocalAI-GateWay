@@ -1,15 +1,15 @@
 {% if user.is_platform_admin and auth %}
 <section class="panel">
-  <h2>Impressum / operator</h2>
+  <h2>Imprint / operator</h2>
   <p class="muted mt-0">
-    In Germany this is needed when other people use the UI (DDG / DSGVO).
-    The operator of <em>this install</em> must list name and street address — an email alone is not enough.
+    In Germany this is usually required when other people use the service (DDG / DSGVO).
+    Please provide name and street address. An email address alone is not enough.
     You can also set <span class="mono">OPERATOR_NAME</span>, <span class="mono">OPERATOR_ADDRESS</span>,
-    <span class="mono">OPERATOR_EMAIL</span>, <span class="mono">OPERATOR_PHONE</span> in <span class="mono">.env</span>
+    <span class="mono">OPERATOR_EMAIL</span>, <span class="mono">OPERATOR_PHONE</span> via environment variables
     (used when a field below is empty).
   </p>
   {% if operator.from_env %}
-  <p class="muted text-sm">Currently using .env for empty fields: {{ operator.name }}{% if operator.address %} · {{ operator.address }}{% endif %}</p>
+  <p class="muted text-sm">Environment defaults are currently filling empty fields: {{ operator.name }}{% if operator.address %} · {{ operator.address }}{% endif %}</p>
   {% endif %}
   <form method="post" action="/settings/system">
     <div class="field field-gap">
@@ -38,7 +38,7 @@
 
 <section class="panel">
   <h2>Admin</h2>
-  <p class="muted mt-0">Basic identity and local runtime details for this gateway instance.</p>
+  <p class="muted mt-0">Basic identity and local runtime details for this gateway.</p>
   <table>
     <tr><th>Domain</th><td class="mono">{{ settings.domain }}</td></tr>
     <tr><th>Public API host</th><td class="mono">{{ settings.public_host or '(local gateway port / any Host)' }}</td></tr>
@@ -55,7 +55,7 @@
     <tr><th>API gateway</th><td class="mono">{{ gateway_url }}</td></tr>
   </table>
   <p class="muted hint-after">
-    Example:
+    Example request:
     <span class="mono">curl -H "X-Api-Key: …" {{ gateway_url }}/v1/chat/completions -d '…'</span>
   </p>
 </section>

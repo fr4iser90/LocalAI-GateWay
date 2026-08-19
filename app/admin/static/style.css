@@ -1508,6 +1508,58 @@ body:not(:has(.layout)) > .legal-links {
   background: var(--bg-elev);
   border-top: 1px solid var(--border);
 }
+/* Language tabs on legal pages — pure CSS, no JS needed */
+.legal-lang-tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 1.15rem;
+}
+.legal-doc > input[type="radio"] {
+  display: none;
+}
+.legal-lang-tabs label {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.85rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.1s, background 0.1s, color 0.1s;
+}
+.legal-lang-tabs label:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+/* panels */
+#legal-lang-de-imprint:checked ~ .legal-lang-panels .legal-lang-panel--de,
+#legal-lang-de-privacy:checked  ~ .legal-lang-panels .legal-lang-panel--de,
+#legal-lang-de-cookies:checked  ~ .legal-lang-panels .legal-lang-panel--de,
+#legal-lang-en-imprint:checked ~ .legal-lang-panels .legal-lang-panel--en,
+#legal-lang-en-privacy:checked  ~ .legal-lang-panels .legal-lang-panel--en,
+#legal-lang-en-cookies:checked  ~ .legal-lang-panels .legal-lang-panel--en {
+  display: block;
+}
+/* active tab highlight */
+#legal-lang-de-imprint:checked ~ .legal-lang-tabs label[for="legal-lang-de-imprint"],
+#legal-lang-de-privacy:checked  ~ .legal-lang-tabs label[for="legal-lang-de-privacy"],
+#legal-lang-de-cookies:checked  ~ .legal-lang-tabs label[for="legal-lang-de-cookies"],
+#legal-lang-en-imprint:checked ~ .legal-lang-tabs label[for="legal-lang-en-imprint"],
+#legal-lang-en-privacy:checked  ~ .legal-lang-tabs label[for="legal-lang-en-privacy"],
+#legal-lang-en-cookies:checked  ~ .legal-lang-tabs label[for="legal-lang-en-cookies"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--nav-active);
+  font-weight: 560;
+}
+.legal-lang-panel--de,
+.legal-lang-panel--en {
+  display: none;
+}
 .legal-doc {
   max-width: 42rem;
   line-height: 1.55;
