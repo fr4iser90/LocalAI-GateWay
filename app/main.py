@@ -4,13 +4,13 @@ import os
 
 import httpx
 from fastapi import Depends, FastAPI, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from .admin.access import Forbidden, RedirectToLogin, SetupWizardRequired
+from .admin.access import Forbidden, RedirectToLogin, SetupWizardRequired, current_user
 from .admin.accounts import get_auth_settings, router as accounts_router
 from .admin.routes import router as admin_router
 from .admin.ops import router as ops_router
@@ -146,7 +146,7 @@ def create_app() -> FastAPI:
                 await self.app(scope, receive, send)
                 return
             path = scope.get("path") or ""
-            if path.startswith("/static") or path.startswith("/v1/") or path in _PW_ALLOW:
+            if path.startswith("/static") or path.startswith("/v1/") or path.startswith("/legal") or path in _PW_ALLOW:
                 await self.app(scope, receive, send)
                 return
             uid = (scope.get("session") or {}).get("user_id")
@@ -185,9 +185,29 @@ def create_app() -> FastAPI:
     async def _redirect_setup(_request: Request, exc: SetupWizardRequired):
         return RedirectResponse(exc.redirect_to, status_code=303)
 
+    from .admin.templating import make_templates
+
+    ui_templates = make_templates()
+
     @app.exception_handler(Forbidden)
-    async def _forbidden(_request: Request, _exc: Forbidden):
-        return HTMLResponse("<h1>403 Forbidden</h1><p><a href='/me'>Back</a></p>", status_code=403)
+    async def _forbidden(request: Request, _exc: Forbidden):
+        user = None
+        from .data.db import SessionLocal
+
+        if SessionLocal is not None:
+            db = SessionLocal()
+            try:
+                user = current_user(request, db)
+            except Exception:
+                user = None
+            finally:
+                db.close()
+        return ui_templates.TemplateResponse(
+            request,
+            "forbidden.html",
+            {"user": user, "nav": ""},
+            status_code=403,
+        )
 
     @app.get("/healthz")
     def healthz():

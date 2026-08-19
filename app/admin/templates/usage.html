@@ -3,7 +3,6 @@
 {% block content %}
 <header class="page-head page-head--compact">
   <div>
-    <p class="eyebrow">Activity</p>
     <h1>Usage</h1>
   </div>
   <div class="page-actions">
@@ -16,62 +15,27 @@
   <a href="/usage/daily">Daily rollup</a>
 </nav>
 
-<nav class="subnav subnav-anchors" aria-label="Usage sections">
-  <a href="#usage-summary">Summary</a>
-  <a href="#usage-events">Events</a>
-  <a href="#usage-aggregates">Aggregates</a>
-  <a href="#usage-models">Model performance</a>
-</nav>
-
-<section class="metric-section" id="usage-summary">
-  <h2 class="section-title">Your summary</h2>
-  <div class="cards cards-hero">
-    <div class="card">
-      <div class="label">Successful</div>
-      <div class="value">{{ '{:,}'.format(ok) }}</div>
-      <div class="hint">Last 24h</div>
-    </div>
-    <div class="card card-warn">
-      <div class="label">Denied</div>
-      <div class="value">{{ '{:,}'.format(deny) }}</div>
-      <div class="hint">Auth / limits</div>
-    </div>
-    <div class="card card-warn">
-      <div class="label">Rate limited</div>
-      <div class="value">{{ '{:,}'.format(rate) }}</div>
-      <div class="hint">HTTP 429</div>
-    </div>
-    <div class="card">
-      <div class="label">Tokens in</div>
-      <div class="value">{{ '{:,}'.format(tokens_in) }}</div>
-      <div class="hint">Estimate · 24h</div>
-    </div>
-    <div class="card">
-      <div class="label">Latency p95</div>
-      <div class="value">{% if latency_p95 %}{{ '%.0f'|format(latency_p95) }}<span class="unit">ms</span>{% else %}—{% endif %}</div>
-      <div class="hint">Tail latency</div>
-    </div>
-  </div>
-</section>
-
-<section class="panel panel-chart">
-  <div class="panel-head">
+<section class="pulse" id="usage-summary">
+  <div class="pulse-kpis">
     <div>
-      <h2>Traffic · last 7 days</h2>
-      <p class="panel-sub">Last 7 days. Open Events below for request-by-request detail.</p>
+      <div class="pulse-kpi-label">Successful · 24h</div>
+      <div class="pulse-kpi-value">{{ '{:,}'.format(ok) }}</div>
+    </div>
+    <div>
+      <div class="pulse-kpi-label">p95 latency</div>
+      <div class="pulse-kpi-value">{% if latency_p95 %}{{ '%.0f'|format(latency_p95) }}<span class="unit">ms</span>{% else %}—{% endif %}</div>
+    </div>
+    <div>
+      <div class="pulse-kpi-label">Denied / 429</div>
+      <div class="pulse-kpi-value">{{ '{:,}'.format(deny) }}<span class="unit">/ {{ '{:,}'.format(rate) }}</span></div>
     </div>
   </div>
   {{ chart_daily | safe }}
+  <p class="pulse-foot">Throughput · last 7 days</p>
 </section>
 
-<div class="panel">
-  <div class="panel-head">
-    <div class="panel-head-text">
-      <h2>Filters</h2>
-      <p class="panel-sub">Narrow the event stream before exporting or investigating a specific key, source, or result.</p>
-    </div>
-  </div>
-  <form method="get" action="/usage" class="row" role="search" aria-label="Filter usage events">
+<div class="panel panel-toolbar" role="search">
+  <form method="get" action="/usage" class="row" aria-label="Filter usage events">
     <div class="field">
       <label for="usage-service">Service</label>
       <select id="usage-service" name="service">
@@ -119,10 +83,7 @@
 
 <div class="panel" id="usage-events">
   <div class="panel-head">
-    <div class="panel-head-text">
-      <h2>Events</h2>
-      <p class="panel-sub">Request-by-request history. Best for debugging denials, rate limits, and slow calls.</p>
-    </div>
+    <h2>Events</h2>
   </div>
   <table>
     <thead>
@@ -181,7 +142,6 @@
 <section class="panel" id="usage-models">
   <div class="panel-head">
     <h2>Model averages · 7d</h2>
-    <p class="panel-sub">Moved from Home. Aggregated from successful gateway traffic.</p>
   </div>
   {% if model_avgs %}
   <div class="table-wrap">
@@ -221,7 +181,6 @@
 <section class="panel" id="usage-aggregates">
   <div class="panel-head">
     <h2>Today (aggregated)</h2>
-    <p class="panel-sub">Moved from Home. Useful when you want totals without reading every event row.</p>
   </div>
   {% if daily_rows %}
   <div class="table-wrap">

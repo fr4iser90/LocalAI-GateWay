@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Privacy · Gateway{% endblock %}
+{% block content %}
+<header class="page-head page-head--compact">
+  <div>
+    <h1>Privacy / Datenschutz</h1>
+    <p class="page-meta">GDPR Art. 13 information for this instance.</p>
+  </div>
+</header>
+<div class="panel">
+  {% include "_legal_privacy_body.html" %}
+</div>
+{% endblock %}
+{% block body %}
+<div class="legal-wrap">
+  <h1>Privacy / Datenschutz</h1>
+  {% include "_legal_privacy_body.html" %}
+  <p class="auth-foot"><a href="/login">Sign in</a></p>
+</div>
+{% endblock %}

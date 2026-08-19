@@ -19,8 +19,6 @@
   <title>{% block title %}Gateway Admin{% endblock %}</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/style.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;650&display=swap" rel="stylesheet">
 </head>
 <body{% if user is defined and user %} data-tz="{{ display_tz|default('UTC') }}"{% endif %}>
 {% if user is defined and user %}
@@ -30,7 +28,7 @@
   <aside class="sidebar" id="app-sidebar" aria-label="Main">
     <p class="brand">
       <img class="brand-mark" src="/static/favicon.svg" width="22" height="22" alt="">
-      LocalAI <span>Gateway</span>
+      Gateway
     </p>
     <nav class="nav" aria-label="Primary">
       {% set setup_lock = setup_incomplete|default(false) or request.state.setup_incomplete|default(false) %}
@@ -91,6 +89,7 @@
       <form method="post" action="/logout" class="logout-form">
         <button class="btn-sm" type="submit">Logout</button>
       </form>
+      {% include "_legal_links.html" %}
     </div>
   </aside>
   <div class="main-column">
@@ -99,7 +98,7 @@
               aria-controls="app-sidebar" aria-expanded="false" aria-label="Open navigation">
         Menu
       </button>
-      <span class="topbar-brand">LocalAI Gateway</span>
+      <span class="topbar-brand">Gateway</span>
     </header>
     <main id="main-content" class="content{% block content_class %}{% endblock %}" tabindex="-1">
       <div class="content-inner">
@@ -138,6 +137,8 @@
 </script>
 {% else %}
 {% block body %}{% endblock %}
+{% include "_legal_links.html" %}
+<script src="/static/theme.js"></script>
 {% endif %}
 </body>
 </html>

@@ -49,6 +49,9 @@ BROWSE_PAGES = frozenset({
     "smtp.html",
     "alerts.html",
     "setup_done.html",
+    "legal_imprint.html",
+    "legal_privacy.html",
+    "legal_cookies.html",
 })
 
 # App pages that render inside the authenticated shell (extend base + block content)
@@ -107,11 +110,22 @@ def _rule_max_width(selector: str) -> str | None:
 def test_layout_tokens_fill_main_column():
     assert _css_token("--page-max") == "none"
     assert _css_token("--sidebar-width") == "240px"
+    assert _css_token("--bg") == "#0e1116"
+    assert _css_token("--accent") == "#5eead4"
+    assert "Inter" in _css_token("--font")
     pad_x = _css_token("--page-pad-x")
     assert pad_x.endswith("rem") or pad_x.endswith("px")
     # Meaningful horizontal padding (≥ 1rem)
     if pad_x.endswith("rem"):
         assert float(pad_x[:-3]) >= 1.0
+
+
+def test_templates_drop_eyebrow_chrome():
+    hits = []
+    for path in TEMPLATES.rglob("*.html"):
+        if 'class="eyebrow"' in path.read_text(encoding="utf-8"):
+            hits.append(path.name)
+    assert not hits, f"Remove hidden eyebrow chrome from: {', '.join(hits)}"
 
 
 def test_page_wrappers_are_full_width():
@@ -442,7 +456,6 @@ def test_usage_daily_team_column_gated_on_teams_enabled():
     text = (TEMPLATES / "usage_daily.html").read_text(encoding="utf-8")
     assert "{% if teams_enabled %}<th>Team</th>{% endif %}" in text
     assert "{% if teams_enabled %}<td>{{ r.team_name or '—' }}</td>{% endif %}" in text
-    assert "Daily rollups by {% if teams_enabled %}team / {% endif %}key" in text
     assert "<th>Team</th>" not in text.replace("{% if teams_enabled %}<th>Team</th>{% endif %}", "")
 
     text = (TEMPLATES / "setup_sources.html").read_text(encoding="utf-8")

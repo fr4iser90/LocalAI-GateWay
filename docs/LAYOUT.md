@@ -28,7 +28,7 @@ move with the scroll.
 
 **Pages:** `/me`, `/usage`, `/usage/daily`, `/keys`, `/users`, `/teams`, `/models`,
 `/services`, `/` (admin dashboard), `/audit`, `/settings/*`, `/smtp`, `/alerts`,
-`/setup/done`
+`/setup/done`, `/legal/*` (when signed in)
 
 ## Mode B — Task (`content--fill`)
 
@@ -70,7 +70,7 @@ thin strip plus empty space.
 
 **CSS:** `login-wrap` / centered card (no app sidebar layout)
 
-**Pages:** `/login`, `/forgot`, `/reset`, `/register`
+**Pages:** `/login`, `/forgot`, `/reset`, `/register`, `/legal/*` (when signed out)
 
 ## Expandable (`<details>`)
 

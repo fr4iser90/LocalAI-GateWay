@@ -3,25 +3,21 @@
 {% block content %}
 <header class="page-head page-head--compact">
   <div>
-    <p class="eyebrow">Operations</p>
     <h1>Ops overview</h1>
-    <p class="lede">Fleet health and gateway traffic. Personal keys and personal usage live on <a href="/me">Overview</a>.</p>
-  </div>
-  <div class="page-actions">
-    <a class="btn btn-sm" href="/services">Services</a>
-    <a class="btn btn-sm" href="/users">Users</a>
-    <a class="btn btn-sm" href="/usage">Usage</a>
   </div>
 </header>
+
+{% include "_pulse.html" %}
 
 <section class="panel fleet-panel">
   <div class="panel-head">
     <div class="panel-head-text">
-      <h2>Fleet health</h2>
+      <h2>Fleet</h2>
       <p class="panel-sub">
-        Live probe — same as <a href="/services">Services</a>.
         {% if fleet %}
-        <span class="fleet-summary">{{ fleet_summary.ok }} ok{% if fleet_summary.loading %} · {{ fleet_summary.loading }} loading{% endif %}{% if fleet_summary.down %} · {{ fleet_summary.down }} down{% endif %}</span>
+        {{ fleet_summary.ok }} ok{% if fleet_summary.loading %} · {{ fleet_summary.loading }} loading{% endif %}{% if fleet_summary.down %} · {{ fleet_summary.down }} down{% endif %}
+        {% else %}
+        No sources yet — <a href="/services">add a backend</a>.
         {% endif %}
       </p>
     </div>
@@ -43,8 +39,6 @@
     </a>
     {% endfor %}
   </div>
-  {% else %}
-  <p class="muted panel-empty-hint">No sources yet — <a href="/services">add a backend</a> to see health here.</p>
   {% endif %}
 </section>
 
@@ -53,7 +47,6 @@
   <div class="panel-head">
     <div class="panel-head-text">
       <h2>Needs attention</h2>
-      <p class="panel-sub">{{ attention|length }} item{% if attention|length != 1 %}s{% endif %} — newest problems first.</p>
     </div>
   </div>
   <div class="table-wrap">
@@ -74,76 +67,18 @@
     </table>
   </div>
 </section>
-{% else %}
-<div class="banner-info fleet-all-clear" role="status">All clear — no backends down and nothing flagged.</div>
 {% endif %}
-
-<section class="metric-section">
-  <h2 class="section-title">Last 24 hours</h2>
-  <div class="cards cards-hero">
-    <div class="card">
-      <div class="label">Successful</div>
-      <div class="value">{{ '{:,}'.format(total_day) }}</div>
-      <div class="hint">{{ '{:,}'.format(total_week) }} · 7d OK</div>
-    </div>
-    <a class="card card-link card-warn" href="/usage?result=deny">
-      <div class="label">Denied</div>
-      <div class="value">{{ '{:,}'.format(denies) }}</div>
-      <div class="hint">Auth / quota / allowlist</div>
-    </a>
-    <a class="card card-link card-warn" href="/usage?result=rate_limit">
-      <div class="label">Rate limited</div>
-      <div class="value">{{ '{:,}'.format(rate_limits) }}</div>
-      <div class="hint">HTTP 429</div>
-    </a>
-    <div class="card">
-      <div class="label">Latency p95</div>
-      <div class="value">{% if latency_p95 %}{{ '%.0f'|format(latency_p95) }}<span class="unit">ms</span>{% else %}—{% endif %}</div>
-      <div class="hint">Chat upstream</div>
-    </div>
-    <div class="card">
-      <div class="label">Active keys</div>
-      <div class="value">{{ '{:,}'.format(active_keys) }}</div>
-      <div class="hint">{% if teams_enabled %}{{ teams_count }} team(s){% else %}Enabled API keys{% endif %}</div>
-    </div>
-    {% if gpu_power_enabled %}
-    <div class="card">
-      <div class="label">GPU energy</div>
-      <div class="value">{% if watt_hours_day %}{{ '%.2f'|format(watt_hours_day) }}<span class="unit">Wh</span>{% else %}—{% endif %}</div>
-      <div class="hint">Estimate · 24h</div>
-    </div>
-    {% else %}
-    <div class="card">
-      <div class="label">Tokens in</div>
-      <div class="value">{{ '{:,}'.format(tokens_in) }}</div>
-      <div class="hint">Prompt / embed estimate</div>
-    </div>
-    {% endif %}
-  </div>
-</section>
-
-<section class="panel panel-chart">
-  <div class="panel-head">
-    <div>
-      <h2>Traffic · last 7 days</h2>
-      <p class="panel-sub">Stacked requests per day ({{ display_timezone }}).</p>
-    </div>
-  </div>
-  {{ chart_daily | safe }}
-</section>
 
 <div class="chart-grid">
   <section class="panel panel-chart">
     <div class="panel-head">
       <h2>By service · 24h</h2>
-      <p class="panel-sub">Successful requests only</p>
     </div>
     {{ chart_service | safe }}
   </section>
   <section class="panel panel-chart">
     <div class="panel-head">
       <h2>Top models · 24h</h2>
-      <p class="panel-sub">Successful requests only</p>
     </div>
     {{ chart_model | safe }}
   </section>
@@ -152,13 +87,7 @@
 <section class="panel panel-chart">
   <div class="panel-head">
     <h2>Top keys · 24h</h2>
-    <p class="panel-sub">Successful requests by key label</p>
   </div>
   {{ chart_keys | safe }}
 </section>
-
-<p class="footnote">
-  Token estimates use request body size (chars÷4). Latency and Wh use upstream proxy timing where available.
-  Drill down in <a href="/usage">Usage</a> · backend detail on <a href="/services">Services</a>.
-</p>
 {% endblock %}

@@ -115,7 +115,7 @@ def test_admin_can_view_ops_pages_with_demo_usage(data_dir):
         assert db.query(UsageEvent).filter(UsageEvent.is_demo.is_(True)).count() == 120
 
 
-def test_user_overview_shows_optional_global_stats(gateway_client):
+def test_user_overview_shows_pulse(gateway_client):
     _seed_ui_world()
 
     login = _login(gateway_client, "user1", USER_PASS)
@@ -125,7 +125,8 @@ def test_user_overview_shows_optional_global_stats(gateway_client):
     page = gateway_client.get("/me", follow_redirects=False)
     assert page.status_code == 200
     assert "Overview" in page.text
-    assert "Global gateway snapshot" in page.text
+    assert "Requests · 60 min" in page.text
+    assert "Gateway pulse" in page.text
 
 
 def test_first_login_password_change_flow(gateway_client):

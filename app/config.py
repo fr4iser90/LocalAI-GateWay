@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     # Optional source-sidecar power probe. Empty = off.
     gpu_power_url: str = ""
     display_timezone: str = "UTC"
+    # Impressum / operator of this install (public /legal/*). Env wins over the Settings form.
+    operator_name: str = ""
+    operator_address: str = ""
+    operator_email: str = ""
+    operator_phone: str = ""
 
 
 @lru_cache

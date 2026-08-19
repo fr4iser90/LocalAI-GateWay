@@ -1,0 +1,55 @@
+<div class="legal-doc">
+  <p class="muted legal-lead">Deutsch (maßgeblich) · English below.</p>
+
+  {% if operator.complete %}
+  <h2>Diensteanbieter</h2>
+  <p>
+    {{ operator.name }}<br>
+    <span class="legal-address">{{ operator.address }}</span>
+  </p>
+  <p>
+    E-Mail: <a href="mailto:{{ operator.email }}">{{ operator.email }}</a>
+    {% if operator.phone %}<br>Telefon: {{ operator.phone }}{% endif %}
+  </p>
+  {% else %}
+  <p class="muted">
+    Name und Anschrift des Betreibers dieser Instanz sind noch nicht hinterlegt.
+    {% if user is defined and user and user.is_platform_admin %}
+    Bitte unter <a href="/settings/system">Gateway settings</a> ergänzen.
+    {% else %}
+    Kontakt: <a href="mailto:{{ operator.email }}">{{ operator.email }}</a>
+    {% endif %}
+  </p>
+  {% endif %}
+
+  <h2>Hinweis</h2>
+  <p class="muted">
+    Dieses Gateway ist selbst gehostete Software. Verantwortlicher im Sinne des DDG ist
+    der Betreiber <em>dieser Installation</em>, nicht ein zentraler SaaS-Anbieter.
+    Die Angaben oben müssen vom Betreiber vollständig und wahr sein.
+  </p>
+
+  <hr class="legal-split" lang="en">
+  <h2 lang="en">Service provider</h2>
+  {% if operator.complete %}
+  <p lang="en">
+    {{ operator.name }}<br>
+    <span class="legal-address">{{ operator.address }}</span><br>
+    Email: <a href="mailto:{{ operator.email }}">{{ operator.email }}</a>
+    {% if operator.phone %}<br>Phone: {{ operator.phone }}{% endif %}
+  </p>
+  {% else %}
+  <p class="muted" lang="en">
+    Operator name and address for this instance are not set yet.
+    {% if user is defined and user and user.is_platform_admin %}
+    Add them under <a href="/settings/system">Gateway settings</a>.
+    {% else %}
+    Contact: <a href="mailto:{{ operator.email }}">{{ operator.email }}</a>
+    {% endif %}
+  </p>
+  {% endif %}
+  <p class="muted" lang="en">
+    This gateway is self-hosted software. The controller under German DDG is the operator of
+    <em>this install</em>, not a central SaaS vendor. The details above must be complete and accurate.
+  </p>
+</div>

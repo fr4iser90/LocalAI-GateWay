@@ -444,6 +444,11 @@ class AuthSettings(Base):
     default_grant_models: Mapped[str] = mapped_column(Text, default="")
     # Optional user-facing panel on Overview with aggregate gateway stats.
     show_global_stats: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Instance operator (Impressum) — filled by the person who runs this install.
+    operator_name: Mapped[str] = mapped_column(String(255), default="")
+    operator_address: Mapped[str] = mapped_column(Text, default="")
+    operator_email: Mapped[str] = mapped_column(String(255), default="support@fr4iser.com")
+    operator_phone: Mapped[str] = mapped_column(String(64), default="")
 
 
 class PasswordResetToken(Base):

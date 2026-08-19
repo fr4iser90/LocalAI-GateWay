@@ -4,13 +4,8 @@
 {% block content %}
 <header class="page-head page-head--compact">
   <div>
-    <p class="eyebrow">Access</p>
     <h1>{{ 'Edit team' if team else 'New team' }}</h1>
-    <p class="lede">
-      A team is an <strong>access group</strong> (e.g. tier‑1 / tier‑2).
-      Sources + model set below are the <strong>grant ceiling</strong> for member keys.
-      Empty model list = all enabled models/voices for those sources.
-    </p>
+    <p class="page-meta">Grant ceiling for member keys. Empty model list = all enabled models for those sources.</p>
   </div>
 </header>
 

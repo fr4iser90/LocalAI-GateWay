@@ -829,6 +829,8 @@ def dashboard(
         usage_stats,
         week_window_start,
         zone_from_request,
+        pulse_stats,
+        area_chart_svg,
     )
     from .dashboard_ops import attention_items, fleet_statuses, fleet_summary
     from .setup import setup_status
@@ -856,6 +858,13 @@ def dashboard(
         denies_24h=day["denies"],
         rate_limits_24h=day["rate_limits"],
     )
+    pulse = pulse_stats(db)
+    if not fleet:
+        pulse_status = "Idle"
+    elif (fleet_summary(fleet) or {}).get("down"):
+        pulse_status = "Degraded"
+    else:
+        pulse_status = "Healthy"
 
     return templates.TemplateResponse(
         request,
@@ -876,6 +885,12 @@ def dashboard(
             "chart_model": bar_chart_svg([(m, c) for m, c in day["by_model"]], unit="requests"),
             "chart_keys": bar_chart_svg(day["top_keys"], unit="requests"),
             "chart_daily": daily_traffic_chart_svg(week["daily_series"], tz_label=tz_label),
+            "pulse": pulse,
+            "pulse_status": pulse_status,
+            "pulse_cta": None,
+            "chart_pulse": area_chart_svg(
+                pulse["series"], fill_id="gw-pulse", aria="Throughput last 60 minutes"
+            ),
             "active_keys": active_keys,
             "teams_count": teams_count,
             "teams_enabled": teams_on,
@@ -899,20 +914,9 @@ def me_page(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_user)],
 ):
-    from ..data.models import UsageDaily
-    from ..stats import (
-        bar_chart_svg,
-        daily_traffic_chart_svg,
-        model_perf_averages,
-        usage_stats,
-        week_window_start,
-        zone_from_request,
-    )
-    from .accounts import get_auth_settings
-    from .dashboard_ops import fleet_statuses, fleet_summary
+    from ..stats import area_chart_svg, pulse_stats
 
     teams_on = _teams_on(db)
-    auth = get_auth_settings(db)
     keys_q = scope_keys_query(
         db.query(ApiKey).options(
             joinedload(ApiKey.team),
@@ -922,72 +926,29 @@ def me_page(
     )
     keys = keys_q.order_by(ApiKey.label).all()
     key_ids = [k.id for k in keys]
-    zone = zone_from_request(request, user)
-    now = utcnow()
-    day_ago = now - timedelta(days=1)
-    week_ago = week_window_start(zone)
-    day = usage_stats(db, since=day_ago, key_ids=key_ids, tz=zone)
-    week = usage_stats(db, since=week_ago, key_ids=key_ids, tz=zone)
-    model_avgs = model_perf_averages(db, key_ids=key_ids, lookback_days=7)
     from ..config import public_api_base
     import os
 
     api_base = public_api_base(gateway_port=os.getenv("GATEWAY_PORT", "9081"))
-    today = now.astimezone(zone).date()
-    tz_label = str(zone)
-    daily_q = db.query(UsageDaily).filter(UsageDaily.day == today)
-    if key_ids:
-        daily_q = daily_q.filter(UsageDaily.api_key_id.in_(key_ids))
-    else:
-        daily_q = daily_q.filter(False)
-    daily_rows = daily_q.order_by(UsageDaily.ok_count.desc()).limit(50).all()
     flash_ok = request.session.pop("flash_ok", None)
-    global_stats = None
-    if bool(getattr(auth, "show_global_stats", False)):
-        fleet = fleet_statuses(db)
-        fleet_counts = fleet_summary(fleet)
-        global_stats = {
-            "requests_24h": day["event_count"],
-            "ok_24h": day["total_ok"],
-            "denies_24h": day["denies"],
-            "rate_limits_24h": day["rate_limits"],
-            "sources_ok": fleet_counts["ok"],
-            "sources_loading": fleet_counts["loading"],
-            "sources_down": fleet_counts["down"],
-        }
+    pulse = pulse_stats(db, key_ids=key_ids)
     return templates.TemplateResponse(
         request,
         "me.html",
         {
             "user": user,
-            "ok": day["total_ok"],
-            "deny": day["denies"],
-            "rate": day["rate_limits"],
-            "tokens_in": day["tokens_in"],
-            "tokens_out": day["tokens_out"],
-            "audio_seconds": int(day["audio_seconds"] or 0),
-            "watt_hours": day["watt_hours"],
-            "watt_hours_week": week["watt_hours"],
-            "pool_cost": day["pool_cost"],
-            "watts_avg": day["watts_avg"],
-            "pool_limit": user.pool_limit,
-            "pool_used": float(user.pool_used or 0),
-            "latency_p50": day["latency_p50"],
-            "latency_p95": day["latency_p95"],
-            "chart_daily": daily_traffic_chart_svg(week["daily_series"], tz_label=tz_label),
-            "chart_service": bar_chart_svg(day["by_service"], unit="requests"),
-            "daily_rows": daily_rows,
-            "model_avgs": model_avgs,
             "api_base": api_base,
             "keys": keys,
-            "teams": user_teams(user) if teams_on else [],
             "flash_ok": flash_ok,
-            "display_timezone": tz_label,
-            "global_stats": global_stats,
+            "pulse": pulse,
+            "pulse_status": "Healthy" if pulse["count"] else "Idle",
+            "pulse_cta": {"href": "/keys/new", "label": "New key"},
+            "chart_pulse": area_chart_svg(
+                pulse["series"], fill_id="gw-pulse", aria="Throughput last 60 minutes"
+            ),
             "nav": "me",
             "is_admin": user.is_platform_admin,
             "teams_enabled": teams_on,
-            "gpu_power_enabled": _gpu_power_enabled(request, db),
         },
     )
 
@@ -3218,19 +3179,25 @@ def settings_system_save(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AdminUser, Depends(require_platform_admin)],
-    show_global_stats: str = Form(""),
+    operator_name: str = Form(""),
+    operator_address: str = Form(""),
+    operator_email: str = Form(""),
+    operator_phone: str = Form(""),
 ):
-    from .accounts import get_auth_settings
+    from .accounts import DEFAULT_OPERATOR_EMAIL, get_auth_settings
 
     auth = get_auth_settings(db)
-    auth.show_global_stats = show_global_stats == "on"
+    auth.operator_name = operator_name.strip()
+    auth.operator_address = operator_address.strip()
+    auth.operator_email = operator_email.strip() or DEFAULT_OPERATOR_EMAIL
+    auth.operator_phone = operator_phone.strip()
     write_audit(
         db,
         actor=user,
         action="settings.system",
         entity_type="auth_settings",
         entity_id=auth.id,
-        detail=f"show_global_stats={auth.show_global_stats}",
+        detail=f"operator_email={auth.operator_email}",
     )
     db.commit()
-    return _settings_redirect(request, "system", "System settings saved.")
+    return _settings_redirect(request, "system", "Operator / Impressum saved.")

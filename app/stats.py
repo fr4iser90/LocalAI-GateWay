@@ -316,6 +316,85 @@ def bar_chart_svg(
     return "\n".join(lines)
 
 
+def pulse_stats(
+    db: Session,
+    *,
+    key_ids: list[int] | None = None,
+    minutes: int = 60,
+    buckets: int = 24,
+) -> dict:
+    """Last-hour throughput for the Overview pulse (honest counts, not fake RPM)."""
+    now = utcnow()
+    since = now - timedelta(minutes=minutes)
+    q = db.query(UsageEvent).filter(UsageEvent.created_at >= since)
+    if key_ids is not None:
+        q = q.filter(UsageEvent.api_key_id.in_(key_ids)) if key_ids else q.filter(False)
+    events = q.all()
+    width_s = (minutes * 60) / max(buckets, 1)
+    counts = [0] * buckets
+    latencies: list[float] = []
+    live_cut = now - timedelta(minutes=5)
+    live = False
+    for e in events:
+        created = e.created_at
+        if created is None:
+            continue
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        delta = (created - since).total_seconds()
+        i = int(delta / width_s) if width_s else 0
+        i = max(0, min(buckets - 1, i))
+        counts[i] += 1
+        if e.duration_ms is not None:
+            latencies.append(float(e.duration_ms))
+        if created >= live_cut:
+            live = True
+    latencies.sort()
+    return {
+        "count": len(events),
+        "live": live,
+        "latency_p95": _percentile(latencies, 0.95) if latencies else None,
+        "series": [{"label": "", "total": n} for n in counts],
+    }
+
+
+def area_chart_svg(
+    series: list[dict],
+    *,
+    width: int = 720,
+    fill_id: str = "gw-area",
+    aria: str = "Throughput",
+) -> str:
+    """Thin cyan area-line — no axis chrome, no point labels."""
+    if not series:
+        series = [{"total": 0}]
+    n = len(series)
+    left, right, top, bottom = 2, 2, 8, 4
+    plot_h = 108
+    plot_w = width - left - right
+    height = top + plot_h + bottom
+    raw_max = max(int(s.get("total") or 0) for s in series)
+    max_v = max(raw_max, 1)
+    xs = [left + plot_w / 2] if n == 1 else [left + i * plot_w / (n - 1) for i in range(n)]
+    base = top + plot_h
+    ys = [base - (int(s.get("total") or 0) / max_v) * plot_h for s in series]
+    line = " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(xs, ys))
+    fill = f"{xs[0]:.1f},{base:.1f} {line} {xs[-1]:.1f},{base:.1f}"
+    mid = top + plot_h * 0.5
+    return (
+        f'<svg class="chart chart-area" viewBox="0 0 {width} {height}" role="img" '
+        f'aria-label="{escape(aria)}">'
+        f'<defs><linearGradient id="{escape(fill_id)}" x1="0" y1="0" x2="0" y2="1">'
+        f'<stop offset="0%" class="chart-area-stop-a"/>'
+        f'<stop offset="100%" class="chart-area-stop-b"/>'
+        f"</linearGradient></defs>"
+        f'<line x1="{left}" y1="{mid:.1f}" x2="{left + plot_w}" y2="{mid:.1f}" class="chart-rule-faint"/>'
+        f'<polygon points="{fill}" fill="url(#{escape(fill_id)})"/>'
+        f'<polyline points="{line}" class="chart-area-line"/>'
+        f"</svg>"
+    )
+
+
 def _nice_ceiling(v: int) -> int:
     """Round an axis max so ticks land on even steps (5 → 6, 53 → 60)."""
     v = max(1, int(v))
@@ -348,69 +427,10 @@ def _axis_ticks(max_v: int) -> list[int]:
     return [0, max_v // 2, max_v]
 
 
-# Plot-only SVG: legend lives in HTML chrome so labels never collide with it.
-_CHART_LEFT = 40
-_CHART_RIGHT = 12
-_CHART_TOP = 24
-_CHART_PLOT_H = 156
-_CHART_BOTTOM = 28
-_CHART_H = _CHART_TOP + _CHART_PLOT_H + _CHART_BOTTOM
-
-
-def _traffic_axes(left: float, top: float, plot_w: float, plot_h: float, max_v: int) -> list[str]:
-    out: list[str] = []
-    for t in _axis_ticks(max_v):
-        y = top + plot_h - (t / max_v) * plot_h
-        grid = "chart-grid chart-grid--base" if t == 0 else "chart-grid"
-        out.append(
-            f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_w}" y2="{y:.1f}" class="{grid}"/>'
-            f'<text x="{left - 8}" y="{y:.1f}" text-anchor="end" dominant-baseline="central" '
-            f'class="chart-axis">{_fmt_int(t)}</text>'
-        )
-    return out
-
-
-def _svg_bars(series: list[dict], *, width: int, max_v: int) -> str:
-    n = len(series)
-    left, top, plot_h = _CHART_LEFT, _CHART_TOP, _CHART_PLOT_H
-    plot_w = width - left - _CHART_RIGHT
-    slot = plot_w / n
-    bar_w = min(44.0, max(16.0, slot * 0.48))
-    lines = [
-        f'<svg class="chart chart-daily" viewBox="0 0 {width} {_CHART_H}" role="img" '
-        f'aria-label="Stacked requests per day">'
-    ]
-    lines.extend(_traffic_axes(left, top, plot_w, plot_h, max_v))
-    for i, s in enumerate(series):
-        x = left + i * slot + (slot - bar_w) / 2
-        cx = x + bar_w / 2
-        y_cursor = top + plot_h
-        for cls, val in (("seg-ok", s["ok"]), ("seg-deny", s["deny"]), ("seg-rate", s["rate_limit"])):
-            if val <= 0:
-                continue
-            h = (val / max_v) * plot_h
-            y_cursor -= h
-            lines.append(
-                f'<rect x="{x:.1f}" y="{y_cursor:.1f}" width="{bar_w:.1f}" height="{h:.1f}" '
-                f'class="{cls}"/>'
-            )
-        total_cls = "chart-total" if s["total"] else "chart-total is-zero"
-        lines.append(
-            f'<text x="{cx:.1f}" y="{top - 8}" text-anchor="middle" class="{total_cls}">'
-            f'{_fmt_int(s["total"])}</text>'
-        )
-        lines.append(
-            f'<text x="{cx:.1f}" y="{top + plot_h + 18}" text-anchor="middle" '
-            f'class="chart-label">{escape(s["label"])}</text>'
-        )
-    lines.append("</svg>")
-    return "".join(lines)
-
-
 def daily_traffic_chart_svg(
     series: list[dict], *, width: int = 720, tz_label: str = "UTC"
 ) -> str:
-    """7-day stacked OK / deny / rate-limit bars."""
+    """7-day throughput as a thin area-line (not stacked bars)."""
     if not series:
         return '<div class="chart-empty">No data in this window.</div>'
 
@@ -420,13 +440,11 @@ def daily_traffic_chart_svg(
         return (
             '<div class="chart-empty chart-empty--soft">'
             f"<strong>No traffic yet</strong>"
-            f"<span>Last 7 days ({tz_safe}) — counts appear after the first request.</span>"
+            f"<span>Last 7 days ({tz_safe}) — the line appears after the first request.</span>"
             "</div>"
         )
 
-    raw_max = max(int(s["total"]) for s in series) or 1
-    max_v = _nice_ceiling(raw_max)
-    svg = _svg_bars(series, width=width, max_v=max_v)
+    svg = area_chart_svg(series, fill_id="gw-day", aria="Requests per day, last 7 days")
     rows_html = "".join(
         f"<tr><td>{escape(s['label'])}</td>"
         f"<td class='num'>{s['ok']}</td>"
@@ -442,20 +460,4 @@ def daily_traffic_chart_svg(
         "<th>Day</th><th>OK</th><th>Deny</th><th>429</th><th>Total</th>"
         f"</tr></thead><tbody>{rows_html}</tbody></table></details>"
     )
-    return (
-        '<div class="chart-frame">'
-        '<div class="chart-meta">'
-        '<div class="chart-legend" role="list">'
-        '<span class="chart-legend-item" role="listitem">'
-        '<span class="chart-swatch chart-swatch--ok" aria-hidden="true"></span>OK</span>'
-        '<span class="chart-legend-item" role="listitem">'
-        '<span class="chart-swatch chart-swatch--deny" aria-hidden="true"></span>Deny</span>'
-        '<span class="chart-legend-item" role="listitem">'
-        '<span class="chart-swatch chart-swatch--rate" aria-hidden="true"></span>Rate limit</span>'
-        "</div>"
-        '<span class="chart-unit">requests / day</span>'
-        "</div>"
-        f"{svg}"
-        f"{table}"
-        "</div>"
-    )
+    return f'<div class="chart-frame">{svg}{table}</div>'

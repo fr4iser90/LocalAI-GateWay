@@ -62,6 +62,40 @@ def find_user_by_login(db: Session, login: str) -> AdminUser | None:
     return db.query(AdminUser).filter(AdminUser.username == login).first()
 
 
+DEFAULT_OPERATOR_EMAIL = "support@fr4iser.com"
+
+
+def operator_public(auth: AuthSettings) -> dict:
+    """Settings form if filled, else OPERATOR_* from the environment."""
+    env = get_settings()
+
+    def pick(*vals: str) -> str:
+        for raw in vals:
+            text = (raw or "").strip()
+            if text:
+                return text
+        return ""
+
+    db_email = pick(auth.operator_email)
+    if db_email == DEFAULT_OPERATOR_EMAIL:
+        db_email = ""
+    name = pick(auth.operator_name, env.operator_name)
+    address = pick(auth.operator_address, env.operator_address)
+    email = pick(db_email, env.operator_email, DEFAULT_OPERATOR_EMAIL)
+    phone = pick(auth.operator_phone, env.operator_phone)
+    return {
+        "name": name,
+        "address": address,
+        "email": email,
+        "phone": phone,
+        "complete": bool(name and address and email),
+        "from_env": bool(
+            (not pick(auth.operator_name) and pick(env.operator_name))
+            or (not pick(auth.operator_address) and pick(env.operator_address))
+        ),
+    }
+
+
 def get_auth_settings(db: Session) -> AuthSettings:
     cfg = db.query(AuthSettings).first()
     if cfg is None:
@@ -91,6 +125,29 @@ def get_auth_settings(db: Session) -> AuthSettings:
 
 def teams_feature_enabled(db: Session) -> bool:
     return bool(get_auth_settings(db).teams_enabled)
+
+
+def _legal_template(request: Request, db: Session, name: str):
+    return templates.TemplateResponse(
+        request,
+        name,
+        {"user": current_user(request, db), "nav": "legal"},
+    )
+
+
+@router.get("/legal/imprint", response_class=HTMLResponse)
+def legal_imprint(request: Request, db: Annotated[Session, Depends(get_db)]):
+    return _legal_template(request, db, "legal_imprint.html")
+
+
+@router.get("/legal/privacy", response_class=HTMLResponse)
+def legal_privacy(request: Request, db: Annotated[Session, Depends(get_db)]):
+    return _legal_template(request, db, "legal_privacy.html")
+
+
+@router.get("/legal/cookies", response_class=HTMLResponse)
+def legal_cookies(request: Request, db: Annotated[Session, Depends(get_db)]):
+    return _legal_template(request, db, "legal_cookies.html")
 
 
 def active_key_count(db: Session, owner_user_id: int) -> int:

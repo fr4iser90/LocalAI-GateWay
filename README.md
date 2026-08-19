@@ -55,7 +55,7 @@ docker compose -f compose.traefik.yaml up -d --build
 
 | `.env` | Web UI |
 |--------|--------|
-| `DOMAIN`, `PUBLIC_HOST`, `SESSION_SECRET`, bootstrap admin | API keys, users, SMTP, teams |
+| `DOMAIN`, `PUBLIC_HOST`, `SESSION_SECRET`, bootstrap admin, `OPERATOR_*` (Impressum) | API keys, users, SMTP, teams, operator form if env empty |
 | Ports, thermal sidecar (prod example) | Named sources (kind + address); grant keys per source |
 
 Admin page layout (Browse vs Task vs Auth) is documented in [docs/LAYOUT.md](docs/LAYOUT.md) and enforced by `tests/test_admin_layout_convention.py`.

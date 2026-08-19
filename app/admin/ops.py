@@ -101,63 +101,34 @@ def me_dashboard(
     user: Annotated[AdminUser, Depends(require_user)],
 ):
     """User dashboard — owner-scoped or team-scoped depending on settings."""
+    import os
+
+    from ..config import public_api_base
+    from ..stats import area_chart_svg, pulse_stats
     from .accounts import teams_feature_enabled
     from .access import scope_keys_query, scoped_key_ids
-    from ..stats import (
-        bar_chart_svg,
-        daily_traffic_chart_svg,
-        usage_stats,
-        week_window_start,
-        zone_from_request,
-    )
 
     teams_on = teams_feature_enabled(db)
-    teams = user_teams(user) if teams_on else []
-    zone = zone_from_request(request, user)
-    day_ago = utcnow() - timedelta(days=1)
-    week_ago = week_window_start(zone)
-    tz_label = str(zone)
-
     keys_q = scope_keys_query(db.query(ApiKey), user, teams_enabled=teams_on)
     keys = keys_q.order_by(ApiKey.created_at.desc()).limit(20).all()
     visible_ids = scoped_key_ids(db, user, teams_enabled=teams_on)
-
-    if user.is_platform_admin:
-        day = usage_stats(db, since=day_ago, tz=zone)
-        week = usage_stats(db, since=week_ago, tz=zone)
-    else:
-        day = usage_stats(db, since=day_ago, key_ids=visible_ids, tz=zone)
-        week = usage_stats(db, since=week_ago, key_ids=visible_ids, tz=zone)
-
-    today = utcnow().astimezone(zone).date()
-    daily_q = db.query(UsageDaily).filter(UsageDaily.day == today)
-    if not user.is_platform_admin:
-        daily_q = (
-            daily_q.filter(UsageDaily.api_key_id.in_(visible_ids))
-            if visible_ids
-            else daily_q.filter(False)
-        )
-    daily_rows = daily_q.order_by(UsageDaily.ok_count.desc()).limit(30).all()
-
+    pulse = pulse_stats(db, key_ids=None if user.is_platform_admin else visible_ids)
+    api_base = public_api_base(gateway_port=os.getenv("GATEWAY_PORT", "9081"))
     return templates.TemplateResponse(
         request,
         "me.html",
         {
             "user": user,
-            "teams": teams,
-            "ok": day["total_ok"],
-            "deny": day["denies"],
-            "rate": day["rate_limits"],
-            "tokens_in": day["tokens_in"],
-            "tokens_out": day["tokens_out"],
-            "audio_seconds": day["audio_seconds"],
-            "latency_p50": day["latency_p50"],
-            "latency_p95": day["latency_p95"],
-            "chart_service": bar_chart_svg(day["by_service"], unit="requests"),
-            "chart_daily": daily_traffic_chart_svg(week["daily_series"], tz_label=tz_label),
+            "api_base": api_base,
             "keys": keys,
-            "daily_rows": daily_rows,
-            "display_timezone": tz_label,
+            "flash_ok": request.session.pop("flash_ok", None),
+            "flash_err": request.session.pop("flash_err", None),
+            "pulse": pulse,
+            "pulse_status": "Healthy" if pulse["count"] else "Idle",
+            "pulse_cta": {"href": "/keys/new", "label": "New key"},
+            "chart_pulse": area_chart_svg(
+                pulse["series"], fill_id="gw-pulse", aria="Throughput last 60 minutes"
+            ),
             "nav": "me",
             "is_admin": user.is_platform_admin,
             "teams_enabled": teams_on,

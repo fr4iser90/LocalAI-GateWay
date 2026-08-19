@@ -3,9 +3,8 @@
 {% block content %}
 <header class="page-head page-head--compact">
   <div>
-    <p class="eyebrow">Access</p>
     <h1>Teams</h1>
-    <p class="lede">Shared key pools and grants when teams mode is on.</p>
+    <p class="page-meta">{{ teams|length }} team{{ 's' if teams|length != 1 else '' }}</p>
   </div>
   {% if is_admin %}
   <div class="page-actions">

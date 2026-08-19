@@ -33,6 +33,8 @@ def _setup_path_allowed(path: str) -> bool:
         return True
     if p.startswith("/static"):
         return True
+    if p.startswith("/legal"):
+        return True
     if p in {"/logout", "/login", "/forgot", "/register", "/healthz"}:
         return True
     return False

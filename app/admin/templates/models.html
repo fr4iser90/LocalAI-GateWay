@@ -3,14 +3,13 @@
 {% block content %}
 <header class="page-head page-head--compact">
   <div>
-    <p class="eyebrow">Backends</p>
     <h1>Models</h1>
-    <p class="lede">
-      Catalog synced from your sources. Enable or disable models, then add tags and notes for discovery.
+    <p class="page-meta">
+      Catalog from sources.
       {% if auto_vl_routing %}
-      Auto-VL is on, so text + <span class="mono">-VL</span> siblings share one row.
+      Auto-VL on — text + <span class="mono">-VL</span> share a row.
       {% else %}
-      Turn on Auto-VL in <a href="/settings/routing">Gateway settings → Routing</a> to pair text + vision siblings.
+      Auto-VL off — enable in <a href="/settings/routing">Routing</a>.
       {% endif %}
     </p>
   </div>

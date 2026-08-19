@@ -3,15 +3,8 @@
 {% block content %}
 <header class="page-head page-head--compact">
   <div>
-    <p class="eyebrow">Access</p>
     <h1>Users &amp; access</h1>
-    <p class="lede">
-      {% if teams_enabled %}
-      Manage accounts here. Source and model grants live on <a href="/teams">Teams</a>.
-      {% else %}
-      Each user gets a source ceiling. They create keys under API Keys and can only narrow access from there.
-      {% endif %}
-    </p>
+    <p class="page-meta">{{ user_counts.total }} users · {{ user_counts.active }} active{% if user_counts.must_change %} · {{ user_counts.must_change }} must reset password{% endif %}</p>
   </div>
   <div class="page-actions">
     {% if not teams_enabled %}
@@ -37,32 +30,6 @@
   <a href="/models">Models → Apply suggested weights</a>.
 </div>
 {% endif %}
-
-<section class="metric-section">
-  <h2 class="section-title">Directory</h2>
-  <div class="cards cards-hero">
-    <div class="card">
-      <div class="label">Users</div>
-      <div class="value">{{ user_counts.total }}</div>
-      <div class="hint">Total accounts</div>
-    </div>
-    <div class="card">
-      <div class="label">Active</div>
-      <div class="value">{{ user_counts.active }}</div>
-      <div class="hint">Can sign in</div>
-    </div>
-    <div class="card">
-      <div class="label">Admins</div>
-      <div class="value">{{ user_counts.admins }}</div>
-      <div class="hint">Platform admin</div>
-    </div>
-    <div class="card card-warn">
-      <div class="label">Password reset</div>
-      <div class="value">{{ user_counts.must_change }}</div>
-      <div class="hint">Must change on login</div>
-    </div>
-  </div>
-</section>
 
 {% if not teams_enabled %}
 <div class="users-admin-grid">

@@ -3,12 +3,8 @@
 {% block content %}
 <header class="page-head page-head--compact">
   <div>
-    <p class="eyebrow">System</p>
     <h1>Audit log</h1>
-    <p class="lede">
-      Append-only admin actions (DB blocks UPDATE/DELETE).
-      Each row’s hash covers the previous hash + this event — so edits would break the chain.
-    </p>
+    <p class="page-meta">Append-only admin actions. Hash chain detects edits.</p>
   </div>
 </header>
 

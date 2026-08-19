@@ -3,13 +3,8 @@
 {% block content %}
 <header class="page-head page-head--compact">
   <div>
-    <p class="eyebrow">Backends</p>
     <h1>Services</h1>
-    <p class="lede">
-      Manage the boxes behind chat, embeddings, STT, and TTS.
-      Requests on <span class="mono">/v1/…</span> are routed by the selected model and the enabled catalog.
-      Access is controlled separately under <a href="/users">Users &amp; Access</a>.
-    </p>
+    <p class="page-meta">{{ statuses|length }} source{{ 's' if statuses|length != 1 else '' }} · /v1 routing</p>
   </div>
 </header>
 
@@ -17,13 +12,7 @@
   <div class="panel-head">
     <div class="panel-head-text">
       <h2>Live status</h2>
-      <p class="panel-sub">
-    Probes against upstreams. llama.cpp: <span class="mono">/health</span> + <span class="mono">/slots</span>
-    or <span class="mono">/props</span> (router → <span class="mono">llama-router</span>).
-    Ollama: <span class="mono">/api/ps</span>. TEI: <span class="mono">/info</span>.
-    <span class="mono">openai-api</span> = OpenAI-compatible catalog only (no stronger fingerprint).
-    Engine ending in <span class="mono">?</span> = soft guess from kind.
-      </p>
+      <p class="panel-sub">Live probes. llama.cpp <span class="mono">/health</span> · Ollama <span class="mono">/api/ps</span> · TEI <span class="mono">/info</span>.</p>
     </div>
     <button type="button" class="btn-sm" id="refresh-status">Refresh</button>
   </div>

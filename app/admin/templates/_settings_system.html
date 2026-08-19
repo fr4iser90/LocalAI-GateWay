@@ -1,12 +1,37 @@
 {% if user.is_platform_admin and auth %}
 <section class="panel">
-  <h2>User overview</h2>
-  <p class="muted mt-0">Optional aggregate gateway stats for normal users on <a href="/me">Overview</a>. Personal stats stay separate.</p>
+  <h2>Impressum / operator</h2>
+  <p class="muted mt-0">
+    In Germany this is needed when other people use the UI (DDG / DSGVO).
+    The operator of <em>this install</em> must list name and street address — an email alone is not enough.
+    You can also set <span class="mono">OPERATOR_NAME</span>, <span class="mono">OPERATOR_ADDRESS</span>,
+    <span class="mono">OPERATOR_EMAIL</span>, <span class="mono">OPERATOR_PHONE</span> in <span class="mono">.env</span>
+    (used when a field below is empty).
+  </p>
+  {% if operator.from_env %}
+  <p class="muted text-sm">Currently using .env for empty fields: {{ operator.name }}{% if operator.address %} · {{ operator.address }}{% endif %}</p>
+  {% endif %}
   <form method="post" action="/settings/system">
-    <div class="checkboxes checkboxes-block">
-      <label><input type="checkbox" name="show_global_stats" {% if auth.show_global_stats %}checked{% endif %}> Show global gateway snapshot on user Overview</label>
+    <div class="field field-gap">
+      <label for="operator-name">Name</label>
+      <input id="operator-name" type="text" name="operator_name" value="{{ auth.operator_name or '' }}" autocomplete="name">
     </div>
-    <button class="primary" type="submit">Save system settings</button>
+    <div class="field field-gap">
+      <label for="operator-address">Address</label>
+      <textarea id="operator-address" name="operator_address" rows="3" autocomplete="street-address">{{ auth.operator_address or '' }}</textarea>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="operator-email">Contact email</label>
+        <input id="operator-email" type="email" name="operator_email" value="{{ auth.operator_email or 'support@fr4iser.com' }}">
+      </div>
+      <div class="field">
+        <label for="operator-phone">Phone (optional)</label>
+        <input id="operator-phone" type="text" name="operator_phone" value="{{ auth.operator_phone or '' }}">
+      </div>
+    </div>
+    <p class="muted text-sm">Public pages: <a href="/legal/imprint">Imprint</a> · <a href="/legal/privacy">Privacy</a> · <a href="/legal/cookies">Cookies</a></p>
+    <button class="primary" type="submit">Save operator</button>
   </form>
 </section>
 {% endif %}

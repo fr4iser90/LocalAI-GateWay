@@ -119,6 +119,10 @@ def _ensure_columns(eng) -> None:
             ("default_grant_sources", "TEXT DEFAULT ''"),
             ("default_grant_models", "TEXT DEFAULT ''"),
             ("show_global_stats", "BOOLEAN DEFAULT 0"),
+            ("operator_name", "VARCHAR(255) DEFAULT ''"),
+            ("operator_address", "TEXT DEFAULT ''"),
+            ("operator_email", "VARCHAR(255) DEFAULT 'support@fr4iser.com'"),
+            ("operator_phone", "VARCHAR(64) DEFAULT ''"),
         ],
         "audit_logs": [
             ("prev_hash", "VARCHAR(64) DEFAULT ''"),
