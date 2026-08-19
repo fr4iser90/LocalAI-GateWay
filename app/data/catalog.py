@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from .backends import list_sources
 from .db import hash_api_key
-from .models import AdminUser, ApiKey, CatalogModel, Team, utcnow
+from .models import WebUser, ApiKey, CatalogModel, Team, utcnow
 
 _UNRANKED = 10_000
 
@@ -549,8 +549,8 @@ def load_api_key(db: Session, raw_key: str | None) -> ApiKey | None:
         .options(
             joinedload(ApiKey.team).joinedload(Team.service_grants),
             joinedload(ApiKey.team).joinedload(Team.model_allowlists),
-            joinedload(ApiKey.owner).joinedload(AdminUser.service_grants),
-            joinedload(ApiKey.owner).joinedload(AdminUser.model_allowlists),
+            joinedload(ApiKey.owner).joinedload(WebUser.service_grants),
+            joinedload(ApiKey.owner).joinedload(WebUser.model_allowlists),
             joinedload(ApiKey.service_grants),
             joinedload(ApiKey.model_allowlists),
         )

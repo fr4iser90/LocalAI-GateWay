@@ -325,7 +325,7 @@ def maybe_alert(
         return
     if not _should_fire(f"{event}:{message[:80]}"):
         return
-    payload = {"text": f"[LocalAI-Gateway] {event}: {message}", "event": event, "message": message}
+    payload = {"text": f"[OnPrem AI Gateway] {event}: {message}", "event": event, "message": message}
     try:
         httpx.post(cfg.webhook_url.strip(), json=payload, timeout=3.0)
     except Exception:

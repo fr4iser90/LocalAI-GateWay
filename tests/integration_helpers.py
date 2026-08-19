@@ -59,17 +59,17 @@ def base_url(hostport: str) -> str:
     return f"http://{hostport}"
 
 
-def gateway_base() -> str:
-    """Gateway URL (INTEGRATION_GATEWAY or http://127.0.0.1:GATEWAY_PORT)."""
+def onprem_api_base() -> str:
+    """OnPrem API URL (INTEGRATION_API_BASE or http://127.0.0.1:ONPREM_API_PORT)."""
     load_dotenv_file()
-    explicit = (os.getenv("INTEGRATION_GATEWAY") or "").strip()
+    explicit = (os.getenv("INTEGRATION_API_BASE") or "").strip()
     if explicit:
         return base_url(explicit)
-    port = (os.getenv("GATEWAY_PORT") or "9081").strip()
+    port = (os.getenv("ONPREM_API_PORT") or "9081").strip()
     return f"http://127.0.0.1:{port}"
 
 
-def gateway_api_key() -> str | None:
+def onprem_api_key() -> str | None:
     load_dotenv_file()
     return (os.getenv("INTEGRATION_API_KEY") or "").strip() or None
 
@@ -91,17 +91,17 @@ def _address_hostport(address: str) -> str:
     return addr
 
 
-def _gateway_listen_port() -> str:
+def _onprem_api_listen_port() -> str:
     load_dotenv_file()
-    return (os.getenv("GATEWAY_PORT") or "9081").strip()
+    return (os.getenv("ONPREM_API_PORT") or "9081").strip()
 
 
 def resolve_gpu_power_url(host: str | None = None) -> str:
     """Probe URL: ``GPU_POWER_URL`` if set, else ``http://<source-host>:9105/power``.
 
-    Same co-location rule as the gateway (``suggest_gpu_power_url``). The local
-    gateway listen address (``:9081``) is skipped so we do not hit this machine's
-    ``:9105`` when tests go through ``INTEGRATION_GATEWAY``.
+    Same co-location rule as OnPrem AI Gateway (``suggest_gpu_power_url``). The local
+    API listen address (``:9081``) is skipped so we do not hit this machine's
+    ``:9105`` when tests go through ``INTEGRATION_API_BASE``.
     """
     load_dotenv_file()
     explicit = (os.getenv("GPU_POWER_URL") or "").strip()
@@ -118,7 +118,7 @@ def resolve_gpu_power_url(host: str | None = None) -> str:
         if src:
             candidates.append(src)
 
-    gw_port = _gateway_listen_port()
+    gw_port = _onprem_api_listen_port()
     seen: set[str] = set()
     for cand in candidates:
         addr = _address_hostport(cand)
@@ -616,9 +616,9 @@ def write_chat_landing_html(
 </head>
 <body>
 <main>
-  <p class="brand">LocalAI Gateway</p>
+  <p class="brand">OnPrem AI Gateway</p>
   <h1>Integration run · {_html_escape(kind)} model</h1>
-  <p class="lede">Smoke result for this call: reply, token usage, wall time, and GPU watt samples (sidecar). Not served by the gateway app — file only under <span class="mono">output/integration/</span>.</p>
+  <p class="lede">Smoke result for this call: reply, token usage, wall time, and GPU watt samples (sidecar). Not served by OnPrem AI Gateway — file only under <span class="mono">output/integration/</span>.</p>
 
   <div class="grid">
     <div class="row"><span class="k">Model</span><span class="v mono">{_html_escape(model)}</span></div>
@@ -638,7 +638,7 @@ def write_chat_landing_html(
   <p class="k">Completion</p>
   <div class="out">{_html_escape(content) or "—"}</div>
   <p class="fig">Fig. 1 — PowerProbe: Wh ≈ mean(watts) × wall_seconds / 3600 · usage from API JSON when present</p>
-  <footer>© LocalAI Gateway · test artifact</footer>
+  <footer>© OnPrem AI Gateway · test artifact</footer>
 </main>
 </body>
 </html>
@@ -670,7 +670,7 @@ body{{margin:0;background:#0a0c0f;color:#f2f4f7;font-family:Manrope,sans-serif;p
 .mono{{font-family:ui-monospace,monospace;font-size:.9rem;word-break:break-all}}
 .muted{{color:#9aa3b0}}
 </style></head><body>
-<p class="brand">LocalAI Gateway</p>
+<p class="brand">OnPrem AI Gateway</p>
 <p class="muted">Power summary · this integration run</p>
 {''.join(rows)}
 </body></html>

@@ -68,7 +68,7 @@ def test_write_chat_landing_html(tmp_path: Path):
     )
     text = path.read_text(encoding="utf-8")
     assert "Qwen3.8-27B-UD-Q8_K_XL" in text
-    assert "LocalAI Gateway" in text
+    assert "OnPrem AI Gateway" in text
     assert "1.2 s" in text
 
 
@@ -112,7 +112,7 @@ def test_resolve_gpu_power_url_from_chat_source(monkeypatch):
 def test_resolve_gpu_power_url_from_host_skips_gateway(monkeypatch):
     monkeypatch.setenv("GPU_POWER_URL", "")
     monkeypatch.setenv("CHAT_SOURCE", "192.168.178.25:11535")
-    monkeypatch.setenv("GATEWAY_PORT", "9081")
+    monkeypatch.setenv("ONPREM_API_PORT", "9081")
     from tests.integration_helpers import resolve_gpu_power_url
 
     assert resolve_gpu_power_url("127.0.0.1:9081") == "http://192.168.178.25:9105/power"

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.admin.setup import needs_setup_wizard, setup_status, wizard_progress
+from app.web.setup import needs_setup_wizard, setup_status, wizard_progress
 from app.data.backends import upsert_source
 from app.data.db import hash_api_key, hash_password
 from app.data.models import (
-    AdminUser,
+    WebUser,
     ApiKey,
     Base,
     CatalogModel,
@@ -25,7 +25,7 @@ def _session(tmp_path: Path):
 
 def test_setup_checklist_and_wizard(tmp_path: Path):
     db = _session(tmp_path)
-    admin = AdminUser(
+    admin = WebUser(
         username="admin",
         password_hash=hash_password("x"),
         is_platform_admin=True,

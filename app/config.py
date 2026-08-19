@@ -133,7 +133,7 @@ def public_route_for_source(
     """Client path for this kind. All sources of a kind share /v1; model picks the box."""
     del name, is_default  # equal sources — catalog merge, not /s/{name} vs primary
     settings = settings or get_settings()
-    base = (settings.public_host or "").strip() or "API-gateway"
+    base = (settings.public_host or "").strip() or "onprem-api"
     hint = KIND_PATH_HINTS.get(kind, "/")
     return f"{base}{hint}"
 
@@ -141,8 +141,21 @@ def public_route_for_source(
 SERVICES = KINDS
 MODEL_CHECK_SERVICES = MODEL_CHECK_KINDS
 
+SESSION_COOKIE_NAME = "onprem_session"
+DB_FILENAME = "onprem.db"
+DEFAULT_API_PORT = "9081"
 
-def public_api_base(*, gateway_port: str | None = None) -> str:
+
+def onprem_api_port(explicit: str | None = None) -> str:
+    """Published local API port (compose maps ONPREM_API_PORT → nginx)."""
+    import os
+
+    if explicit:
+        return explicit.strip()
+    return (os.getenv("ONPREM_API_PORT") or "").strip() or DEFAULT_API_PORT
+
+
+def public_api_base(*, api_port: str | None = None) -> str:
     """Client-facing OpenAI-compatible base (…/v1), no trailing slash after v1."""
     import os
 
@@ -154,5 +167,5 @@ def public_api_base(*, gateway_port: str | None = None) -> str:
             return f"{host.rstrip('/')}/v1"
         # Homelab public names are almost always TLS via reverse proxy
         return f"https://{host}/v1"
-    port = gateway_port or os.getenv("GATEWAY_PORT", "9081")
+    port = onprem_api_port(api_port)
     return f"http://localhost:{port}/v1"

@@ -1,0 +1,179 @@
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy.orm import Session
+
+from ...audit import write_audit
+from ...data.db import get_db
+from ...data.models import WebUser
+from ..session import require_platform_admin
+from ..shared import templates, _gpu_power_enabled
+
+router = APIRouter()
+
+
+@router.get("/models", response_class=HTMLResponse)
+def models_page(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[WebUser, Depends(require_platform_admin)],
+):
+    from ...data.catalog import (
+        TAG_SUGGESTIONS,
+        catalog_grouped_by_kind,
+        format_bytes,
+        format_param_count,
+        list_catalog,
+        suggest_docs_url,
+    )
+    from ...data.usage_weights import catalog_weight_suggestions
+    from ...stats import model_perf_averages, model_perf_by_id
+    from ...vision_route import group_kind_rows_vl_pairs
+    from ..accounts import get_auth_settings
+
+    flash_ok = request.session.pop("flash_ok", None)
+    flash_err = request.session.pop("flash_err", None)
+    rows = list_catalog(db)
+    auth = get_auth_settings(db)
+    auto_vl = bool(auth.auto_vl_routing)
+    pool_weights = bool(auth.pool_model_weights_enabled)
+    weight_status = catalog_weight_suggestions(db)
+    observed = model_perf_by_id(model_perf_averages(db, key_ids=None, lookback_days=7))
+    groups = []
+    for kind, kind_rows in catalog_grouped_by_kind(rows):
+        pairs = group_kind_rows_vl_pairs(
+            kind_rows,
+            pair=auto_vl and kind == "chat",
+        )
+        groups.append((kind, pairs, len(kind_rows)))
+    return templates.TemplateResponse(
+        request,
+        "models.html",
+        {
+            "user": user,
+            "nav": "models",
+            "rows": rows,
+            "groups": groups,
+            "observed": observed,
+            "auto_vl_routing": auto_vl,
+            "pool_model_weights_enabled": pool_weights,
+            "weight_status": weight_status,
+            "suggest_docs_url": suggest_docs_url,
+            "format_param_count": format_param_count,
+            "format_bytes": format_bytes,
+            "tag_suggestions": TAG_SUGGESTIONS,
+            "flash_ok": flash_ok,
+            "flash_err": flash_err,
+            "gpu_power_enabled": _gpu_power_enabled(request, db),
+        },
+    )
+
+
+@router.post("/models/sync")
+def models_sync(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[WebUser, Depends(require_platform_admin)],
+):
+    from ...data.catalog import sync_catalog_from_sources
+
+    stats = sync_catalog_from_sources(db)
+    write_audit(
+        db,
+        actor=user,
+        action="catalog.sync",
+        entity_type="catalog_models",
+        detail=str(stats),
+    )
+    db.commit()
+    request.session["flash_ok"] = (
+        f"Synced: {stats['seen']} models from {stats['sources']} sources "
+        f"({stats['created']} new, {stats.get('tagged', 0)} auto-tagged, "
+        f"{stats.get('meta', 0)} with meta)."
+    )
+    return RedirectResponse("/models", status_code=303)
+
+
+@router.post("/models/apply-suggested-weights")
+def models_apply_suggested_weights(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[WebUser, Depends(require_platform_admin)],
+):
+    from ...data.usage_weights import apply_weight_suggestions, catalog_weight_suggestions
+    from ..accounts import get_auth_settings
+
+    auth = get_auth_settings(db)
+    if not auth.pool_model_weights_enabled:
+        request.session["flash_err"] = (
+            "Enable per-model budget factors in Settings first — suggestions never apply automatically."
+        )
+        return RedirectResponse("/models", status_code=303)
+    status = catalog_weight_suggestions(db)
+    if not status.ready:
+        request.session["flash_err"] = status.message
+        return RedirectResponse("/models", status_code=303)
+    n = apply_weight_suggestions(db, status.suggestions)
+    write_audit(
+        db,
+        actor=user,
+        action="catalog.suggest_weights",
+        entity_type="catalog_models",
+        detail=f"updated={n} baseline_tg={status.baseline_tg_tok_s}",
+    )
+    db.commit()
+    if n:
+        request.session["flash_ok"] = (
+            f"Updated {n} budget factor(s) from 7d usage "
+            f"(baseline TG ~{status.baseline_tg_tok_s} tok/s)."
+        )
+    else:
+        request.session["flash_ok"] = "Weights already match suggestions — nothing changed."
+    return RedirectResponse("/models", status_code=303)
+
+
+@router.post("/models/save")
+async def models_save(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[WebUser, Depends(require_platform_admin)],
+):
+    from ...data.catalog import list_catalog, update_catalog_meta
+    from ..accounts import get_auth_settings
+
+    def _parse_weight(raw) -> float:
+        try:
+            return max(0.01, float(raw or 1))
+        except (TypeError, ValueError):
+            return 1.0
+
+    form = await request.form()
+    enabled_ids = {int(x) for x in form.getlist("enabled") if str(x).isdigit()}
+    weights_on = bool(get_auth_settings(db).pool_model_weights_enabled)
+    changed = 0
+    for row in list_catalog(db):
+        want = row.id in enabled_ids
+        if row.enabled != want:
+            row.enabled = want
+            changed += 1
+        meta_kw: dict = {
+            "tags": str(form.get(f"tags_{row.id}") or ""),
+            "short_note": str(form.get(f"note_{row.id}") or ""),
+            "docs_url": str(form.get(f"docs_{row.id}") or ""),
+        }
+        if weights_on and f"weight_{row.id}" in form:
+            meta_kw["usage_weight"] = _parse_weight(form.get(f"weight_{row.id}"))
+        update_catalog_meta(db, row.id, **meta_kw)
+    write_audit(
+        db,
+        actor=user,
+        action="catalog.update",
+        entity_type="catalog_models",
+        detail=f"toggled={changed}",
+    )
+    db.commit()
+    request.session["flash_ok"] = f"Saved ({changed} enable toggles; metadata updated)."
+    return RedirectResponse("/models", status_code=303)

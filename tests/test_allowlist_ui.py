@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.admin.routes import (
+from app.web.shared import (
     _catalog_for_allowlist,
     _collect_models_from_form,
     _parse_model_checks,

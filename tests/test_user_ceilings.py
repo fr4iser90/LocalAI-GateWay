@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.admin.accounts import assert_can_create_key, get_auth_settings, max_keys_allowed
+from app.web.accounts import assert_can_create_key, get_auth_settings, max_keys_allowed
 from app.auth.rate_limit import RateLimiter
 from app.data.db import hash_api_key
 from app.data.models import (
-    AdminUser,
+    WebUser,
     ApiKey,
     AuthSettings,
     Base,
@@ -24,7 +24,7 @@ def _session(tmp_path: Path):
 
 
 def _user(db, name: str, *, admin: bool = False, **lim):
-    u = AdminUser(
+    u = WebUser(
         username=name,
         password_hash="x",
         is_platform_admin=admin,
@@ -36,7 +36,7 @@ def _user(db, name: str, *, admin: bool = False, **lim):
     return u
 
 
-def _key(db, owner: AdminUser, label: str = "k"):
+def _key(db, owner: WebUser, label: str = "k"):
     raw = f"gw_test_{label}"
     k = ApiKey(
         label=label,

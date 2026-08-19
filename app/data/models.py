@@ -26,8 +26,8 @@ class Base(DeclarativeBase):
     pass
 
 
-class AdminUser(Base):
-    __tablename__ = "admin_users"
+class WebUser(Base):
+    __tablename__ = "web_users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String(128), unique=True, index=True)
@@ -93,11 +93,11 @@ class TeamMember(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     team_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"))
-    user_id: Mapped[int] = mapped_column(ForeignKey("admin_users.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("web_users.id", ondelete="CASCADE"))
     role: Mapped[str] = mapped_column(String(32), default="member")  # owner|member
 
     team: Mapped[Team] = relationship(back_populates="members")
-    user: Mapped[AdminUser] = relationship(back_populates="memberships")
+    user: Mapped[WebUser] = relationship(back_populates="memberships")
 
 
 class ApiKey(Base):
@@ -111,7 +111,7 @@ class ApiKey(Base):
         ForeignKey("teams.id", ondelete="SET NULL"), nullable=True
     )
     owner_user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("admin_users.id", ondelete="SET NULL"), nullable=True, index=True
+        ForeignKey("web_users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -123,7 +123,7 @@ class ApiKey(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     team: Mapped[Team | None] = relationship(back_populates="keys")
-    owner: Mapped[AdminUser | None] = relationship(foreign_keys=[owner_user_id])
+    owner: Mapped[WebUser | None] = relationship(foreign_keys=[owner_user_id])
     service_grants: Mapped[list[ServiceGrant]] = relationship(
         back_populates="api_key", cascade="all, delete-orphan"
     )
@@ -152,12 +152,12 @@ class ServiceGrant(Base):
         ForeignKey("teams.id", ondelete="CASCADE"), nullable=True
     )
     user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("admin_users.id", ondelete="CASCADE"), nullable=True
+        ForeignKey("web_users.id", ondelete="CASCADE"), nullable=True
     )
 
     api_key: Mapped[ApiKey | None] = relationship(back_populates="service_grants")
     team: Mapped[Team | None] = relationship(back_populates="service_grants")
-    user: Mapped[AdminUser | None] = relationship(back_populates="service_grants")
+    user: Mapped[WebUser | None] = relationship(back_populates="service_grants")
 
 
 class ModelAllowlist(Base):
@@ -173,12 +173,12 @@ class ModelAllowlist(Base):
         ForeignKey("teams.id", ondelete="CASCADE"), nullable=True
     )
     user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("admin_users.id", ondelete="CASCADE"), nullable=True
+        ForeignKey("web_users.id", ondelete="CASCADE"), nullable=True
     )
 
     api_key: Mapped[ApiKey | None] = relationship(back_populates="model_allowlists")
     team: Mapped[Team | None] = relationship(back_populates="model_allowlists")
-    user: Mapped[AdminUser | None] = relationship(back_populates="model_allowlists")
+    user: Mapped[WebUser | None] = relationship(back_populates="model_allowlists")
 
 
 class ModelLimit(Base):
@@ -319,10 +319,10 @@ class SmtpConfig(Base):
     username: Mapped[str] = mapped_column(String(255), default="")
     password: Mapped[str] = mapped_column(Text, default="")
     from_email: Mapped[str] = mapped_column(String(255), default="")
-    from_name: Mapped[str] = mapped_column(String(255), default="LocalAI Gateway")
+    from_name: Mapped[str] = mapped_column(String(255), default="OnPrem AI Gateway")
     use_tls: Mapped[bool] = mapped_column(Boolean, default=True)
     use_ssl: Mapped[bool] = mapped_column(Boolean, default=False)
-    public_base_url: Mapped[str] = mapped_column(String(512), default="")  # https://gateway.example.com
+    public_base_url: Mapped[str] = mapped_column(String(512), default="")  # https://llm.example.com
 
 
 class BackendConfig(Base):
@@ -416,7 +416,7 @@ class AuthSettings(Base):
     retention_days: Mapped[int] = mapped_column(Integer, default=30)
     # When on: chat requests with image parts rewrite model → VL sibling (if found).
     auto_vl_routing: Mapped[bool] = mapped_column(Boolean, default=False)
-    # Gateway aliases auto / auto-quality / auto-long. Empty → built-in Halo defaults.
+    # OnPrem aliases auto / auto-quality / auto-long. Empty → built-in Halo defaults.
     auto_model_default: Mapped[str] = mapped_column(String(256), default="")
     auto_model_quality: Mapped[str] = mapped_column(String(256), default="")
     auto_model_long: Mapped[str] = mapped_column(String(256), default="")
@@ -455,12 +455,12 @@ class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("admin_users.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("web_users.id", ondelete="CASCADE"), index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    created_by_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_by_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class RegistrationInvite(Base):
@@ -473,10 +473,10 @@ class RegistrationInvite(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     used_by_user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("admin_users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("web_users.id", ondelete="SET NULL"), nullable=True
     )
     created_by_id: Mapped[int] = mapped_column(
-        ForeignKey("admin_users.id", ondelete="CASCADE"), index=True
+        ForeignKey("web_users.id", ondelete="CASCADE"), index=True
     )
     note: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

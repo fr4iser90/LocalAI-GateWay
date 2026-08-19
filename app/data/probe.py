@@ -306,7 +306,7 @@ def probe_source(src: BackendSource) -> ServiceStatus:
                         except Exception:
                             pass
 
-            # OpenAI /v1/models — also used for vLLM / LocalAI / LM Studio hints
+            # OpenAI /v1/models — also used for vLLM / local inference stacks / LM Studio hints
             if kind in MODEL_CHECK_KINDS and status.state not in (
                 "down",
                 "unset",

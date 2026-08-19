@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, joinedload
 from ..audit import bump_usage_daily, check_quota_alert, maybe_alert
 from ..config import MODEL_CHECK_KINDS, MODEL_REQUIRED_KINDS, get_settings
 from ..data.db import hash_api_key
-from ..data.models import AdminUser, ApiKey, ModelLimit, Team, UsageDaily, UsageEvent, utcnow
+from ..data.models import WebUser, ApiKey, ModelLimit, Team, UsageDaily, UsageEvent, utcnow
 from .concurrency import ConcurrencyLease, release_concurrency_lease
 from .priority import priority_gate
 from .rate_limit import rate_limiter
@@ -29,7 +29,7 @@ class AuthResult:
     api_key: ApiKey | None = None
     model: str | None = None
     usage_event_id: int | None = None
-    # Chat proxied via /v1/gateway/forward for real duration / Wh metering
+    # Chat proxied via /v1/onprem/forward for real duration / Wh metering
     meter_proxy: bool = False
     concurrency_lease: ConcurrencyLease | None = None
 
@@ -236,7 +236,7 @@ def log_usage(
     defer_metering: bool = False,
     power_status: str = "",
 ) -> UsageEvent:
-    from ..admin.accounts import get_auth_settings
+    from ..web.accounts import get_auth_settings
     from ..privacy import anonymize_ip, estimate_prompt_tokens
 
     auth = get_auth_settings(db)
@@ -363,8 +363,8 @@ def authorize(
             joinedload(ApiKey.team).joinedload(Team.service_grants),
             joinedload(ApiKey.team).joinedload(Team.model_allowlists),
             joinedload(ApiKey.team).joinedload(Team.model_limits),
-            joinedload(ApiKey.owner).joinedload(AdminUser.service_grants),
-            joinedload(ApiKey.owner).joinedload(AdminUser.model_allowlists),
+            joinedload(ApiKey.owner).joinedload(WebUser.service_grants),
+            joinedload(ApiKey.owner).joinedload(WebUser.model_allowlists),
             joinedload(ApiKey.service_grants),
             joinedload(ApiKey.model_allowlists),
             joinedload(ApiKey.model_limits),
@@ -444,7 +444,7 @@ def authorize(
         rate_limiter.release(api_key.id, model=model, user_id=owner_id)
         priority_gate.release(api_key.id)
 
-    from ..admin.accounts import get_auth_settings
+    from ..web.accounts import get_auth_settings
     from ..usage_pool import check_and_consume_pool
 
     pool = check_and_consume_pool(
@@ -470,7 +470,7 @@ def authorize(
         release_concurrency_lease(lease)
         return _fail(temp_block.status, temp_block.reason, api_key, priority=priority)
 
-    # Only /v1/gateway/entry (or VL forward hop) finalizes duration/Wh.
+    # Only /v1/onprem/entry (or VL forward hop) finalizes duration/Wh.
     # Plain auth_request must not leave orphan deferred events.
     meter_proxy = hold_concurrency
 

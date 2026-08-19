@@ -10,10 +10,10 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from .admin.access import Forbidden, RedirectToLogin, SetupWizardRequired, current_user
-from .admin.accounts import get_auth_settings, router as accounts_router
-from .admin.routes import router as admin_router
-from .admin.ops import router as ops_router
+from .web.session import Forbidden, RedirectToLogin, SetupWizardRequired, current_user
+from .web.accounts import get_auth_settings, router as accounts_router
+from .web.routes import router as web_router
+from .web.ops import router as ops_router
 from .auto_route import auto_alias_list_entries, rewrite_auto_model
 from .auth.check import authorize, extract_model, extract_request_model
 from .auth.concurrency import ConcurrencyLease, release_concurrency_lease
@@ -24,9 +24,11 @@ from .data.backends import (
 from .routing import resolve_routed_source
 from .config import (
     MODEL_ROUTE_KINDS,
+    SESSION_COOKIE_NAME,
     get_settings,
     kind_from_upstream_path,
     map_upstream_path,
+    onprem_api_port,
     split_source_path,
     upstream_path_for_proxy,
 )
@@ -92,7 +94,7 @@ def _preflight_block(
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="LocalAI Gateway Auth", docs_url=None, redoc_url=None)
+    app = FastAPI(title="OnPrem AI Gateway", docs_url=None, redoc_url=None)
     app.state.settings = settings
     init_db(settings)
 
@@ -100,20 +102,20 @@ def create_app() -> FastAPI:
     def _log_public_urls() -> None:
         port = os.getenv("PORT", "8080")
         web_port = os.getenv("WEB_PORT") or port
-        gateway_port = os.getenv("GATEWAY_PORT", "9081")
+        api_port = onprem_api_port()
         base = f"http://127.0.0.1:{web_port}"
         print(f"Web UI:       {base}", flush=True)
-        print(f"  Admin:      {base}/          (platform admin)", flush=True)
+        print(f"  Platform:   {base}/          (platform admin ops)", flush=True)
         print(f"  User:       {base}/me        (team members)", flush=True)
         print(f"  Login:      {base}/login", flush=True)
         print(f"  Account:    {base}/account   (password / email)", flush=True)
         print(f"  Forgot:     {base}/forgot", flush=True)
         print(f"  Register:   {base}/register (if enabled in Settings)", flush=True)
-        print(f"API gateway:  http://127.0.0.1:{gateway_port}", flush=True)
-        ph = (settings.public_host or "").strip() or f"127.0.0.1:{gateway_port}"
+        print(f"OnPrem API:   http://127.0.0.1:{api_port}", flush=True)
+        ph = (settings.public_host or "").strip() or f"127.0.0.1:{api_port}"
         print(f"  example:    http://{ph}/v1/chat/completions  (+ X-Api-Key)", flush=True)
 
-    static_dir = Path(__file__).parent / "admin" / "static"
+    static_dir = Path(__file__).parent / "web" / "static"
     static_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
@@ -152,12 +154,12 @@ def create_app() -> FastAPI:
             uid = (scope.get("session") or {}).get("user_id")
             if uid:
                 from .data.db import SessionLocal
-                from .data.models import AdminUser
+                from .data.models import WebUser
 
                 if SessionLocal is not None:
                     db = SessionLocal()
                     try:
-                        u = db.get(AdminUser, uid)
+                        u = db.get(WebUser, uid)
                         if u and u.must_change_password:
                             resp = RedirectResponse("/account", status_code=303)
                             await resp(scope, receive, send)
@@ -171,10 +173,10 @@ def create_app() -> FastAPI:
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.session_secret,
-        session_cookie="gateway_admin",
+        session_cookie=SESSION_COOKIE_NAME,
         max_age=settings.session_max_age,
         same_site="lax",
-        https_only=False,
+        https_only=True,
     )
 
     @app.exception_handler(RedirectToLogin)
@@ -185,7 +187,7 @@ def create_app() -> FastAPI:
     async def _redirect_setup(_request: Request, exc: SetupWizardRequired):
         return RedirectResponse(exc.redirect_to, status_code=303)
 
-    from .admin.templating import make_templates
+    from .web.templating import make_templates
 
     ui_templates = make_templates()
 
@@ -213,8 +215,8 @@ def create_app() -> FastAPI:
     def healthz():
         return {"status": "ok"}
 
-    @app.get("/v1/gateway/models")
-    def gateway_models(request: Request, db: Session = Depends(get_db)):
+    @app.get("/v1/onprem/models")
+    def onprem_models(request: Request, db: Session = Depends(get_db)):
         """Filtered OpenAI model list for IDEs (nginx routes GET /v1/models here)."""
         from .data.catalog import (
             load_api_key,
@@ -370,7 +372,7 @@ def create_app() -> FastAPI:
         headers["X-Rewrite-Uri"] = rewrite_uri
 
         # VL-only: body rewrite needs a second hop (stock nginx cannot patch JSON).
-        # Chat metering uses /v1/gateway/entry (see nginx) — not auth_request+forward.
+        # Chat metering uses /v1/onprem/entry (see nginx) — not auth_request+forward.
         if vl_rewrite:
             pf_block = _preflight_block(
                 auth_cfg=get_auth_settings(db),
@@ -382,8 +384,8 @@ def create_app() -> FastAPI:
             )
             if pf_block is not None:
                 return pf_block
-            headers["X-Gateway-Proxy"] = "1"
-            headers["X-Gateway-Ticket"] = mint_forward_ticket(
+            headers["X-OnPrem-Proxy"] = "1"
+            headers["X-OnPrem-Ticket"] = mint_forward_ticket(
                 secret=settings.session_secret,
                 service=service,
                 backend=backend,
@@ -544,8 +546,8 @@ def create_app() -> FastAPI:
             media_type=upstream.headers.get("content-type"),
         )
 
-    @app.api_route("/v1/gateway/entry", methods=["POST", "PUT", "PATCH"])
-    async def gateway_entry(request: Request, db: Session = Depends(get_db)):
+    @app.api_route("/v1/onprem/entry", methods=["POST", "PUT", "PATCH"])
+    async def onprem_entry(request: Request, db: Session = Depends(get_db)):
         """Auth + upstream proxy in one hop (avoids nginx auth_request body hang).
 
         Used for chat (and optionally embed) so duration/Wh metering works.
@@ -669,8 +671,8 @@ def create_app() -> FastAPI:
             "host",
             "connection",
             "transfer-encoding",
-            "x-gateway-ticket",
-            "x-gateway-proxy",
+            "x-onprem-ticket",
+            "x-onprem-proxy",
         }
         up_headers = {
             k: v for k, v in request.headers.items() if k.lower() not in hop
@@ -690,14 +692,14 @@ def create_app() -> FastAPI:
             concurrency_lease=result.concurrency_lease,
         )
 
-    @app.api_route("/v1/gateway/forward", methods=["POST", "PUT", "PATCH"])
-    async def gateway_forward(request: Request):
+    @app.api_route("/v1/onprem/forward", methods=["POST", "PUT", "PATCH"])
+    async def onprem_forward(request: Request):
         """Legacy VL hop after auth_request — ticket required."""
         settings = request.app.state.settings
-        ticket = request.headers.get("x-gateway-ticket") or ""
+        ticket = request.headers.get("x-onprem-ticket") or ""
         payload = parse_forward_ticket(ticket, settings.session_secret)
         if payload is None:
-            return JSONResponse({"error": "invalid_gateway_ticket"}, status_code=403)
+            return JSONResponse({"error": "invalid_onprem_ticket"}, status_code=403)
 
         backend = str(payload.get("backend") or "").strip()
         rewrite_uri = str(payload.get("uri") or "/").strip() or "/"
@@ -710,7 +712,7 @@ def create_app() -> FastAPI:
             usage_id_int = None
         if not backend:
             release_concurrency_lease(lease)
-            return JSONResponse({"error": "invalid_gateway_ticket"}, status_code=403)
+            return JSONResponse({"error": "invalid_onprem_ticket"}, status_code=403)
 
         body = await request.body()
         if rewrite_model:
@@ -725,8 +727,8 @@ def create_app() -> FastAPI:
             "host",
             "connection",
             "transfer-encoding",
-            "x-gateway-ticket",
-            "x-gateway-proxy",
+            "x-onprem-ticket",
+            "x-onprem-proxy",
         }
         up_headers = {
             k: v
@@ -776,7 +778,7 @@ def create_app() -> FastAPI:
             concurrency_lease=lease,
         )
 
-    app.include_router(admin_router)
+    app.include_router(web_router)
     app.include_router(ops_router)
     app.include_router(accounts_router)
     return app

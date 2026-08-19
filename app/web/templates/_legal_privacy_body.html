@@ -1,0 +1,128 @@
+<div class="legal-doc">
+  <input type="radio" id="legal-lang-de-privacy" name="legal-lang-privacy" checked>
+  <input type="radio" id="legal-lang-en-privacy" name="legal-lang-privacy">
+  <div class="legal-lang-tabs">
+    <label for="legal-lang-de-privacy">Deutsch</label>
+    <label for="legal-lang-en-privacy">English</label>
+  </div>
+  <div class="legal-lang-panels">
+
+    <div class="legal-lang-panel--de">
+      <h2>Verantwortlicher</h2>
+      {% if operator.complete %}
+      <p>
+        {{ operator.name }}<br>
+        <span class="legal-address">{{ operator.address }}</span><br>
+        <a href="mailto:{{ operator.email }}">{{ operator.email }}</a>
+      </p>
+      {% else %}
+      <p>
+        Verantwortlicher ist der Betreiber dieses Angebots.
+        Kontakt: <a href="mailto:{{ operator.email }}">{{ operator.email }}</a>
+      </p>
+      {% endif %}
+
+      <h2>Welche Daten verarbeitet werden</h2>
+      <ul>
+        <li><strong>Konto:</strong> Benutzername, optionale E-Mail, Passwort-Hash (bcrypt) — kein Klartextpasswort.</li>
+        <li><strong>API-Keys:</strong> Label, SHA-256-Hash, Prefix. Der volle Key wird nur einmal bei Erstellung angezeigt.</li>
+        <li><strong>Nutzungsmetadaten:</strong> Zeitpunkt, Dienst, Pfad, Modellname, Ergebnis (ok/deny/429), Dauer, optionale Token-/Audio-Schätzungen, Key-Label.</li>
+        <li><strong>Nicht gespeichert:</strong> Prompts, Chat-Nachrichten, Embedding-Text, STT-/TTS-Audio, Response-Bodies.</li>
+        <li><strong>Client-IP:</strong> {% if auth is defined and auth and auth.anonymize_client_ip %}anonymisiert (letztes Oktett / IPv6 gekürzt){% else %}wie empfangen, sofern Logging aktiv ist{% endif %}.</li>
+      </ul>
+
+      <h2>Zwecke und Rechtsgrundlagen</h2>
+      <p>
+        Betrieb von OnPrem AI Gateway, Anmeldung, Zugriffskontrolle und Abrechnung/Quoten.
+        Rechtsgrundlagen: Art. 6 Abs. 1 lit. b DSGVO (Nutzungsverhältnis / Vertrag)
+        und Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse am sicheren Betrieb).
+      </p>
+
+      <h2>Speicherdauer</h2>
+      <p>
+        Konten und Keys bleiben, bis sie gelöscht werden.
+        Nutzungsereignisse:
+        {% if auth is defined and auth and auth.retention_days %}
+        automatische Löschung nach {{ auth.retention_days }} Tagen.
+        {% else %}
+        keine automatische Löschung.
+        {% endif %}
+        Eingeloggte Nutzer können eigene Usage-Daten unter
+        <a href="/privacy">Data &amp; Privacy</a> löschen.
+      </p>
+
+      <h2>Empfänger / Drittland</h2>
+      <p>
+        Keine Weitergabe an Werbenetzwerke. Schriftarten werden lokal ausgeliefert
+        (keine externen Font-Dienste). E-Mails wie Passwort-Reset oder Einladungen
+        werden über den Mailserver des Betreibers versendet.
+      </p>
+
+      <h2>Ihre Rechte</h2>
+      <p>
+        Auskunft, Berichtigung, Löschung, Einschränkung, Datenübertragbarkeit und Widerspruch
+        nach Art. 15–21 DSGVO, sowie Beschwerde bei einer Aufsichtsbehörde.
+        Anfragen an <a href="mailto:{{ operator.email }}">{{ operator.email }}</a>.
+      </p>
+    </div>
+
+    <div class="legal-lang-panel--en">
+      <h2>Controller</h2>
+      {% if operator.complete %}
+      <p>
+        {{ operator.name }}<br>
+        <span class="legal-address">{{ operator.address }}</span><br>
+        <a href="mailto:{{ operator.email }}">{{ operator.email }}</a>
+      </p>
+      {% else %}
+      <p>
+        The controller is the operator of this service.
+        Contact: <a href="mailto:{{ operator.email }}">{{ operator.email }}</a>
+      </p>
+      {% endif %}
+
+      <h2>What is processed</h2>
+      <ul>
+        <li><strong>Account:</strong> username, optional email, password hash (bcrypt) — never plaintext passwords.</li>
+        <li><strong>API keys:</strong> label, SHA-256 hash, prefix. The full key is shown once at creation.</li>
+        <li><strong>Usage metadata:</strong> time, service, path, model name, result (ok/deny/429), duration, optional token/audio estimates, key label.</li>
+        <li><strong>Not stored:</strong> prompts, chat messages, embedding text, STT/TTS audio, response bodies.</li>
+        <li><strong>Client IP:</strong> {% if auth is defined and auth and auth.anonymize_client_ip %}anonymized (last octet / IPv6 truncated){% else %}stored as received when logging is on{% endif %}.</li>
+      </ul>
+
+      <h2>Purposes and legal bases</h2>
+      <p>
+        Operating OnPrem AI Gateway, sign-in, access control, and quotas.
+        Legal bases: GDPR Art. 6(1)(b) (contract / use of the service) and Art. 6(1)(f)
+        (legitimate interest in a secure operation).
+      </p>
+
+      <h2>Retention</h2>
+      <p>
+        Accounts and keys stay until deleted.
+        Usage events:
+        {% if auth is defined and auth and auth.retention_days %}
+        purged automatically after {{ auth.retention_days }} days.
+        {% else %}
+        no automatic purge.
+        {% endif %}
+        Signed-in users can wipe their own usage under
+        <a href="/privacy">Data &amp; Privacy</a>.
+      </p>
+
+      <h2>Recipients / third countries</h2>
+      <p>
+        No ad networks. Fonts are served locally without external font services.
+        Mail such as password resets or invites is sent through the operator's mail server.
+      </p>
+
+      <h2>Your rights</h2>
+      <p>
+        Access, rectification, erasure, restriction, portability, and objection
+        (GDPR Arts. 15–21), and the right to lodge a complaint with a supervisory authority.
+        Requests: <a href="mailto:{{ operator.email }}">{{ operator.email }}</a>.
+      </p>
+    </div>
+
+  </div>
+</div>

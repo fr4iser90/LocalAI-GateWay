@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Audit log · OnPrem AI Gateway{% endblock %}
+{% block content %}
+<header class="page-head page-head--compact">
+  <div>
+    <h1>Audit log</h1>
+    <p class="page-meta">Append-only admin actions. Hash chain detects edits.</p>
+  </div>
+</header>
+
+{% include "_settings_subnav.html" %}
+
+{% if chain_ok %}
+<div class="flash" role="status">Chain OK — {{ chain_msg }}</div>
+{% else %}
+<div class="error" role="alert">
+  Chain FAIL — {{ chain_msg }}
+  <p class="muted chain-note">
+    Usually a timestamp/format bug on old rows, not someone tampering.
+    Fresh volume after this build should verify clean; existing FAIL can stay until you wipe the DB
+    (<span class="mono">compose down -v</span>) if you care about a green check.
+  </p>
+</div>
+{% endif %}
+
+<div class="panel">
+  <div class="table-wrap">
+  <table>
+    <caption class="sr-only">Audit events, newest first</caption>
+    <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Entity</th><th>Detail</th><th>Hash</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td class="mono">{{ r.created_at }}</td>
+        <td>{{ r.actor_username or '—' }}</td>
+        <td><span class="badge">{{ r.action }}</span></td>
+        <td class="mono">{{ r.entity_type }} {{ r.entity_id }}</td>
+        <td>{{ r.detail }}</td>
+        <td class="mono hash-cell" title="{{ r.entry_hash or '' }}">{{ (r.entry_hash or '')[:12] }}{% if r.entry_hash %}…{% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="empty-cell">
+        <div class="empty-state">
+          <p class="empty-state-title">No audit events yet</p>
+          <p class="empty-state-text">Admin actions (users, keys, settings, sources) will appear here as an append-only chain.</p>
+        </div>
+      </td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

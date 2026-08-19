@@ -28,13 +28,13 @@
       },
       {
         "rule_id": "B101",
-        "path_regex": "^app/(data/db\\.py|mailer\\.py|admin/(accounts|routes)\\.py)$",
+        "path_regex": "^app/(data/db\\.py|mailer\\.py|web/(accounts|routes)\\.py)$",
         "message_regex": "Use of assert detected",
         "reason": "Narrowing asserts after smtp_ready()/config checks for type checkers; invariants already guarded by preceding conditionals."
       },
       {
         "rule_id": "B107",
-        "path_regex": "^app/admin/accounts\\.py$",
+        "path_regex": "^app/web/accounts\\.py$",
         "message_regex": "hardcoded password",
         "reason": "False match on reset_page query param default token='' (empty string), not a credential."
       },
@@ -42,7 +42,7 @@
         "rule_id": "B110",
         "path_regex": "^app/(audit\\.py|data/(probe|source_load)\\.py)$",
         "message_regex": "Try, Except, Pass detected",
-        "reason": "Best-effort probes and audit helpers: upstream/network/format failures are expected and must not break admin UI or routing."
+        "reason": "Best-effort probes and audit helpers: upstream/network/format failures are expected and must not break web UI or routing."
       },
       {
         "rule_id": "B110",

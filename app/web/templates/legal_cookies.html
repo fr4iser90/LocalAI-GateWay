@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Cookies · OnPrem AI Gateway{% endblock %}
+{% block content %}
+<header class="page-head page-head--compact">
+  <div>
+    <h1>Cookies</h1>
+    <p class="page-meta">Strictly necessary storage only — no tracking.</p>
+  </div>
+</header>
+<div class="panel">
+  {% include "_legal_cookies_body.html" %}
+</div>
+{% endblock %}
+{% block body %}
+<div class="legal-wrap">
+  <h1>Cookies</h1>
+  <div class="legal-topnav">
+    <p class="legal-auth"><a href="/login">Back to login</a></p>
+  </div>
+  {% include "_legal_cookies_body.html" %}
+</div>
+{% endblock %}

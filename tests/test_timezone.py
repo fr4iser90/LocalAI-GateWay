@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app.data.db import hash_password
-from app.data.models import AdminUser, Base, make_engine, make_session_factory
+from app.data.models import WebUser, Base, make_engine, make_session_factory
 from app.stats import display_zone, is_valid_timezone, week_window_start, zone_from_request
 
 
@@ -36,7 +36,7 @@ def test_zone_from_request_cookie_beats_user(tmp_path: Path):
     eng = make_engine(str(tmp_path / "tz.db"))
     Base.metadata.create_all(bind=eng)
     db = make_session_factory(eng)()
-    user = AdminUser(
+    user = WebUser(
         username="a",
         password_hash=hash_password("x"),
         is_platform_admin=True,

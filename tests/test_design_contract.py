@@ -5,14 +5,14 @@ A failure here means either:
 * a **new page/template was added** and never classified (so it can silently
   ship the old mint/IBM/card-soup look), or
 * an **existing page drifted** (old brand color, old type, hidden eyebrows,
-  inline HTML error pages, LocalAI chrome).
+  inline HTML error pages, legacy LocalAI / Gateway chrome).
 
 Assertion messages say *why* the hit is a drift.
 
 Surfaces in scope: every ``*.html`` under ``app/``, ``style.css``, ``favicon.svg``,
 and any Python ``HTMLResponse`` that contains markup. Out of scope: JSON API,
 nginx error JSON, email subjects, and ``tests/integration_helpers.py`` (those
-HTML files are offline test artifacts, not served by the gateway).
+HTML files are offline test artifacts, not served by OnPrem AI Gateway).
 """
 
 from __future__ import annotations
@@ -22,9 +22,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "app"
-TEMPLATES = APP / "admin" / "templates"
-STYLE = APP / "admin" / "static" / "style.css"
-FAVICON = APP / "admin" / "static" / "favicon.svg"
+TEMPLATES = APP / "web" / "templates"
+STYLE = APP / "web" / "static" / "style.css"
+FAVICON = APP / "web" / "static" / "favicon.svg"
 
 # Pulse tokens (dark canvas). Light theme may remap accent to teal #0d9488.
 DARK_BG = "#0e1116"
@@ -105,7 +105,7 @@ PAGE_KIND: dict[str, str] = {
 }
 
 # SMTP From display name is email identity, not UI chrome.
-SMTP_FROM_ALLOW = "cfg.from_name if cfg else 'LocalAI Gateway'"
+SMTP_FROM_ALLOW = "cfg.from_name if cfg else 'OnPrem AI Gateway'"
 
 # HTMX/partial error strings (plain text, no tags) are not pages.
 HTML_MARKUP_IN_PY = re.compile(
@@ -189,10 +189,10 @@ def test_base_shell_is_pulse():
     assert "@font-face" in css and "/static/fonts/inter-latin-400.woff2" in css, (
         "Inter must be self-hosted. Loading fonts.googleapis.com sends visitor IPs to Google (DSGVO)."
     )
-    assert 'class="topbar-brand">Gateway</span>' in base
-    assert re.search(r'<p class="brand">\s*.*?Gateway', base, re.S)
+    assert 'class="topbar-brand">OnPrem AI Gateway</span>' in base
+    assert re.search(r'<p class="brand">\s*.*?OnPrem AI Gateway', base, re.S)
     assert "LocalAI" not in base, (
-        "Shell chrome still says LocalAI — Pulse wordmark is Gateway "
+        "Shell chrome still says LocalAI — wordmark must be OnPrem AI Gateway "
         "(sidebar, topbar). Product name in emails is a separate surface."
     )
     assert 'src="/static/theme.js"' in base
@@ -228,7 +228,7 @@ def test_auth_pages_use_login_card():
             "not a full app layout and not a naked <h1>."
         )
         assert "LocalAI" not in text, (
-            f"{name}: visible LocalAI copy — Pulse chrome says Gateway."
+            f"{name}: visible LocalAI copy — wordmark must be OnPrem AI Gateway."
         )
 
 
@@ -344,7 +344,7 @@ def test_localai_not_in_visible_templates():
         if LOCALAI_CHROME.search(text) or "LocalAI Gateway" in text:
             hits.append(rel)
     assert not hits, (
-        "Visible UI still says LocalAI Gateway — Pulse chrome is Gateway. "
+        "Visible UI still says LocalAI Gateway — Pulse chrome is OnPrem AI Gateway. "
         f"(SMTP From name default is the only allowed leftover.) Drift in: {hits}"
     )
 
@@ -364,7 +364,7 @@ def test_stat_strip_and_hero_cards_not_used_on_pages():
 def test_no_google_fonts_on_served_ui():
     """Google Fonts CDN sends visitor IPs to Google — a common DSGVO fail in DE."""
     hits: list[str] = []
-    for path in (APP / "admin").rglob("*"):
+    for path in (APP / "web").rglob("*"):
         if path.suffix.lower() not in {".html", ".css", ".js", ".svg"}:
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
@@ -377,7 +377,7 @@ def test_no_google_fonts_on_served_ui():
 
 
 def test_legal_pages_cover_de_duties():
-    fonts = ROOT / "app" / "admin" / "static" / "fonts"
+    fonts = ROOT / "app" / "web" / "static" / "fonts"
     assert (fonts / "inter-latin-400.woff2").is_file()
     imprint = (TEMPLATES / "legal_imprint.html").read_text(encoding="utf-8")
     privacy = (TEMPLATES / "legal_privacy.html").read_text(encoding="utf-8")
@@ -387,7 +387,7 @@ def test_legal_pages_cover_de_duties():
     assert "legal-wrap" in imprint and "page-head--compact" in imprint
     assert "Art. 13" in privacy or "DSGVO" in privacy
     assert "GDPR" in (TEMPLATES / "_legal_privacy_body.html").read_text(encoding="utf-8")
-    assert "gateway_admin" in cookies
+    assert "onprem_session" in cookies
     assert "Consent-Banner" in cookies or "keine</strong> Analyse" in cookies
     assert "no consent banner" in cookies.lower()
     assert "/legal/imprint" in links and "/legal/privacy" in links and "/legal/cookies" in links

@@ -1,42 +1,52 @@
 # Local — published ports, no reverse proxy required.
 # Usage:  docker compose up -d --build
-# Admin:  http://localhost:9080
+# Web UI: http://localhost:9080
 # API:    http://localhost:9081/v1/chat/completions  (+ X-Api-Key)
 #
 # Optional Traefik example:  docker compose -f compose.traefik.yaml up -d --build
+
+name: onprem
+
+# Auto host identity — same as the old compose `user: "${UID}:${GID}"`.
+# Docker Compose reads $UID / $GID from YOUR shell when you run `docker compose`.
+# Nothing to put in .env for normal use (fr4iser → 1000:992 automatically).
+# Entrypoint chowns /data to PUID/PGID then su-exec (compose `user:` broke SQLite).
+x-host-id: &host-id
+  PUID: ${UID:-1000}
+  PGID: ${GID:-1000}
 
 x-restart: &restart
   restart: unless-stopped
 
 services:
-  auth-gateway:
+  onprem-auth:
     <<: *restart
     build: .
-    container_name: llm-auth-gateway
-    user: "${UID}:${GID}"
+    container_name: onprem-auth
     env_file: .env
     environment:
+      <<: *host-id
       DATA_DIR: /data
       ADMIN_BOOTSTRAP_USER: ${ADMIN_BOOTSTRAP_USER:-admin}
       TEMP_GUARD_DISABLED: ${TEMP_GUARD_DISABLED:-false}
-      GATEWAY_PORT: ${GATEWAY_PORT:-9081}
+      ONPREM_API_PORT: ${ONPREM_API_PORT:-9081}
       WEB_PORT: ${WEB_PORT:-9080}
       PORT: "8080"
     ports:
       - "${WEB_PORT:-9080}:8080"
     volumes:
-      - auth-gateway-data:/data
+      - onprem-auth-data:/data
 
-  llm-gateway:
+  onprem-api:
     <<: *restart
     image: nginx:alpine
-    container_name: llm-gateway
+    container_name: onprem-api
     depends_on:
-      auth-gateway:
+      onprem-auth:
         condition: service_healthy
     env_file: .env
     ports:
-      - "${GATEWAY_PORT:-9081}:80"
+      - "${ONPREM_API_PORT:-9081}:80"
     volumes:
       - ./nginx.conf:/etc/nginx/templates/nginx.conf.template:ro
       - ./scripts/nginx-entrypoint.sh:/entrypoint.sh:ro
@@ -44,4 +54,4 @@ services:
 
 
 volumes:
-  auth-gateway-data:
+  onprem-auth-data:

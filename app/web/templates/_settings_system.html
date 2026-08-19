@@ -1,0 +1,92 @@
+{% if user.is_platform_admin and auth %}
+<section class="panel">
+  <h2>Imprint / operator</h2>
+  <p class="muted mt-0">
+    In Germany this is usually required when other people use the service (DDG / DSGVO).
+    Please provide name and street address. An email address alone is not enough.
+    You can also set <span class="mono">OPERATOR_NAME</span>, <span class="mono">OPERATOR_ADDRESS</span>,
+    <span class="mono">OPERATOR_EMAIL</span>, <span class="mono">OPERATOR_PHONE</span> via environment variables
+    (used when a field below is empty).
+  </p>
+  {% if operator.from_env %}
+  <p class="muted text-sm">Environment defaults are currently filling empty fields: {{ operator.name }}{% if operator.address %} · {{ operator.address }}{% endif %}</p>
+  {% endif %}
+  <form method="post" action="/settings/system">
+    <div class="field field-gap">
+      <label for="operator-name">Name</label>
+      <input id="operator-name" type="text" name="operator_name" value="{{ auth.operator_name or '' }}" autocomplete="name">
+    </div>
+    <div class="field field-gap">
+      <label for="operator-address">Address</label>
+      <textarea id="operator-address" name="operator_address" rows="3" autocomplete="street-address">{{ auth.operator_address or '' }}</textarea>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="operator-email">Contact email</label>
+        <input id="operator-email" type="email" name="operator_email" value="{{ auth.operator_email or 'support@fr4iser.com' }}">
+      </div>
+      <div class="field">
+        <label for="operator-phone">Phone (optional)</label>
+        <input id="operator-phone" type="text" name="operator_phone" value="{{ auth.operator_phone or '' }}">
+      </div>
+    </div>
+    <p class="muted text-sm">Public pages: <a href="/legal/imprint">Imprint</a> · <a href="/legal/privacy">Privacy</a> · <a href="/legal/cookies">Cookies</a></p>
+    <button class="primary" type="submit">Save operator</button>
+  </form>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Admin</h2>
+  <p class="muted mt-0">Basic identity and local runtime details for OnPrem AI Gateway.</p>
+  <table>
+    <tr><th>Domain</th><td class="mono">{{ settings.domain }}</td></tr>
+    <tr><th>Public API host</th><td class="mono">{{ settings.public_host or '(local API port / any Host)' }}</td></tr>
+    <tr><th>Bootstrap user</th><td class="mono">{{ settings.admin_bootstrap_user }}</td></tr>
+    <tr><th>Session max age</th><td>{{ session_max_age }} s</td></tr>
+    <tr><th>Data dir</th><td class="mono">{{ settings.data_dir }}</td></tr>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Local access</h2>
+  <table>
+    <tr><th>Admin UI</th><td class="mono"><a href="{{ admin_url }}">{{ admin_url }}</a></td></tr>
+    <tr><th>API base URL</th><td class="mono">{{ api_base_url }}</td></tr>
+  </table>
+  <p class="muted hint-after">
+    Example request:
+    <span class="mono">curl -H "X-Api-Key: …" {{ api_base_url }}/v1/chat/completions -d '…'</span>
+  </p>
+</section>
+
+<section class="panel">
+  <h2>API routes</h2>
+  <p class="muted mt-0">Public API paths and the source addresses they map to. Upstreams are managed under <a href="/services">Services</a>.</p>
+  <table>
+    <thead><tr><th>Source</th><th>Path</th><th>Address</th></tr></thead>
+    <tbody>
+    {% for src, route in backend_rows %}
+      <tr>
+        <td><span class="badge">{{ src.name }}</span></td>
+        <td class="mono cell-sm">{{ route }}</td>
+        <td class="mono">{{ src.address if src.address else '— (disabled)' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Thermal guard</h2>
+  <table>
+    <tr><th>Enabled</th><td class="mono">{{ 'yes' if temp_guard_enabled else 'no' }}</td></tr>
+    <tr><th>Fail open</th><td class="mono">{{ 'yes' if settings.temp_guard_fail_open else 'no' }}</td></tr>
+  </table>
+  <p class="muted hint-after">
+    Source-sidecar checks are derived per source from each source host at <span class="mono">:9105/check</span>.
+    Thresholds and sensor selection are enforced by the source-sidecar, not by OnPrem AI Gateway.
+  </p>
+</section>
+
+<p class="muted settings-footnote">Secrets (API keys, session secret, bootstrap password) are not shown here.</p>

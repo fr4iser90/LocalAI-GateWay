@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .data.models import (
-    AdminUser,
+    WebUser,
     ApiKey,
     AuthSettings,
     CatalogModel,
@@ -91,7 +91,7 @@ def migrate_pool_to_token_budget(db: Session, auth: AuthSettings) -> bool:
     if tpu <= 1:
         auth.pool_tokens_per_unit = 1
         return False
-    for u in db.query(AdminUser).all():
+    for u in db.query(WebUser).all():
         if u.pool_limit is not None and u.pool_limit > 0:
             u.pool_limit = int(u.pool_limit) * tpu
         used = float(u.pool_used or 0.0)
@@ -260,7 +260,7 @@ def watt_hours_from_samples(
     return round(avg, 2), wh
 
 
-def _maybe_reset_window(owner: AdminUser, window_hours: int) -> int | None:
+def _maybe_reset_window(owner: WebUser, window_hours: int) -> int | None:
     """Reset pool_used if window elapsed. Returns seconds until next reset."""
     if window_hours <= 0:
         return None

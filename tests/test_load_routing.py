@@ -8,7 +8,7 @@ from unittest.mock import patch
 from app.data.backends import resolve_source_for_kind, upsert_source
 from app.data.db import hash_api_key
 from app.data.models import (
-    AdminUser,
+    WebUser,
     ApiKey,
     Base,
     CatalogModel,
@@ -93,7 +93,7 @@ def test_grant_aware_limits_candidates(tmp_path: Path):
     upsert_source(db, name="nano", kind="chat", address="h2:1", is_default=False)
     _cat(db, "gpu", "jarvis")
     _cat(db, "nano", "jarvis")
-    user = AdminUser(
+    user = WebUser(
         username="friend",
         password_hash="x",
         is_platform_admin=False,

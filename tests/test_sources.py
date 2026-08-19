@@ -13,7 +13,7 @@ from app.data.backends import (
     upsert_source,
 )
 from app.data.models import (
-    AdminUser,
+    WebUser,
     Base,
     BackendConfig,
     CatalogModel,
@@ -88,7 +88,7 @@ def test_rename_source_rewrites_catalog_and_grants(tmp_path: Path):
     db = _session(tmp_path)
     src = upsert_source(db, name="chat", kind="chat", address="a:1", is_default=True)
     db.add(CatalogModel(source_name="chat", kind="chat", model_id="m", enabled=True))
-    user = AdminUser(
+    user = WebUser(
         username="bob",
         password_hash="x",
         is_platform_admin=False,

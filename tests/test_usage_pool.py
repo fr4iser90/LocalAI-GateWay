@@ -6,7 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from app.data.models import (
-    AdminUser,
+    WebUser,
     AuthSettings,
     Base,
     CatalogModel,
@@ -74,7 +74,7 @@ def test_pool_exhaust_and_window(tmp_path: Path):
         pool_min_cost=1.0,
     )
     db.add(auth)
-    owner = AdminUser(
+    owner = WebUser(
         username="friend",
         password_hash="x",
         is_platform_admin=False,
@@ -196,7 +196,7 @@ def test_migrate_pool_to_token_budget(tmp_path: Path):
     db = _session(tmp_path)
     auth = AuthSettings(pool_tokens_per_unit=1000, pool_min_cost=1.0)
     db.add(auth)
-    u = AdminUser(
+    u = WebUser(
         username="u",
         password_hash="x",
         pool_limit=100,

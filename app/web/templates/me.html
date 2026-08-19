@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Overview · OnPrem AI Gateway{% endblock %}
+{% block content %}
+<header class="page-head page-head--compact">
+  <div>
+    <h1>Overview</h1>
+  </div>
+</header>
+
+{% if not keys %}
+<section class="panel" id="connect">
+  <div class="panel-head">
+    <div class="panel-head-text">
+      <h2>Connect a client</h2>
+      <p class="panel-sub">Three steps — then VS Code / Continue / curl work.</p>
+    </div>
+  </div>
+  <div class="empty-state">
+    <p class="empty-state-title">No keys yet</p>
+    <p class="empty-state-text">Create your first API key, then connect a client and usage will appear here.</p>
+  </div>
+  <ol class="setup-steps">
+    <li class="setup-step is-todo">
+      <div class="setup-step-main">
+        <span class="setup-mark">1</span>
+        <div>
+          <strong>OpenAI base URL</strong>
+          <p class="muted text-sm mt-block mono select-all">{{ api_base }}</p>
+        </div>
+      </div>
+    </li>
+    <li class="setup-step is-todo">
+      <div class="setup-step-main">
+        <span class="setup-mark">2</span>
+        <div>
+          <strong>API key</strong>
+          <p class="muted text-sm mt-block">Create one under API Keys — copy it once (shown only at creation). Header: <span class="mono">X-Api-Key</span> or <span class="mono">Authorization: Bearer …</span></p>
+        </div>
+      </div>
+      <a class="btn btn-sm primary" href="/keys/new">New key</a>
+    </li>
+    <li class="setup-step is-todo">
+      <div class="setup-step-main">
+        <span class="setup-mark">3</span>
+        <div>
+          <strong>Smoke test</strong>
+          <p class="muted text-sm mt-block mono select-all">curl -s -H "X-Api-Key: YOUR_KEY" {{ api_base }}/models</p>
+        </div>
+      </div>
+    </li>
+  </ol>
+</section>
+{% else %}
+{% include "_pulse.html" %}
+{% endif %}
+{% endblock %}

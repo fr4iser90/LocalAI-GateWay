@@ -1,8 +1,15 @@
 # OPTIONAL Traefik example (external Docker network "proxy").
 # Default install: compose.yaml (no reverse proxy).
-# Set PUBLIC_HOST in .env to the API hostname Traefik should serve.
+# Set DOMAIN in .env (Traefik serves https://llm.${DOMAIN}/ and /v1/...).
 #
 # Usage:  docker compose -f compose.traefik.yaml up -d --build
+
+name: onprem
+
+# Same auto UID/GID as compose.yaml — from your shell ($UID / $GID), not .env.
+x-host-id: &host-id
+  PUID: ${UID:-1000}
+  PGID: ${GID:-1000}
 
 x-restart: &restart
   restart: unless-stopped
@@ -12,36 +19,37 @@ x-proxy-net: &proxy-net
     - proxy
 
 services:
-  auth-gateway:
+  onprem-auth:
     <<: [*restart, *proxy-net]
     build: .
-    container_name: llm-auth-gateway
+    container_name: onprem-auth
     env_file: .env
     environment:
+      <<: *host-id
       DATA_DIR: /data
       ADMIN_BOOTSTRAP_USER: ${ADMIN_BOOTSTRAP_USER:-admin}
       PORT: "8080"
     volumes:
-      - auth-gateway-data:/data
+      - onprem-auth-data:/data
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
-      - traefik.http.routers.gateway-admin.rule=Host(`gateway.${DOMAIN}`)
-      - traefik.http.routers.gateway-admin.entrypoints=websecure
-      - traefik.http.routers.gateway-admin.tls=true
-      - traefik.http.routers.gateway-admin.tls.certresolver=http_resolver
-      - traefik.http.services.gateway-admin.loadbalancer.server.port=8080
-      - traefik.http.routers.gateway-admin-http.rule=Host(`gateway.${DOMAIN}`)
-      - traefik.http.routers.gateway-admin-http.entrypoints=web
-      - traefik.http.routers.gateway-admin-http.middlewares=gateway-https-redirect
-      - traefik.http.middlewares.gateway-https-redirect.redirectscheme.scheme=https
+      - traefik.http.routers.onprem-admin.rule=Host(`llm.${DOMAIN}`)
+      - traefik.http.routers.onprem-admin.entrypoints=websecure
+      - traefik.http.routers.onprem-admin.tls=true
+      - traefik.http.routers.onprem-admin.tls.certresolver=http_resolver
+      - traefik.http.services.onprem-admin.loadbalancer.server.port=8080
+      - traefik.http.routers.onprem-admin-http.rule=Host(`llm.${DOMAIN}`)
+      - traefik.http.routers.onprem-admin-http.entrypoints=web
+      - traefik.http.routers.onprem-admin-http.middlewares=onprem-https-redirect
+      - traefik.http.middlewares.onprem-https-redirect.redirectscheme.scheme=https
 
-  llm-gateway:
+  onprem-api:
     <<: [*restart, *proxy-net]
     image: nginx:alpine
-    container_name: llm-gateway
+    container_name: onprem-api
     depends_on:
-      - auth-gateway
+      - onprem-auth
     env_file: .env
     volumes:
       - ./nginx.conf:/etc/nginx/templates/nginx.conf.template:ro
@@ -50,17 +58,17 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
-      - traefik.http.routers.llm-gateway.rule=Host(`${PUBLIC_HOST}`)
-      - traefik.http.routers.llm-gateway.entrypoints=websecure
-      - traefik.http.routers.llm-gateway.tls=true
-      - traefik.http.routers.llm-gateway.tls.certresolver=http_resolver
-      - traefik.http.services.llm-gateway.loadbalancer.server.port=80
-      - traefik.http.routers.llm-gateway-http.rule=Host(`${PUBLIC_HOST}`)
-      - traefik.http.routers.llm-gateway-http.entrypoints=web
-      - traefik.http.routers.llm-gateway-http.middlewares=gateway-https-redirect
+      - traefik.http.routers.onprem-api.rule=Host(`llm.${DOMAIN}`) && PathPrefix(`/v1`)
+      - traefik.http.routers.onprem-api.entrypoints=websecure
+      - traefik.http.routers.onprem-api.tls=true
+      - traefik.http.routers.onprem-api.tls.certresolver=http_resolver
+      - traefik.http.services.onprem-api.loadbalancer.server.port=80
+      - traefik.http.routers.onprem-api-http.rule=Host(`llm.${DOMAIN}`) && PathPrefix(`/v1`)
+      - traefik.http.routers.onprem-api-http.entrypoints=web
+      - traefik.http.routers.onprem-api-http.middlewares=onprem-https-redirect
 
 volumes:
-  auth-gateway-data:
+  onprem-auth-data:
 
 networks:
   proxy:

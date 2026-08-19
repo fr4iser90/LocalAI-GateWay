@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("gw_theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
+        document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    })();
+  </script>
+  <title>{% block title %}OnPrem AI Gateway{% endblock %}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body{% if user is defined and user %} data-tz="{{ display_tz|default('UTC') }}"{% endif %}>
+{% if user is defined and user %}
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<div class="layout">
+  <button type="button" class="nav-backdrop" data-nav-backdrop hidden aria-hidden="true" tabindex="-1"></button>
+  <aside class="sidebar" id="app-sidebar" aria-label="Main">
+    <p class="brand">
+      <img class="brand-mark" src="/static/favicon.svg" width="22" height="22" alt="">
+      OnPrem AI Gateway
+    </p>
+    <nav class="nav" aria-label="Primary">
+      {% set setup_lock = setup_incomplete|default(false) or request.state.setup_incomplete|default(false) %}
+      {% set usage_on = nav in ['usage', 'usage-daily'] %}
+      {% if setup_lock %}
+      <div class="nav-group nav-group--you" role="group" aria-labelledby="nav-first-run">
+        <p class="nav-group-label" id="nav-first-run">First run</p>
+        <a href="/setup" class="{{ 'active' if nav == 'setup' else '' }}" {% if nav == 'setup' %}aria-current="page"{% endif %}>Setup</a>
+        <a href="/account" class="{{ 'active' if nav == 'account' else '' }}" {% if nav == 'account' %}aria-current="page"{% endif %}>Profile</a>
+      </div>
+      {% else %}
+
+      <div class="nav-group nav-group--you" role="group" aria-labelledby="nav-you">
+        <p class="nav-group-label" id="nav-you">You</p>
+        <a href="/me" class="{{ 'active' if nav == 'me' else '' }}" {% if nav == 'me' %}aria-current="page"{% endif %}>Overview</a>
+        <a href="/keys" class="{{ 'active' if nav == 'keys' else '' }}" {% if nav == 'keys' %}aria-current="page"{% endif %}>API Keys</a>
+        <a href="/usage" class="{{ 'active' if usage_on else '' }}" {% if usage_on %}aria-current="page"{% endif %}>Usage</a>
+        <a href="/account" class="{{ 'active' if nav == 'account' else '' }}" {% if nav == 'account' %}aria-current="page"{% endif %}>Profile</a>
+        <a href="/privacy" class="{{ 'active' if nav == 'privacy' else '' }}" {% if nav == 'privacy' %}aria-current="page"{% endif %}>Data &amp; Privacy</a>
+      </div>
+
+      {% if user.is_platform_admin %}
+      <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-ops">
+        <p class="nav-group-label" id="nav-ops">Ops</p>
+        <a href="/" class="{{ 'active' if nav == 'dashboard' else '' }}" {% if nav == 'dashboard' %}aria-current="page"{% endif %}>Overview</a>
+      </div>
+
+      <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-backends">
+        <p class="nav-group-label" id="nav-backends">Backends</p>
+        <a href="/services" class="{{ 'active' if nav == 'services' else '' }}" {% if nav == 'services' %}aria-current="page"{% endif %}>Services</a>
+        <a href="/models" class="{{ 'active' if nav == 'models' else '' }}" {% if nav == 'models' %}aria-current="page"{% endif %}>Models</a>
+      </div>
+
+      <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-access">
+        <p class="nav-group-label" id="nav-access">Access</p>
+        <a href="/users" class="{{ 'active' if nav == 'users' else '' }}" {% if nav == 'users' %}aria-current="page"{% endif %}>Users &amp; Access</a>
+        {% if teams_enabled %}
+        <a href="/teams" class="{{ 'active' if nav == 'teams' else '' }}" {% if nav == 'teams' %}aria-current="page"{% endif %}>Teams</a>
+        {% endif %}
+      </div>
+
+      <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-system">
+        <p class="nav-group-label" id="nav-system">System</p>
+        <a href="/settings" class="{{ 'active' if nav in ['settings', 'smtp', 'alerts', 'audit'] else '' }}" {% if nav in ['settings', 'smtp', 'alerts', 'audit'] %}aria-current="page"{% endif %}>OnPrem AI Gateway settings</a>
+      </div>
+      {% elif teams_enabled %}
+      <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-team">
+        <p class="nav-group-label" id="nav-team">Team</p>
+        <a href="/teams" class="{{ 'active' if nav == 'teams' else '' }}" {% if nav == 'teams' %}aria-current="page"{% endif %}>Teams</a>
+      </div>
+      {% endif %}
+
+      {% endif %}
+    </nav>
+    <div class="sidebar-foot">
+      <button type="button" class="btn btn-sm theme-toggle" data-theme-toggle aria-label="Toggle color theme">Light</button>
+      <div>{{ user.username }}{% if user.is_platform_admin %} · admin{% endif %}</div>
+      <form method="post" action="/logout" class="logout-form">
+        <button class="btn-sm" type="submit">Logout</button>
+      </form>
+      {% include "_legal_links.html" %}
+    </div>
+  </aside>
+  <div class="main-column">
+    <header class="topbar">
+      <button type="button" class="btn btn-sm nav-toggle" data-nav-toggle
+              aria-controls="app-sidebar" aria-expanded="false" aria-label="Open navigation">
+        Menu
+      </button>
+      <span class="topbar-brand">OnPrem AI Gateway</span>
+    </header>
+    <main id="main-content" class="content{% block content_class %}{% endblock %}" tabindex="-1">
+      <div class="content-inner">
+        {% include "_flash.html" %}
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+</div>
+<script src="/static/theme.js"></script>
+<script src="/static/nav.js"></script>
+<script src="/static/picker.js"></script>
+<script src="/static/ui.js"></script>
+<script>
+(function () {
+  var tz;
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return; }
+  if (!tz) return;
+  var server = document.body.getAttribute('data-tz') || '';
+  var prev = '';
+  document.cookie.split(';').forEach(function (c) {
+    c = c.trim();
+    if (c.indexOf('gw_tz=') === 0) prev = decodeURIComponent(c.slice(6));
+  });
+  document.cookie = 'gw_tz=' + encodeURIComponent(tz) + ';path=/;max-age=31536000;SameSite=Lax';
+  if (tz === server || tz === prev) return;
+  fetch('/account/timezone/auto', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'timezone=' + encodeURIComponent(tz)
+  }).then(function (r) {
+    if (r.ok && tz !== server) location.reload();
+  }).catch(function () {});
+})();
+</script>
+{% else %}
+{% block body %}{% endblock %}
+{% include "_legal_links.html" %}
+<script src="/static/theme.js"></script>
+{% endif %}
+</body>
+</html>

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Usage daily · OnPrem AI Gateway{% endblock %}
+{% block content %}
+<header class="page-head page-head--compact">
+  <div>
+    <h1>Usage</h1>
+  </div>
+</header>
+
+<nav class="subnav" aria-label="Usage views">
+  <a href="/usage">Events</a>
+  <a href="/usage/daily" class="is-active" aria-current="page">Daily rollup</a>
+</nav>
+
+<div class="panel">
+  <div class="table-wrap">
+  <table>
+    <caption class="sr-only">Daily usage aggregates</caption>
+    <thead><tr><th>Day</th>{% if teams_enabled %}<th>Team</th>{% endif %}<th>Key</th><th>Service</th><th>Model</th><th>OK</th><th>Deny</th><th>429</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td class="mono">{{ r.day }}</td>
+        {% if teams_enabled %}<td>{{ r.team_name or '—' }}</td>{% endif %}
+        <td>{{ r.key_label or '—' }}</td>
+        <td>{{ r.service }}</td>
+        <td class="mono">{{ r.model or '—' }}</td>
+        <td>{{ r.ok_count }}</td>
+        <td>{{ r.deny_count }}</td>
+        <td>{{ r.rate_limit_count }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="{{ 8 if teams_enabled else 7 }}" class="empty-cell">
+        <div class="empty-state">
+          <p class="empty-state-title">No aggregates yet</p>
+          <p class="empty-state-text">Daily rollups appear after traffic is recorded. Check Events for the live stream.</p>
+          <a class="btn" href="/usage">View events</a>
+        </div>
+      </td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

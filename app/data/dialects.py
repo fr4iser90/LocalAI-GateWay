@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ApiDialect:
-    """One upstream wire format the gateway knows how to talk to."""
+    """One upstream wire format OnPrem AI Gateway knows how to talk to."""
 
     id: str
     label: str

@@ -1,6 +1,6 @@
-# LocalAI-GateWay
+# OnPrem AI Gateway
 
-Auth + admin UI in front of local AI backends (llama.cpp / Ollama / Whisper / Piper / …).
+Auth + web UI in front of local AI backends (llama.cpp / Ollama / Whisper / Piper / …).
 
 **One API base URL + API key.** The path selects the service. No per-service subdomains.  
 A reverse proxy is optional.
@@ -8,19 +8,19 @@ A reverse proxy is optional.
 ## Architecture
 
 ```
-Client → (optional) your proxy → llm-gateway (nginx, path routes)
+Client → (optional) your proxy → onprem-api (nginx, path routes)
                               → auth check → upstream host:port
-Admin  → auth-gateway Web UI
+Web UI → onprem-auth
 ```
 
 ## Quick start (no reverse proxy)
 
 ```bash
-cp .env.example .env   # SESSION_SECRET, ADMIN_BOOTSTRAP_PASSWORD, DOMAIN, PUBLIC_HOST
+cp .env.example .env   # SESSION_SECRET, ADMIN_BOOTSTRAP_PASSWORD, DOMAIN
 docker compose up -d --build
 ```
 
-- Admin: `http://localhost:9080`
+- Web UI: `http://localhost:9080`
 - API: `http://localhost:9081/v1/chat/completions` with header `X-Api-Key: …`
 
 ## API paths
@@ -36,15 +36,15 @@ docker compose up -d --build
 
 **Model merge:** All sources of a kind are equal. `/v1` picks a source by request `model` from the **enabled** catalog. No match → 404 `unknown_model` (or 400 `missing_model`). Who may call a source is the **user/key grant**. `/s/{name}/` is only an optional pin.  
 **API dialects:** `api_style` on each source — see `app/data/dialects.py`.  
-**Model catalog:** Admin → Models — sync, disable, tags/notes/docs links.  
+**Model catalog:** Settings → Models — sync, disable, tags/notes/docs links.  
 Keys/Teams pick models via checkboxes (empty = all).  
 `GET /v1/models` returns only enabled models ∩ key/team allowlist (notes → `description` when set).  
 Aliases **`auto`**, **`auto-quality`**, **`auto-long`** are rewritten in Settings → Routing (daily Q4 MoE+MTP / Q5 MoE+MTP / 128k). Enable **Auto-VL** so screenshots follow the text model.
 
 ## Optional reverse proxy
 
-Point one hostname (`PUBLIC_HOST`) at the API gateway container (port 80).  
-Admin can stay on `gateway.${DOMAIN}` (see optional `compose.traefik.yaml`) or your own proxy rules.
+Point `llm.${DOMAIN}` at your Traefik (see optional `compose.traefik.yaml`).  
+Web UI runs at `https://llm.${DOMAIN}/`, while the OpenAI-compatible API runs at `https://llm.${DOMAIN}/v1/...`.
 
 ```bash
 # Only if you already use Traefik on network "proxy":
@@ -55,15 +55,17 @@ docker compose -f compose.traefik.yaml up -d --build
 
 | `.env` | Web UI |
 |--------|--------|
-| `DOMAIN`, `PUBLIC_HOST`, `SESSION_SECRET`, bootstrap admin, `OPERATOR_*` (Impressum) | API keys, users, SMTP, teams, operator form if env empty |
+| `DOMAIN`, `SESSION_SECRET`, bootstrap platform admin, `OPERATOR_*` (Impressum) | API keys, users, SMTP, teams, operator form if env empty |
 | Ports, thermal sidecar (prod example) | Named sources (kind + address); grant keys per source |
 
-Admin page layout (Browse vs Task vs Auth) is documented in [docs/LAYOUT.md](docs/LAYOUT.md) and enforced by `tests/test_admin_layout_convention.py`.
+Web page layout (Browse vs Task vs Auth) is documented in [docs/LAYOUT.md](docs/LAYOUT.md) and enforced by `tests/test_web_layout_convention.py`.
+
+Architecture (bounded contexts): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Layout
 
 ```
-app/                     # FastAPI auth + admin
+app/                     # FastAPI: web UI (app/web/) + API auth + data
 services/source-sidecar/ # optional source-host sidecar (power + thermal)
 compose.yaml             # default
 compose.traefik.yaml     # optional Traefik example

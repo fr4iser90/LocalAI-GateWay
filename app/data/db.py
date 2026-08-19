@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..config import KINDS, Settings
 from .models import (
-    AdminUser,
+    WebUser,
     AlertConfig,
     ApiKey,
     AuthSettings,
@@ -53,7 +53,10 @@ def verify_password(password: str, password_hash: str) -> bool:
 def _ensure_columns(eng) -> None:
     """SQLite lightweight migrations for new columns."""
     specs = {
-        "admin_users": [
+        "password_reset_tokens": [
+            ("created_by_platform_admin", "BOOLEAN DEFAULT 0"),
+        ],
+        "web_users": [
             ("is_platform_admin", "BOOLEAN DEFAULT 0"),
             ("email", "VARCHAR(255)"),
             ("must_change_password", "BOOLEAN DEFAULT 0"),
@@ -373,7 +376,9 @@ def init_db(settings: Settings) -> None:
     global engine, SessionLocal
     data_dir = Path(settings.data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
-    db_path = data_dir / "gateway.db"
+    from ..config import DB_FILENAME
+
+    db_path = data_dir / DB_FILENAME
     engine = make_engine(str(db_path))
     SessionLocal = make_session_factory(engine)
     Base.metadata.create_all(bind=engine)
@@ -381,7 +386,7 @@ def init_db(settings: Settings) -> None:
     _ensure_audit_immutable(engine)
 
     with SessionLocal() as db:
-        bootstrap_admin(db, settings)
+        bootstrap_platform_admin(db, settings)
         migrate_legacy_keys(db, settings)
         if db.query(AlertConfig).first() is None:
             db.add(AlertConfig(enabled=False, webhook_url=""))
@@ -413,7 +418,7 @@ def init_db(settings: Settings) -> None:
             )
         from .backends import seed_backends_from_env
         from ..privacy import purge_old_usage
-        from ..admin.accounts import get_auth_settings
+        from ..web.accounts import get_auth_settings
 
         seed_backends_from_env(db, settings)
         auth = get_auth_settings(db)
@@ -436,11 +441,12 @@ def get_db():
         db.close()
 
 
-def bootstrap_admin(db: Session, settings: Settings) -> None:
-    user = db.query(AdminUser).filter(AdminUser.username == settings.admin_bootstrap_user).first()
+def bootstrap_platform_admin(db: Session, settings: Settings) -> None:
+    """Ensure the bootstrap platform-admin account exists on empty DB."""
+    user = db.query(WebUser).filter(WebUser.username == settings.admin_bootstrap_user).first()
     if user is None:
         db.add(
-            AdminUser(
+            WebUser(
                 username=settings.admin_bootstrap_user,
                 password_hash=hash_password(settings.admin_bootstrap_password),
                 is_active=True,
@@ -499,7 +505,7 @@ def migrate_legacy_keys(db: Session, settings: Settings) -> None:
 
 def prune_orphan_default_team(db: Session) -> None:
     """Remove leftover 'default' team when teams feature is off and unused."""
-    from ..admin.accounts import get_auth_settings
+    from ..web.accounts import get_auth_settings
 
     auth = get_auth_settings(db)
     if auth.teams_enabled:

@@ -1,0 +1,10 @@
+<nav class="subnav settings-tabs" aria-label="Settings sections">
+  <a href="/settings/access" class="{{ 'is-active' if settings_tab|default('') == 'access' else '' }}"{% if settings_tab|default('') == 'access' %} aria-current="page"{% endif %}>Access &amp; users</a>
+  <a href="/settings/limits" class="{{ 'is-active' if settings_tab|default('') == 'limits' else '' }}"{% if settings_tab|default('') == 'limits' %} aria-current="page"{% endif %}>Limits &amp; budget</a>
+  <a href="/settings/routing" class="{{ 'is-active' if settings_tab|default('') == 'routing' else '' }}"{% if settings_tab|default('') == 'routing' %} aria-current="page"{% endif %}>Routing</a>
+  <a href="/settings/privacy" class="{{ 'is-active' if settings_tab|default('') == 'privacy' else '' }}"{% if settings_tab|default('') == 'privacy' %} aria-current="page"{% endif %}>Data &amp; privacy</a>
+  <a href="/settings/system" class="{{ 'is-active' if settings_tab|default('') == 'system' else '' }}"{% if settings_tab|default('') == 'system' %} aria-current="page"{% endif %}>OnPrem AI Gateway info</a>
+  <a href="/smtp" class="{{ 'is-active' if nav == 'smtp' else '' }}"{% if nav == 'smtp' %} aria-current="page"{% endif %}>SMTP</a>
+  <a href="/alerts" class="{{ 'is-active' if nav == 'alerts' else '' }}"{% if nav == 'alerts' %} aria-current="page"{% endif %}>Alerts</a>
+  <a href="/audit" class="{{ 'is-active' if nav == 'audit' else '' }}"{% if nav == 'audit' %} aria-current="page"{% endif %}>Audit log</a>
+</nav>

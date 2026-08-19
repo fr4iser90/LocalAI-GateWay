@@ -6,7 +6,7 @@ import re
 
 from app.data.backends import upsert_source
 from app.data.db import hash_api_key
-from app.data.models import AdminUser, ApiKey, RegistrationInvite
+from app.data.models import WebUser, ApiKey, RegistrationInvite
 
 
 def _login_admin(client) -> None:
@@ -23,7 +23,7 @@ def _disable_self_registration() -> None:
 
     assert dbmod.SessionLocal is not None
     with dbmod.SessionLocal() as db:
-        from app.admin.accounts import get_auth_settings
+        from app.web.accounts import get_auth_settings
 
         auth = get_auth_settings(db)
         auth.allow_self_registration = False
@@ -45,7 +45,7 @@ def _complete_setup() -> None:
 
     assert dbmod.SessionLocal is not None
     with dbmod.SessionLocal() as db:
-        admin = db.query(AdminUser).filter(AdminUser.username == "admin").first()
+        admin = db.query(WebUser).filter(WebUser.username == "admin").first()
         assert admin is not None
         upsert_source(db, name="chat", kind="chat", address="127.0.0.1:1", is_default=True)
         if not db.query(ApiKey).filter(ApiKey.owner_user_id == admin.id).first():
@@ -122,7 +122,7 @@ def test_invite_link_allows_registration(gateway_client):
     from app.data import db as dbmod
 
     with dbmod.SessionLocal() as db:
-        u = db.query(AdminUser).filter(AdminUser.username == "friend1").first()
+        u = db.query(WebUser).filter(WebUser.username == "friend1").first()
         assert u is not None
         inv = (
             db.query(RegistrationInvite)

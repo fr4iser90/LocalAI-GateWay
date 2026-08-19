@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Profile · OnPrem AI Gateway{% endblock %}
+{% block content_class %} content--fill{% endblock %}
+{% block content %}
+<header class="page-head page-head--compact">
+  <div>
+    <h1>Profile</h1>
+  </div>
+</header>
+{% if force_pw %}<div class="flash warn" role="alert">You must change your password before continuing.</div>{% endif %}
+
+<div class="panel panel--fill">
+  <form method="post" action="/account/update" class="profile-form profile-form--fill" data-pw-form>
+    <div class="profile-top">
+      <div class="profile-meta">
+        <div class="profile-meta-item">
+          <span class="label">Login</span>
+          <span class="value mono">{{ user.username }}</span>
+        </div>
+        <div class="profile-meta-item">
+          <span class="label">Role</span>
+          <span class="value">{% if user.is_platform_admin %}Platform admin{% elif teams_enabled %}Team user{% else %}User{% endif %}</span>
+        </div>
+        <div class="profile-meta-item">
+          <span class="label">Display timezone</span>
+          <span class="value mono">{{ display_tz }}</span>
+        </div>
+      </div>
+      <p class="muted profile-hint">
+        Login name is fixed — it appears in audit logs and API ownership.
+        {% if is_admin %}Admins can update other accounts under <a href="/users">Users &amp; Access</a>.{% else %}Ask an admin if you need a different login name.{% endif %}
+      </p>
+    </div>
+
+    <div class="profile-fields">
+      {% if not force_pw %}
+      <div class="field field-gap">
+        <label for="account-email">Email</label>
+        <input id="account-email" type="email" name="email" value="{{ user.email or '' }}" placeholder="you@example.com" autocomplete="email">
+        <p class="hint-below">Used for login and password reset.</p>
+      </div>
+      <div class="field field-gap">
+        <label for="account-cur-pw">Current password</label>
+        <input id="account-cur-pw" type="password" name="current_password" autocomplete="current-password">
+        <p class="hint-below">Required when you change email or password.</p>
+      </div>
+      {% endif %}
+
+      <div class="field field-gap">
+        <label for="account-new-pw">{% if force_pw %}New password{% else %}New password <span class="muted label-normal">(optional)</span>{% endif %}</label>
+        <input id="account-new-pw" type="password" name="password" data-pw-new
+               {% if force_pw %}required{% endif %}
+               minlength="{{ pw_policy.min_len }}" maxlength="{{ pw_policy.max_len }}"
+               autocomplete="new-password">
+      </div>
+      <div class="field field-gap">
+        <label for="account-new-pw2">Confirm new password</label>
+        <input id="account-new-pw2" type="password" name="password2" data-pw-confirm
+               {% if force_pw %}required{% endif %}
+               minlength="{{ pw_policy.min_len }}" maxlength="{{ pw_policy.max_len }}"
+               autocomplete="new-password">
+      </div>
+      {% include "_pw_rules.html" %}
+    </div>
+
+    <div class="wizard-actions--sticky profile-actions">
+      <input class="primary" type="submit" value="{% if force_pw %}Update password{% else %}Save changes{% endif %}" data-pw-submit>
+    </div>
+  </form>
+</div>
+<script src="/static/pw-strength.js"></script>
+{% endblock %}

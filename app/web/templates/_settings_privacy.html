@@ -1,0 +1,16 @@
+<section class="panel">
+  <h2>Privacy &amp; data</h2>
+  <p class="muted mt-0">These are the OnPrem AI Gateway logging and retention defaults.</p>
+  <form method="post" action="/settings/privacy">
+    <div class="checkboxes checkboxes-block">
+      <label><input type="checkbox" name="anonymize_client_ip" {% if auth.anonymize_client_ip %}checked{% endif %}> Anonymize client IPs in usage logs</label>
+    </div>
+    <div class="field field-gap-md field--sm">
+      <label>Usage retention (days, 0 = keep forever)</label>
+      <input type="number" name="retention_days" min="0" max="3650" value="{{ auth.retention_days }}">
+    </div>
+    <p class="muted text-sm">Saving may purge events older than the retention window.</p>
+    <p class="muted text-sm"><a href="/privacy">Privacy &amp; data controls</a> — export and detailed policy.</p>
+    <button class="primary field-gap-md" type="submit">Save privacy</button>
+  </form>
+</section>

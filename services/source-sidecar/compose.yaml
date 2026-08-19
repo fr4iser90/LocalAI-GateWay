@@ -1,10 +1,10 @@
-# Standalone source host sidecar — run on the inference/GPU host, not on the gateway.
+# Standalone source host sidecar — run on the inference/GPU host, not on OnPrem AI Gateway.
 #
 #   docker compose up -d --build
 #   curl http://127.0.0.1:9105/power
 #   curl http://127.0.0.1:9105/thermal
 #
-# On the gateway server .env:
+# On the OnPrem AI Gateway server .env:
 #   GPU_POWER_URL=http://JARVIS_LAN_IP:9105/power
 #   TEMP_GUARD_URL=http://JARVIS_LAN_IP:9105/check
 

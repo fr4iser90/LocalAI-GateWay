@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from app.admin.dashboard_ops import attention_items
-from app.data.models import AdminUser, Base, make_engine, make_session_factory
+from app.web.dashboard_ops import attention_items
+from app.data.models import WebUser, Base, make_engine, make_session_factory
 
 
 def _db(tmp_path):
@@ -35,11 +35,11 @@ def test_attention_pool_near_limit(tmp_path):
     from app.data.db import hash_password
 
     db = _db(tmp_path)
-    from app.admin.accounts import get_auth_settings
+    from app.web.accounts import get_auth_settings
 
     auth = get_auth_settings(db)
     auth.pool_window_hours = 5
-    u = AdminUser(
+    u = WebUser(
         username="heavy",
         password_hash=hash_password("x"),
         is_active=True,

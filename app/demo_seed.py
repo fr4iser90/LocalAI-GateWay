@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from .audit import bump_usage_daily
 from .data.db import generate_api_key, hash_api_key, hash_password, key_display_prefix
 from .data.grants import sync_user_grants
-from .data.models import AdminUser, ApiKey, UsageDaily, UsageEvent, utcnow
+from .data.models import WebUser, ApiKey, UsageDaily, UsageEvent, utcnow
 
 SERVICES_DEMO = [
     ("chat", ["/v1/chat/completions", "llama3.2"], "tokens"),
@@ -47,13 +47,13 @@ def _demo_usernames() -> list[str]:
     return [spec.username for spec in DEMO_USERS]
 
 
-def ensure_demo_users(db: Session, *, source_names: list[str]) -> tuple[list[AdminUser], list[ApiKey]]:
-    users: list[AdminUser] = []
+def ensure_demo_users(db: Session, *, source_names: list[str]) -> tuple[list[WebUser], list[ApiKey]]:
+    users: list[WebUser] = []
     keys: list[ApiKey] = []
     for spec in DEMO_USERS:
-        user = db.query(AdminUser).filter(AdminUser.username == spec.username).first()
+        user = db.query(WebUser).filter(WebUser.username == spec.username).first()
         if user is None:
-            user = AdminUser(
+            user = WebUser(
                 username=spec.username,
                 email=spec.email,
                 password_hash=hash_password(DEMO_PASSWORD),
@@ -109,7 +109,7 @@ def clear_demo_usage(db: Session) -> int:
 def clear_demo_users(db: Session) -> int:
     removed = 0
     for username in _demo_usernames():
-        user = db.query(AdminUser).filter(AdminUser.username == username).first()
+        user = db.query(WebUser).filter(WebUser.username == username).first()
         if user is None:
             continue
         db.query(ApiKey).filter(ApiKey.owner_user_id == user.id).delete()
@@ -251,7 +251,7 @@ def seed_demo_usage(
 
 def seed_demo_world(db: Session, *, count: int = 280) -> dict:
     """Create demo users/keys and spread tagged usage across them."""
-    from .admin.accounts import get_auth_settings
+    from .web.accounts import get_auth_settings
     from .data.backends import source_names
 
     names = source_names(db)

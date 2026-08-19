@@ -4,7 +4,7 @@ from starlette.testclient import TestClient
 
 from app.data.backends import upsert_source
 from app.data.db import hash_api_key, hash_password
-from app.data.models import AdminUser, ApiKey, AuthSettings, UsageEvent
+from app.data.models import WebUser, ApiKey, AuthSettings, UsageEvent
 
 
 ADMIN_PASS = "test-admin-pass"
@@ -26,7 +26,7 @@ def _seed_ui_world():
 
     assert dbmod.SessionLocal is not None
     with dbmod.SessionLocal() as db:
-        admin = db.query(AdminUser).filter(AdminUser.username == "admin").first()
+        admin = db.query(WebUser).filter(WebUser.username == "admin").first()
         assert admin is not None
 
         upsert_source(db, name="chat", kind="chat", address="127.0.0.1:1", is_default=True)
@@ -49,9 +49,9 @@ def _seed_ui_world():
                 )
             )
 
-        user = db.query(AdminUser).filter(AdminUser.username == "user1").first()
+        user = db.query(WebUser).filter(WebUser.username == "user1").first()
         if user is None:
-            user = AdminUser(
+            user = WebUser(
                 username="user1",
                 password_hash=hash_password(USER_PASS),
                 is_platform_admin=False,
@@ -69,9 +69,9 @@ def _seed_ui_world():
                 )
             )
 
-        forced = db.query(AdminUser).filter(AdminUser.username == "forced").first()
+        forced = db.query(WebUser).filter(WebUser.username == "forced").first()
         if forced is None:
-            forced = AdminUser(
+            forced = WebUser(
                 username="forced",
                 password_hash=hash_password(FORCED_OLD_PASS),
                 is_platform_admin=False,
@@ -126,7 +126,7 @@ def test_user_overview_shows_pulse(gateway_client):
     assert page.status_code == 200
     assert "Overview" in page.text
     assert "Requests · 60 min" in page.text
-    assert "Gateway pulse" in page.text
+    assert "OnPrem AI Gateway pulse" in page.text
 
 
 def test_first_login_password_change_flow(gateway_client):

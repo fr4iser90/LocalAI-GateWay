@@ -10,7 +10,7 @@ from app.audit import (
     write_audit,
 )
 from app.crypto_util import hash_audit_chain
-from app.data.models import AdminUser, AuditLog, Base, make_engine, make_session_factory
+from app.data.models import WebUser, AuditLog, Base, make_engine, make_session_factory
 
 
 def _db(tmp_path):
@@ -28,7 +28,7 @@ def test_audit_ts_canonical():
 
 def test_write_and_verify_chain(tmp_path):
     db = _db(tmp_path)
-    admin = AdminUser(
+    admin = WebUser(
         username="admin",
         password_hash="x",
         is_platform_admin=True,

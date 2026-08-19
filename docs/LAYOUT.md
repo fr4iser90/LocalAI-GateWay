@@ -1,6 +1,6 @@
-# Admin UI layout modes
+# Web UI layout modes
 
-The gateway admin shell uses **three layout modes**. Each page uses exactly one mode.
+The OnPrem AI Gateway web UI uses **three layout modes**. Each page uses exactly one mode.
 Do not mix scroll owners on the same page (no page scroll + nested panel scroll unless the
 inner region is intentional, e.g. a model picker).
 
@@ -27,7 +27,7 @@ move with the scroll.
 | Charts / cards | Fixed height, no inner scroll |
 
 **Pages:** `/me`, `/usage`, `/usage/daily`, `/keys`, `/users`, `/teams`, `/models`,
-`/services`, `/` (admin dashboard), `/audit`, `/settings/*`, `/smtp`, `/alerts`,
+`/services`, `/` (platform ops dashboard), `/audit`, `/settings/*`, `/smtp`, `/alerts`,
 `/setup/done`, `/legal/*` (when signed in)
 
 ## Mode B — Task (`content--fill`)
@@ -79,5 +79,5 @@ primary page content (profile, settings, main forms).
 
 ## CI
 
-`tests/test_admin_layout_convention.py` asserts which templates use `content--fill` and
+`tests/test_web_layout_convention.py` asserts which templates use `content--fill` and
 which must not, so layout drift is caught in CI.

@@ -1,0 +1,58 @@
+<div class="legal-doc">
+  <input type="radio" id="legal-lang-de-cookies" name="legal-lang-cookies" checked>
+  <input type="radio" id="legal-lang-en-cookies" name="legal-lang-cookies">
+  <div class="legal-lang-tabs">
+    <label for="legal-lang-de-cookies">Deutsch</label>
+    <label for="legal-lang-en-cookies">English</label>
+  </div>
+  <div class="legal-lang-panels">
+
+    <div class="legal-lang-panel--de">
+      <p>
+        Diese Instanz setzt <strong>keine</strong> Analyse-, Werbe- oder Social-Cookies.
+        Deshalb gibt es kein Consent-Banner: nach TDDDG / ePrivacy brauchen nur
+        nicht notwendige Cookies eine Einwilligung.
+      </p>
+
+      <h2>Technisch notwendig</h2>
+      <ul>
+        <li><span class="mono">onprem_session</span> — Session-Cookie für Login in der Web-UI (alle Nutzer, HttpOnly, SameSite=Lax). Ohne diesen Cookie funktioniert die Web-UI nicht.</li>
+        <li><span class="mono">gw_tz</span> — Anzeige-Zeitzone aus dem Browser, damit Zeitstempel lokal stimmen. Speicherdauer ca. 1 Jahr.</li>
+      </ul>
+
+      <h2>Kein Cookie</h2>
+      <ul>
+        <li><span class="mono">localStorage gw_theme</span> — Hell-/Dunkelmodus, nur auf diesem Gerät, nicht an den Server gesendet.</li>
+      </ul>
+
+      <p class="muted">
+        Schriftarten liegen unter <span class="mono">/static/fonts</span> auf diesem Server.
+        Es werden keine externen Font-Dienste geladen.
+      </p>
+    </div>
+
+    <div class="legal-lang-panel--en">
+      <p>
+        This service sets <strong>no</strong> analytics, advertising, or social cookies.
+        There is no consent banner: under TDDDG / ePrivacy, only non-essential cookies need consent.
+      </p>
+
+      <h2>Strictly necessary</h2>
+      <ul>
+        <li><span class="mono">onprem_session</span> — session cookie for web UI sign-in (all users, HttpOnly, SameSite=Lax). The web UI does not work without it.</li>
+        <li><span class="mono">gw_tz</span> — display timezone from the browser so timestamps match local time. Kept about 1 year.</li>
+      </ul>
+
+      <h2>Not a cookie</h2>
+      <ul>
+        <li><span class="mono">localStorage gw_theme</span> — light/dark mode, on this device only, not sent to the server.</li>
+      </ul>
+
+      <p class="muted">
+        Fonts are served from <span class="mono">/static/fonts</span> on this server.
+        No external font services are loaded.
+      </p>
+    </div>
+
+  </div>
+</div>

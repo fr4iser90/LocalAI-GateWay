@@ -24,7 +24,7 @@ from app.data.grants import (
     sync_user_models_for_service,
 )
 from app.data.models import (
-    AdminUser,
+    WebUser,
     ApiKey,
     Base,
     CatalogModel,
@@ -48,7 +48,7 @@ def test_user_grant_ceiling_and_key_subset(tmp_path: Path):
     upsert_source(db, name="embed", kind="embed", address="127.0.0.1:2", is_default=True)
     db.add(CatalogModel(source_name="chat", kind="chat", model_id="a", enabled=True))
     db.add(CatalogModel(source_name="chat", kind="chat", model_id="b", enabled=True))
-    user = AdminUser(
+    user = WebUser(
         username="alice",
         password_hash="x",
         is_platform_admin=False,
@@ -87,7 +87,7 @@ def test_user_grant_ceiling_and_key_subset(tmp_path: Path):
 def test_empty_grant_models_means_all(tmp_path: Path):
     db = _session(tmp_path)
     upsert_source(db, name="chat", kind="chat", address="127.0.0.1:1", is_default=True)
-    user = AdminUser(
+    user = WebUser(
         username="bob",
         password_hash="x",
         is_platform_admin=False,
@@ -154,7 +154,7 @@ def test_team_grant_is_ceiling(tmp_path: Path):
 def test_platform_admin_unrestricted(tmp_path: Path):
     db = _session(tmp_path)
     upsert_source(db, name="chat", kind="chat", address="127.0.0.1:1", is_default=True)
-    admin = AdminUser(
+    admin = WebUser(
         username="admin",
         password_hash="x",
         is_platform_admin=True,
@@ -192,7 +192,7 @@ def test_configured_default_grant_template(tmp_path: Path):
     save_default_grant(db, ["chat", "chat2"], [("chat", "only-this")])
     db.commit()
     assert configured_default_sources(db) == ["chat", "chat2"]
-    user = AdminUser(
+    user = WebUser(
         username="bob",
         password_hash="x",
         is_platform_admin=False,
@@ -210,7 +210,7 @@ def test_configured_default_grant_template(tmp_path: Path):
 
     save_default_grant(db, [], [])
     db.commit()
-    user2 = AdminUser(
+    user2 = WebUser(
         username="empty",
         password_hash="x",
         is_platform_admin=False,
@@ -295,7 +295,7 @@ def test_sync_user_models_for_service_keeps_other_sources(tmp_path: Path):
     db = _session(tmp_path)
     upsert_source(db, name="chat", kind="chat", address="127.0.0.1:1", is_default=True)
     upsert_source(db, name="chat2", kind="chat", address="127.0.0.1:2", is_default=False)
-    user = AdminUser(
+    user = WebUser(
         username="cara",
         password_hash="x",
         is_platform_admin=False,

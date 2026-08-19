@@ -65,6 +65,6 @@ def wipe_usage_for_keys(db: Session, key_ids: list[int]) -> int:
 
 
 def get_privacy_flags(db: Session) -> AuthSettings:
-    from .admin.accounts import get_auth_settings
+    from .web.accounts import get_auth_settings
 
     return get_auth_settings(db)

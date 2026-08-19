@@ -1,0 +1,34 @@
+<section class="panel">
+  <h2>Routing</h2>
+  <form method="post" action="/settings/routing">
+    <h3 class="section-label">OnPrem AI Gateway behavior</h3>
+    <div class="checkboxes checkboxes-block">
+      <label><input type="checkbox" name="auto_vl_routing" {% if auth.auto_vl_routing %}checked{% endif %}> Auto-route image chat → VL model</label>
+      <label><input type="checkbox" name="preflight_upstream" {% if auth.preflight_upstream %}checked{% endif %}> Preflight upstream (503 when loading / busy)</label>
+      <label><input type="checkbox" name="load_aware_routing" {% if auth.load_aware_routing %}checked{% endif %}> Load-aware routing (spread tied models)</label>
+    </div>
+    <p class="muted field-gap-sm">
+      Preflight: quick check before proxy — <span class="mono">503</span> + <span class="mono">Retry-After</span> instead of long hangs.
+      Load-aware: pick least busy source when the same model exists on multiple boxes (~3s cache).
+    </p>
+
+    <h3 class="section-label field-gap-md">Auto model aliases</h3>
+    <p class="muted mt-0">
+      Clients may send <span class="mono">auto</span>, <span class="mono">auto-quality</span>, or <span class="mono">auto-long</span>.
+      Empty fields disable the rewrite for that alias slot.
+    </p>
+    <div class="field field-gap-md">
+      <label for="auto-default"><span class="mono">auto</span></label>
+      <input id="auto-default" type="text" name="auto_model_default" value="{{ auth.auto_model_default or '' }}" placeholder="optional (leave empty to disable)" autocomplete="off">
+    </div>
+    <div class="field field-gap-md">
+      <label for="auto-quality"><span class="mono">auto-quality</span></label>
+      <input id="auto-quality" type="text" name="auto_model_quality" value="{{ auth.auto_model_quality or '' }}" placeholder="optional (leave empty to disable)" autocomplete="off">
+    </div>
+    <div class="field field-gap-md">
+      <label for="auto-long"><span class="mono">auto-long</span></label>
+      <input id="auto-long" type="text" name="auto_model_long" value="{{ auth.auto_model_long or '' }}" placeholder="optional (leave empty to disable)" autocomplete="off">
+    </div>
+    <button class="primary" type="submit">Save routing</button>
+  </form>
+</section>

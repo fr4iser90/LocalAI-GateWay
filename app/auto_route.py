@@ -1,4 +1,4 @@
-"""Gateway model aliases: auto / auto-quality / auto-long.
+"""OnPrem AI Gateway model aliases: auto / auto-quality / auto-long.
 
 Clients send these ids; auth rewrites to real catalog names before
 source pick, grants, and llama-router. Vision still uses Auto-VL after this.
@@ -83,7 +83,7 @@ def auto_alias_list_entries(auth: AuthSettings | None) -> list[dict]:
             {
                 "id": alias,
                 "object": "model",
-                "owned_by": "gateway",
+                "owned_by": "onprem",
                 "created": 0,
                 "description": f"{label} → {target}",
             }

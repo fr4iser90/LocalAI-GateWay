@@ -4,7 +4,7 @@ Artifacts land in ``output/integration/<timestamp>/`` (and ``latest`` symlink),
 including per-call watt samples from ``http://<source-host>:9105/power``
 (or ``GPU_POWER_URL`` if set).
 
-Preferred path: hit the **gateway** (``INTEGRATION_GATEWAY`` / ``:9081``) with
+Preferred path: hit OnPrem API (``INTEGRATION_API_BASE`` / ``:9081``) with
 ``INTEGRATION_API_KEY`` so chat metering (real duration + Wh) is exercised.
 Falls back to direct ``*_SOURCE`` hosts if no API key.
 
@@ -36,8 +36,8 @@ from tests.integration_helpers import (
     env_source,
     extract_html_document,
     first_model_id,
-    gateway_api_key,
-    gateway_base,
+    onprem_api_key,
+    onprem_api_base,
     gpu_power_url,
     integration_output_dir,
     require_integration,
@@ -60,10 +60,10 @@ pytestmark = pytest.mark.integration
 
 
 def _via_gateway() -> tuple[str, dict[str, str]] | None:
-    key = gateway_api_key()
+    key = onprem_api_key()
     if not key:
         return None
-    return gateway_base(), {"X-Api-Key": key}
+    return onprem_api_base(), {"X-Api-Key": key}
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -505,10 +505,10 @@ def test_gateway_usage_events_include_watts(out_dir):
         from pathlib import Path
 
         # Host may not see /data — try docker volume via published nothing;
-        # fall back to querying auth-gateway container file if mounted.
+        # fall back to querying onprem-auth container file if mounted.
         candidates = [
-            Path("/data/gateway.db"),
-            Path(__file__).resolve().parents[1] / "data" / "gateway.db",
+            Path("/data/onprem.db"),
+            Path(__file__).resolve().parents[1] / "data" / "onprem.db",
         ]
         db_path = next((p for p in candidates if p.is_file()), None)
         if db_path is None:
@@ -519,7 +519,7 @@ def test_gateway_usage_events_include_watts(out_dir):
                 [
                     "docker",
                     "exec",
-                    "llm-auth-gateway",
+                    "onprem-auth",
                     "python",
                     "-c",
                     r"""

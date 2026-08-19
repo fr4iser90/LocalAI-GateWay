@@ -13,7 +13,7 @@ from ..config import MODEL_CHECK_KINDS
 from .backends import source_names
 from .catalog import list_catalog
 from .models import (
-    AdminUser,
+    WebUser,
     ApiKey,
     AuthSettings,
     CatalogModel,
@@ -77,7 +77,7 @@ def ceiling_from_team(team: Team) -> AccessCeiling:
     )
 
 
-def ceiling_from_user(user: AdminUser) -> AccessCeiling:
+def ceiling_from_user(user: WebUser) -> AccessCeiling:
     if user.is_platform_admin:
         return AccessCeiling(unrestricted=True, label=f"admin:{user.username}")
     services = {g.service for g in (user.service_grants or [])}
@@ -89,16 +89,16 @@ def ceiling_from_user(user: AdminUser) -> AccessCeiling:
     )
 
 
-def load_user_with_grants(db: Session, user_id: int | None) -> AdminUser | None:
+def load_user_with_grants(db: Session, user_id: int | None) -> WebUser | None:
     if not user_id:
         return None
     return (
-        db.query(AdminUser)
+        db.query(WebUser)
         .options(
-            joinedload(AdminUser.service_grants),
-            joinedload(AdminUser.model_allowlists),
+            joinedload(WebUser.service_grants),
+            joinedload(WebUser.model_allowlists),
         )
-        .filter(AdminUser.id == user_id)
+        .filter(WebUser.id == user_id)
         .first()
     )
 
@@ -213,14 +213,14 @@ def services_for_ceiling(db: Session, ceil: AccessCeiling) -> list[str]:
     return [n for n in names if n in ceil.services]
 
 
-def sync_user_grants(db: Session, user: AdminUser, services: list[str]) -> None:
+def sync_user_grants(db: Session, user: WebUser, services: list[str]) -> None:
     db.query(ServiceGrant).filter(ServiceGrant.user_id == user.id).delete()
     for s in services:
         db.add(ServiceGrant(user_id=user.id, service=s))
 
 
 def sync_user_models(
-    db: Session, user: AdminUser, models: list[tuple[str, str]]
+    db: Session, user: WebUser, models: list[tuple[str, str]]
 ) -> None:
     db.query(ModelAllowlist).filter(ModelAllowlist.user_id == user.id).delete()
     for svc, name in models:
@@ -228,7 +228,7 @@ def sync_user_models(
 
 
 def sync_user_models_for_service(
-    db: Session, user: AdminUser, service: str, model_names: list[str] | None
+    db: Session, user: WebUser, service: str, model_names: list[str] | None
 ) -> None:
     """Replace allowlist for one source only. None = all models (no rows)."""
     db.query(ModelAllowlist).filter(
@@ -366,7 +366,7 @@ def save_default_grant(
     auth.default_grant_models = "\n".join(f"{s}:{m}" for s, m in kept)
 
 
-def apply_default_grant(db: Session, user: AdminUser) -> None:
+def apply_default_grant(db: Session, user: WebUser) -> None:
     services = configured_default_sources(db)
     sync_user_grants(db, user, services)
     models = configured_default_models(db)

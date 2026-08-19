@@ -279,7 +279,7 @@ def mint_forward_ticket(
     usage_id: int | None = None,
     concurrency_lease=None,
 ) -> str:
-    """Ticket for nginx → /v1/gateway/forward (VL rewrite and/or usage metering)."""
+    """Ticket for nginx → /v1/onprem/forward (VL rewrite and/or usage metering)."""
     ts = int(time.time())
     payload: dict = {
         "ts": ts,

@@ -12,7 +12,7 @@ import pytest
 from app.data.backends import upsert_source
 from app.data.db import hash_api_key, hash_password
 from app.data.grants import sync_user_grants
-from app.data.models import AdminUser, ApiKey, CatalogModel, ModelAllowlist, ServiceGrant
+from app.data.models import WebUser, ApiKey, CatalogModel, ModelAllowlist, ServiceGrant
 
 pytestmark = pytest.mark.security
 
@@ -47,7 +47,7 @@ def _seed_security_world() -> SecurityWorld:
     assert dbmod.SessionLocal is not None
     with dbmod.SessionLocal() as db:
         admin = (
-            db.query(AdminUser).filter(AdminUser.username == "admin").first()
+            db.query(WebUser).filter(WebUser.username == "admin").first()
         )
         assert admin is not None
 
@@ -74,13 +74,13 @@ def _seed_security_world() -> SecurityWorld:
                 )
             )
 
-        alice = AdminUser(
+        alice = WebUser(
             username="alice",
             password_hash=hash_password(ALICE_PASS),
             is_platform_admin=False,
             is_active=True,
         )
-        bob = AdminUser(
+        bob = WebUser(
             username="bob",
             password_hash=hash_password(BOB_PASS),
             is_platform_admin=False,
@@ -248,7 +248,7 @@ def test_user_cannot_create_users(sec):
 
 def test_api_missing_key_is_unauthorized(sec):
     client, _world = sec
-    resp = client.get("/v1/gateway/models", follow_redirects=False)
+    resp = client.get("/v1/onprem/models", follow_redirects=False)
     assert resp.status_code == 401
     assert resp.json()["error"] == "unauthorized"
 
@@ -256,7 +256,7 @@ def test_api_missing_key_is_unauthorized(sec):
 def test_api_invalid_key_is_unauthorized(sec):
     client, _world = sec
     resp = client.get(
-        "/v1/gateway/models",
+        "/v1/onprem/models",
         headers={"X-Api-Key": "not-a-real-key"},
         follow_redirects=False,
     )

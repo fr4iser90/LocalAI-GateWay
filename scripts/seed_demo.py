@@ -5,7 +5,7 @@ Usage (local repo):
   python scripts/seed_demo.py
 
 Usage (running compose container):
-  docker exec llm-auth-gateway python scripts/seed_demo.py
+  docker exec onprem-auth python scripts/seed_demo.py
 """
 
 from __future__ import annotations

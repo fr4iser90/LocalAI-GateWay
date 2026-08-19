@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import timedelta
 from pathlib import Path
 
-from app.admin.user_limits import user_limits_summary
-from app.data.models import AdminUser, Base, CatalogModel, UsageEvent, make_engine, make_session_factory, utcnow
+from app.web.user_limits import user_limits_summary
+from app.data.models import WebUser, Base, CatalogModel, UsageEvent, make_engine, make_session_factory, utcnow
 from app.data.usage_weights import catalog_weight_suggestions
 
 
@@ -53,7 +53,7 @@ def test_suggestions_ready_and_weights(tmp_path: Path):
 
 def test_user_limits_summary_empty_means_unlimited(tmp_path: Path):
     db = _session(tmp_path)
-    u = AdminUser(username="bob", password_hash="x", is_platform_admin=False)
+    u = WebUser(username="bob", password_hash="x", is_platform_admin=False)
     db.add(u)
     db.commit()
     assert user_limits_summary(u) == "No limits (∞)"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app.admin.access import can_access_key, owned_team_ids
+from app.web.access import can_access_key, owned_team_ids
 
 
 def _user(*, uid: int, admin: bool = False, memberships: list | None = None):

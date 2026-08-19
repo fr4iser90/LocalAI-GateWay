@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}API Keys · OnPrem AI Gateway{% endblock %}
+{% block content %}
+<header class="page-head page-head--compact">
+  <div>
+    <h1>API Keys</h1>
+    <p class="page-meta">{{ keys|length }} keys · {{ active_count }} active</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn primary" href="/keys/new">New key</a>
+  </div>
+</header>
+
+{% if flash_key %}
+<div class="flash warn" role="status">
+  <p class="m-0"><strong>Copy this key now</strong> — it will not be shown again.</p>
+  <p class="mono key-reveal select-all mt-block">{{ flash_key }}</p>
+  {% if flash_key_services %}
+  <p class="muted text-sm mt-half">Sources: {{ flash_key_services }}</p>
+  {% endif %}
+  {% if api_base %}
+  <p class="muted text-sm mt-half">
+    OpenAI base URL:
+    <span class="mono select-all">{{ api_base }}</span>
+  </p>
+  <p class="muted text-xs mt-third mono select-all">curl -s -H "X-Api-Key: {{ flash_key }}" {{ api_base }}/models</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="panel">
+  <div class="table-wrap">
+  <table class="keys-table">
+    <thead>
+      <tr>
+        <th>Label</th>
+        <th>Prefix</th>
+        {% if teams_enabled %}<th>Team</th>{% endif %}
+        <th>Services</th>
+        <th>Last used</th>
+        <th>24h</th>
+        <th>Limits</th>
+        <th>Priority</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for k in keys %}
+      <tr id="key-row-{{ k.id }}">
+        <td>{{ k.label }}</td>
+        <td class="mono">{{ k.key_prefix }}</td>
+        {% if teams_enabled %}<td>{{ k.team.name if k.team else '—' }}</td>{% endif %}
+        <td>
+          {% for g in k.service_grants %}
+            <span class="badge" title="{{ source_tips.get(g.service, g.service) }}">{{ g.service }}</span>
+          {% else %}
+            <span class="muted">{% if teams_enabled %}team defaults{% else %}none{% endif %}</span>
+          {% endfor %}
+        </td>
+        <td class="mono">{% if last_used.get(k.id) %}{{ last_used.get(k.id) }}{% else %}—{% endif %}</td>
+        <td class="mono">{{ usage_24h.get(k.id, 0) }}</td>
+        <td class="mono">
+          rpm={{ k.rpm_limit if k.rpm_limit is not none else '∅' }}
+          / conc={{ k.concurrency_limit if k.concurrency_limit is not none else '∅' }}
+        </td>
+        <td>{{ k.priority if k.priority is not none else '∅' }}</td>
+        <td>
+          {% if k.is_active %}<span class="badge ok">active</span>
+          {% else %}<span class="badge off">revoked</span>{% endif %}
+        </td>
+        <td class="actions">
+          <a class="btn btn-sm" href="/keys?edit={{ k.id }}" data-key-edit="{{ k.id }}">Edit</a>
+          <form method="post" action="/keys/{{ k.id }}/rotate">
+            <button class="btn-sm" type="submit">Rotate</button>
+          </form>
+          {% if k.is_active %}
+          <form method="post" action="/keys/{{ k.id }}/revoke">
+            <button class="btn-sm btn-danger" type="submit">Revoke</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="{% if teams_enabled %}10{% else %}9{% endif %}">
+        <div class="empty-state">
+          <p class="empty-state-title">No API keys yet</p>
+          <p class="empty-state-text">Create a key for OpenAI-compatible clients (VS Code, curl, apps).</p>
+          <a class="btn primary" href="/keys/new">New key</a>
+        </div>
+      </td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+<script src="/static/keys_edit.js"></script>
+{% endblock %}
