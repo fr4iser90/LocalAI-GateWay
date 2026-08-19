@@ -62,6 +62,43 @@ def check_temperature(db: Session, service: str) -> AuthResult | None:
     return AuthResult(status=503, reason=f"temp_guard_status_{resp.status_code}")
 
 
+_JSON_STRING_FIELD_SCAN = 32768
+_JSON_FULL_PARSE_LIMIT = 2_000_000
+
+
+def _decode_json_string_literal(raw: str) -> str:
+    try:
+        decoded = json.loads(f'"{raw}"')
+    except Exception:
+        decoded = raw
+    return decoded if isinstance(decoded, str) else raw
+
+
+def _extract_json_string_field(body: bytes, field: str) -> str | None:
+    """Read one top-level string field without parsing megabyte-scale JSON bodies."""
+    if not body or body[:1] not in (b"{",):
+        return None
+    if len(body) <= _JSON_FULL_PARSE_LIMIT:
+        try:
+            payload = json.loads(body.decode("utf-8", errors="ignore"))
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            val = payload.get(field)
+            if isinstance(val, str):
+                s = val.strip()
+                return s or None
+    key = field.encode("ascii")
+    m = re.search(
+        rb'"' + key + rb'"\s*:\s*"((?:[^"\\]|\\.)*)"',
+        body[:_JSON_STRING_FIELD_SCAN],
+    )
+    if not m:
+        return None
+    s = _decode_json_string_literal(m.group(1).decode("utf-8", errors="replace")).strip()
+    return s or None
+
+
 def extract_model(body: bytes | None, content_type: str | None) -> str | None:
     if not body:
         return None
@@ -78,15 +115,7 @@ def extract_model(body: bytes | None, content_type: str | None) -> str | None:
         return None
     if "application/json" not in ct and body[:1] not in (b"{", b"["):
         return None
-    try:
-        payload = json.loads(body[:65536].decode("utf-8", errors="ignore"))
-    except Exception:
-        return None
-    if isinstance(payload, dict):
-        model = payload.get("model")
-        if isinstance(model, str):
-            return model.strip() or None
-    return None
+    return _extract_json_string_field(body, "model")
 
 
 def extract_voice(body: bytes | None, content_type: str | None) -> str | None:
@@ -96,15 +125,7 @@ def extract_voice(body: bytes | None, content_type: str | None) -> str | None:
     ct = (content_type or "").lower()
     if "application/json" not in ct and body[:1] not in (b"{", b"["):
         return None
-    try:
-        payload = json.loads(body[:65536].decode("utf-8", errors="ignore"))
-    except Exception:
-        return None
-    if isinstance(payload, dict):
-        voice = payload.get("voice")
-        if isinstance(voice, str):
-            return voice.strip() or None
-    return None
+    return _extract_json_string_field(body, "voice")
 
 
 def extract_request_model(

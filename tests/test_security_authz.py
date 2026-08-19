@@ -175,6 +175,7 @@ def _auth_check(client, *, uri: str, api_key: str | None = None, payload: dict |
         "/settings/access",
         "/settings/limits",
         "/models",
+        "/services",
         "/smtp",
         "/alerts",
         "/audit",
@@ -188,12 +189,12 @@ def test_regular_user_forbidden_on_admin_routes(sec, path: str):
     assert "Forbidden" in resp.text
 
 
-def test_regular_user_can_read_services_not_edit(sec):
+def test_regular_user_forbidden_on_services(sec):
     client, _world = sec
     _login(client, ALICE_NAME, ALICE_PASSWORD)
-    assert client.get("/services", follow_redirects=False).status_code == 200
-    resp = client.post("/services", data={}, follow_redirects=False)
-    assert resp.status_code == 403
+    assert client.get("/services", follow_redirects=False).status_code == 403
+    assert client.get("/services/status", follow_redirects=False).status_code == 403
+    assert client.post("/services", data={}, follow_redirects=False).status_code == 403
 
 
 def test_regular_user_can_use_self_service_pages(sec):
@@ -210,6 +211,36 @@ def test_admin_can_open_ops_pages(sec):
     for path in ("/users", "/settings/access", "/services", "/smtp"):
         resp = client.get(path, follow_redirects=False)
         assert resp.status_code == 200, path
+
+
+def test_users_page_links_create_key_for_members(sec):
+    client, world = sec
+    _login(client, BOOTSTRAP_USER, BOOTSTRAP_PASSWORD)
+    resp = client.get("/users", follow_redirects=False)
+    assert resp.status_code == 200
+    assert f'/keys/new?owner_user_id={world.alice_id}' in resp.text
+    assert f'/keys/new?owner_user_id={world.bob_id}' in resp.text
+
+
+def test_admin_keys_new_honors_owner_query(sec):
+    client, world = sec
+    _login(client, BOOTSTRAP_USER, BOOTSTRAP_PASSWORD)
+    resp = client.get(
+        f"/keys/new?owner_user_id={world.bob_id}", follow_redirects=False
+    )
+    assert resp.status_code == 200
+    assert f'value="{world.bob_id}" selected' in resp.text
+
+
+def test_regular_user_cannot_prefill_owner_on_keys_new(sec):
+    client, world = sec
+    _login(client, ALICE_NAME, ALICE_PASSWORD)
+    resp = client.get(
+        f"/keys/new?owner_user_id={world.bob_id}", follow_redirects=False
+    )
+    assert resp.status_code == 200
+    assert 'id="key-owner"' not in resp.text
+    assert f"owner_user_id={world.bob_id}" not in resp.text
 
 
 def test_setup_wizard_blocks_admin_until_minimum_done(gateway_client):
@@ -252,7 +283,7 @@ def test_user_cannot_create_users(sec):
 
 def test_api_missing_key_is_unauthorized(sec):
     client, _world = sec
-    resp = client.get("/v1/onprem/models", follow_redirects=False)
+    resp = client.get("/v1/models", follow_redirects=False)
     assert resp.status_code == 401
     assert resp.json()["error"] == "unauthorized"
 
@@ -260,7 +291,7 @@ def test_api_missing_key_is_unauthorized(sec):
 def test_api_invalid_key_is_unauthorized(sec):
     client, _world = sec
     resp = client.get(
-        "/v1/onprem/models",
+        "/v1/models",
         headers={"X-Api-Key": "not-a-real-key"},
         follow_redirects=False,
     )

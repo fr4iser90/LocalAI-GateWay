@@ -40,7 +40,7 @@ def users_list(
         grant_summary,
     )
     from ...data.usage_weights import catalog_weight_suggestions
-    from ..accounts import get_auth_settings
+    from ..accounts import active_key_count, assert_can_create_key, get_auth_settings
     from ..invites import pending_invites
     from ...mailer import get_smtp, smtp_ready
     from ..user_limits import user_limits_summary
@@ -79,6 +79,9 @@ def users_list(
             u.id: u.username
             for u in db.query(WebUser).filter(WebUser.id.in_(creator_ids)).all()
         }
+    key_create_blocked: dict[int, str | None] = {
+        u.id: assert_can_create_key(db, u) for u in users
+    }
 
     return templates.TemplateResponse(
         request,
@@ -112,6 +115,8 @@ def users_list(
                 "admins": sum(1 for u in users if u.is_platform_admin),
                 "must_change": sum(1 for u in users if u.must_change_password),
             },
+            "active_key_counts": {u.id: active_key_count(db, u.id) for u in users},
+            "key_create_blocked": key_create_blocked,
         },
     )
 

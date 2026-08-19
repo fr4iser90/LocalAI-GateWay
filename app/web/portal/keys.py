@@ -164,6 +164,7 @@ def keys_new(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[WebUser, Depends(require_user)],
+    owner_user_id: int | None = None,
 ):
     teams_on = _teams_on(db)
     teams = (
@@ -181,6 +182,14 @@ def keys_new(
         else []
     )
     default_team = teams[0].id if teams_on and len(teams) == 1 else None
+    default_owner = user.id
+    if (
+        not teams_on
+        and user.is_platform_admin
+        and owner_user_id is not None
+        and db.get(WebUser, owner_user_id) is not None
+    ):
+        default_owner = owner_user_id
     ctx = _key_form_context(
         db,
         user=user,
@@ -189,7 +198,7 @@ def keys_new(
         teams=teams,
         owners=owners,
         team_id=default_team,
-        owner_user_id=user.id,
+        owner_user_id=default_owner,
     )
     return templates.TemplateResponse(request, "key_form.html", ctx)
 

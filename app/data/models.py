@@ -322,7 +322,7 @@ class SmtpConfig(Base):
     from_name: Mapped[str] = mapped_column(String(255), default="OnPrem AI Gateway")
     use_tls: Mapped[bool] = mapped_column(Boolean, default=True)
     use_ssl: Mapped[bool] = mapped_column(Boolean, default=False)
-    public_base_url: Mapped[str] = mapped_column(String(512), default="")  # https://llm.example.com
+    public_base_url: Mapped[str] = mapped_column(String(512), default="")  # https://ai.example.com
 
 
 class BackendConfig(Base):

@@ -33,3 +33,15 @@ def test_extract_model_prefers_model_field():
     ).encode()
     assert extract_model(body, "application/json") == "tts-1"
     assert extract_voice(body, "application/json") == "de_DE-thorsten-high"
+
+
+def test_extract_model_from_large_chat_body():
+    """model must be found when messages exceed the old 64KiB json.loads window."""
+    model = "Qwen3.6-35B-A3B-MTP-UD-Q4_K_XL"
+    huge = "x" * 200_000
+    body = json.dumps({"model": model, "messages": [{"role": "user", "content": huge}]}).encode(
+        "utf-8"
+    )
+    assert len(body) > 65536
+    assert extract_model(body, "application/json") == model
+    assert extract_request_model("chat", body, "application/json") == model

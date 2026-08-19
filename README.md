@@ -43,8 +43,8 @@ Aliases **`auto`**, **`auto-quality`**, **`auto-long`** are rewritten in Setting
 
 ## Optional reverse proxy
 
-Point `llm.${DOMAIN}` at your Traefik (see optional `compose.traefik.yaml`).  
-Web UI runs at `https://llm.${DOMAIN}/`, while the OpenAI-compatible API runs at `https://llm.${DOMAIN}/v1/...`.
+Point `ai.${DOMAIN}` at your Traefik (see optional `compose.traefik.yaml`; override with `PUBLIC_SUBDOMAIN`).
+Web UI: `https://ai.${DOMAIN}/` — OpenAI-compatible API: `https://ai.${DOMAIN}/v1/...`.
 
 ```bash
 # Only if you already use Traefik on network "proxy":

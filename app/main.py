@@ -216,9 +216,10 @@ def create_app() -> FastAPI:
     def healthz():
         return {"status": "ok"}
 
+    @app.get("/v1/models")
     @app.get("/v1/onprem/models")
     def onprem_models(request: Request, db: Session = Depends(get_db)):
-        """Filtered OpenAI model list for IDEs (nginx routes GET /v1/models here)."""
+        """OpenAI-compatible model list (public path /v1/models; nginx → /v1/onprem/models)."""
         from .data.catalog import (
             load_api_key,
             models_visible_for_key,

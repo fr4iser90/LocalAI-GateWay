@@ -44,7 +44,7 @@
           <label for="key-owner">Owner</label>
           <select id="key-owner" name="owner_user_id">
             {% for u in owners %}
-            <option value="{{ u.id }}" {% if key and key.owner_user_id == u.id %}selected{% elif not key and u.id == user.id %}selected{% endif %}>{{ u.username }}</option>
+            <option value="{{ u.id }}" {% if key and key.owner_user_id == u.id %}selected{% elif not key and u.id == default_owner_user_id %}selected{% endif %}>{{ u.username }}</option>
             {% endfor %}
           </select>
         </div>

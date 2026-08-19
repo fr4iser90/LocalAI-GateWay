@@ -283,6 +283,11 @@ def _key_form_context(
             selected_models = display_enabled_models_for_services(db, selected_services)
     else:
         selected_models = display_enabled_models_for_services(db, selected_services)
+    resolved_owner = (
+        api_key.owner_user_id
+        if api_key is not None
+        else (owner_user_id or user.id)
+    )
     return {
         "user": user,
         "key": api_key,
@@ -302,6 +307,7 @@ def _key_form_context(
         "ceiling": ceil,
         "grant_summary": grant_summary(ceil),
         "grant_empty": (not ceil.unrestricted and not ceil.services),
+        "default_owner_user_id": resolved_owner,
     }
 
 

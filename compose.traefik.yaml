@@ -1,6 +1,7 @@
 # OPTIONAL Traefik example (external Docker network "proxy").
 # Default install: compose.yaml (no reverse proxy).
-# Set DOMAIN in .env (Traefik serves https://llm.${DOMAIN}/ and /v1/...).
+# Set DOMAIN (+ optional PUBLIC_SUBDOMAIN, default ai) in .env.
+# Traefik: https://ai.${DOMAIN}/ (Web UI) and https://ai.${DOMAIN}/v1/... (API).
 #
 # Usage:  docker compose -f compose.traefik.yaml up -d --build
 
@@ -34,12 +35,12 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
-      - traefik.http.routers.onprem-admin.rule=Host(`llm.${DOMAIN}`)
+      - traefik.http.routers.onprem-admin.rule=Host(`${PUBLIC_SUBDOMAIN:-ai}.${DOMAIN}`)
       - traefik.http.routers.onprem-admin.entrypoints=websecure
       - traefik.http.routers.onprem-admin.tls=true
       - traefik.http.routers.onprem-admin.tls.certresolver=http_resolver
       - traefik.http.services.onprem-admin.loadbalancer.server.port=8080
-      - traefik.http.routers.onprem-admin-http.rule=Host(`llm.${DOMAIN}`)
+      - traefik.http.routers.onprem-admin-http.rule=Host(`${PUBLIC_SUBDOMAIN:-ai}.${DOMAIN}`)
       - traefik.http.routers.onprem-admin-http.entrypoints=web
       - traefik.http.routers.onprem-admin-http.middlewares=onprem-https-redirect
       - traefik.http.middlewares.onprem-https-redirect.redirectscheme.scheme=https
@@ -58,12 +59,12 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
-      - traefik.http.routers.onprem-api.rule=Host(`llm.${DOMAIN}`) && PathPrefix(`/v1`)
+      - traefik.http.routers.onprem-api.rule=Host(`${PUBLIC_SUBDOMAIN:-ai}.${DOMAIN}`) && PathPrefix(`/v1`)
       - traefik.http.routers.onprem-api.entrypoints=websecure
       - traefik.http.routers.onprem-api.tls=true
       - traefik.http.routers.onprem-api.tls.certresolver=http_resolver
       - traefik.http.services.onprem-api.loadbalancer.server.port=80
-      - traefik.http.routers.onprem-api-http.rule=Host(`llm.${DOMAIN}`) && PathPrefix(`/v1`)
+      - traefik.http.routers.onprem-api-http.rule=Host(`${PUBLIC_SUBDOMAIN:-ai}.${DOMAIN}`) && PathPrefix(`/v1`)
       - traefik.http.routers.onprem-api-http.entrypoints=web
       - traefik.http.routers.onprem-api-http.middlewares=onprem-https-redirect
 

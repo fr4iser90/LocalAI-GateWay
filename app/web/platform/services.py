@@ -12,7 +12,7 @@ from ...data.backends import get_source_by_name, source_chip_rows
 from ...data.dialects import dialect_blurb_for_kind
 from ...data.db import get_db
 from ...data.models import WebUser
-from ..session import require_platform_admin, require_user
+from ..session import require_platform_admin
 from ..shared import templates, _settings
 
 router = APIRouter()
@@ -22,7 +22,7 @@ router = APIRouter()
 def services_page(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[WebUser, Depends(require_user)],
+    user: Annotated[WebUser, Depends(require_platform_admin)],
 ):
     from ...data.backends import catalog_route_models, hardware_labels, source_rows
     from ...data.probe import probe_all
@@ -54,7 +54,7 @@ def services_page(
             "nav": "services",
             "flash_ok": flash_ok,
             "flash_err": flash_err,
-            "can_edit": user.is_platform_admin,
+            "can_edit": True,
         },
     )
 
@@ -62,7 +62,7 @@ def services_page(
 @router.get("/services/status")
 def services_status_json(
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[WebUser, Depends(require_user)],
+    user: Annotated[WebUser, Depends(require_platform_admin)],
 ):
     from ...data.probe import probe_all
 

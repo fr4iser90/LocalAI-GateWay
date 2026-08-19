@@ -37,7 +37,8 @@
     <div class="panel-head">
       <div class="panel-head-text">
         <h2>Invite link</h2>
-        <p class="panel-sub">One-time signup links (7 days). Uses <a href="/settings/access">default access</a> when self-registration is off.</p>
+        <p class="panel-sub">One-time signup links (7 days). Uses <a href="/settings/access">default access</a> when self-registration is off.
+          After signup the account appears in <strong>All users</strong> below — then use <strong>Create key</strong>.</p>
       </div>
     </div>
     <form method="post" action="/users/invites" class="row row--wrap row--align-end">
@@ -54,7 +55,7 @@
     {% if pending_invites %}
     <div class="table-wrap users-invite-table">
       <table class="table-compact">
-        <thead><tr><th>Created</th><th>Expires</th><th>By</th><th>Note</th><th></th></tr></thead>
+        <thead><tr><th>Created</th><th>Expires</th><th>By</th><th>Note</th><th>Status</th><th></th></tr></thead>
         <tbody>
         {% for inv in pending_invites %}
           <tr>
@@ -62,6 +63,7 @@
             <td class="mono">{{ inv.expires_at.strftime('%Y-%m-%d') }}</td>
             <td>{{ invite_creators.get(inv.created_by_id, '—') }}</td>
             <td>{{ inv.note or '—' }}</td>
+            <td class="muted text-sm">Awaiting signup</td>
             <td>
               <form method="post" action="/users/invites/{{ inv.id }}/revoke">
                 <button class="btn-sm" type="submit">Revoke</button>
@@ -79,7 +81,8 @@
     <div class="panel-head">
       <div class="panel-head-text">
         <h2>Create user</h2>
-        <p class="panel-sub">Set the account ceiling. Pre-checked sources come from default access.</p>
+        <p class="panel-sub">Set the account ceiling. Pre-checked sources come from default access.
+          Use <strong>Create key</strong> in the table below right after adding the user.</p>
       </div>
     </div>
     <form method="post" action="/users/new" class="users-create-form">
@@ -196,6 +199,14 @@
           {% endif %}
           <td class="col-manage">
             <div class="actions actions-inline user-manage-actions">
+              {% if not teams_enabled and u.is_active %}
+                {% set key_block = key_create_blocked.get(u.id) %}
+                {% if key_block %}
+                <button class="btn-sm" type="button" disabled title="{{ key_block }}">Create key</button>
+                {% else %}
+                <a class="btn-sm" href="/keys/new?owner_user_id={{ u.id }}">Create key</a>
+                {% endif %}
+              {% endif %}
               {% if u.id != user.id %}
               <form method="post" action="/users/{{ u.id }}/toggle">
                 <button class="btn-sm {% if u.is_active %}btn-danger{% else %}primary{% endif %}" type="submit">
