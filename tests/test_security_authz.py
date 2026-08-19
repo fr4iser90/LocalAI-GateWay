@@ -13,14 +13,18 @@ from app.data.backends import upsert_source
 from app.data.db import hash_api_key, hash_password
 from app.data.grants import sync_user_grants
 from app.data.models import WebUser, ApiKey, CatalogModel, ModelAllowlist, ServiceGrant
+from tests.constants import (
+    ALICE_API_KEY,
+    ALICE_NAME,
+    ALICE_PASSWORD,
+    BOB_API_KEY,
+    BOB_NAME,
+    BOB_PASSWORD,
+    BOOTSTRAP_PASSWORD,
+    BOOTSTRAP_USER,
+)
 
 pytestmark = pytest.mark.security
-
-ADMIN_PASS = "test-admin-pass"
-ALICE_PASS = "alice-pass"
-BOB_PASS = "bob-pass"
-ALICE_API_KEY = "gw_sec_alice_chat_only_0001"
-BOB_API_KEY = "gw_sec_bob_chat_only_0002"
 
 
 @dataclass
@@ -47,7 +51,7 @@ def _seed_security_world() -> SecurityWorld:
     assert dbmod.SessionLocal is not None
     with dbmod.SessionLocal() as db:
         admin = (
-            db.query(WebUser).filter(WebUser.username == "admin").first()
+            db.query(WebUser).filter(WebUser.username == BOOTSTRAP_USER).first()
         )
         assert admin is not None
 
@@ -75,14 +79,14 @@ def _seed_security_world() -> SecurityWorld:
             )
 
         alice = WebUser(
-            username="alice",
-            password_hash=hash_password(ALICE_PASS),
+            username=ALICE_NAME,
+            password_hash=hash_password(ALICE_PASSWORD),
             is_platform_admin=False,
             is_active=True,
         )
         bob = WebUser(
-            username="bob",
-            password_hash=hash_password(BOB_PASS),
+            username=BOB_NAME,
+            password_hash=hash_password(BOB_PASSWORD),
             is_platform_admin=False,
             is_active=True,
         )
@@ -178,7 +182,7 @@ def _auth_check(client, *, uri: str, api_key: str | None = None, payload: dict |
 )
 def test_regular_user_forbidden_on_admin_routes(sec, path: str):
     client, _world = sec
-    _login(client, "alice", ALICE_PASS)
+    _login(client, ALICE_NAME, ALICE_PASSWORD)
     resp = client.get(path, follow_redirects=False)
     assert resp.status_code == 403
     assert "Forbidden" in resp.text
@@ -186,7 +190,7 @@ def test_regular_user_forbidden_on_admin_routes(sec, path: str):
 
 def test_regular_user_can_read_services_not_edit(sec):
     client, _world = sec
-    _login(client, "alice", ALICE_PASS)
+    _login(client, ALICE_NAME, ALICE_PASSWORD)
     assert client.get("/services", follow_redirects=False).status_code == 200
     resp = client.post("/services", data={}, follow_redirects=False)
     assert resp.status_code == 403
@@ -194,7 +198,7 @@ def test_regular_user_can_read_services_not_edit(sec):
 
 def test_regular_user_can_use_self_service_pages(sec):
     client, _world = sec
-    _login(client, "alice", ALICE_PASS)
+    _login(client, ALICE_NAME, ALICE_PASSWORD)
     for path in ("/me", "/keys", "/account", "/privacy"):
         resp = client.get(path, follow_redirects=False)
         assert resp.status_code == 200, path
@@ -202,14 +206,14 @@ def test_regular_user_can_use_self_service_pages(sec):
 
 def test_admin_can_open_ops_pages(sec):
     client, _world = sec
-    _login(client, "admin", ADMIN_PASS)
+    _login(client, BOOTSTRAP_USER, BOOTSTRAP_PASSWORD)
     for path in ("/users", "/settings/access", "/services", "/smtp"):
         resp = client.get(path, follow_redirects=False)
         assert resp.status_code == 200, path
 
 
 def test_setup_wizard_blocks_admin_until_minimum_done(gateway_client):
-    _login(gateway_client, "admin", ADMIN_PASS)
+    _login(gateway_client, BOOTSTRAP_USER, BOOTSTRAP_PASSWORD)
     resp = gateway_client.get("/users", follow_redirects=False)
     assert resp.status_code == 303
     assert resp.headers["location"].startswith("/setup")
@@ -217,7 +221,7 @@ def test_setup_wizard_blocks_admin_until_minimum_done(gateway_client):
 
 def test_user_cannot_open_other_users_key(sec):
     client, world = sec
-    _login(client, "alice", ALICE_PASS)
+    _login(client, ALICE_NAME, ALICE_PASSWORD)
     resp = client.get(f"/keys/{world.bob_key_id}", follow_redirects=False)
     assert resp.status_code == 403
     resp = client.get(f"/keys/{world.bob_key_id}/partial", follow_redirects=False)
@@ -226,7 +230,7 @@ def test_user_cannot_open_other_users_key(sec):
 
 def test_user_cannot_post_admin_settings(sec):
     client, _world = sec
-    _login(client, "alice", ALICE_PASS)
+    _login(client, ALICE_NAME, ALICE_PASSWORD)
     resp = client.post(
         "/settings/access",
         data={"max_keys_per_user": "99", "allow_self_registration": "on"},
@@ -237,7 +241,7 @@ def test_user_cannot_post_admin_settings(sec):
 
 def test_user_cannot_create_users(sec):
     client, _world = sec
-    _login(client, "alice", ALICE_PASS)
+    _login(client, ALICE_NAME, ALICE_PASSWORD)
     resp = client.post(
         "/users/new",
         data={"username": "evil", "password": "EvilPass123!", "password2": "EvilPass123!"},

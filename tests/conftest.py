@@ -1,21 +1,28 @@
-"""Pytest fixtures. Unit tests never require LAN backends."""
+"""Pytest fixtures. Unit tests never require LAN backends or the developer .env."""
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 
+from tests.constants import (
+    BOOTSTRAP_PASSWORD,
+    BOOTSTRAP_USER,
+    TEST_DOMAIN,
+    TEST_SESSION_SECRET,
+)
+
 
 @pytest.fixture()
 def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Isolated DATA_DIR + fixed bootstrap env (overrides shell / --env-file)."""
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("SESSION_SECRET", "test-session-secret-not-for-prod")
-    monkeypatch.setenv("ADMIN_BOOTSTRAP_PASSWORD", "test-admin-pass")
-    monkeypatch.setenv("DOMAIN", "example.test")
+    monkeypatch.setenv("SESSION_SECRET", TEST_SESSION_SECRET)
+    monkeypatch.setenv("ADMIN_BOOTSTRAP_USER", BOOTSTRAP_USER)
+    monkeypatch.setenv("ADMIN_BOOTSTRAP_PASSWORD", BOOTSTRAP_PASSWORD)
+    monkeypatch.setenv("DOMAIN", TEST_DOMAIN)
     monkeypatch.setenv("TEMP_GUARD_DISABLED", "true")
-    # Clear cached settings between tests
     from app.config import get_settings
 
     get_settings.cache_clear()
@@ -47,4 +54,3 @@ def gateway_client(data_dir: Path):
     with TestClient(app) as client:
         yield client
     get_settings.cache_clear()
-

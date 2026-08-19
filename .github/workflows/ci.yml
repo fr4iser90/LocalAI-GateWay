@@ -19,7 +19,8 @@ jobs:
       - name: Unit tests
         run: pytest -q -m "not integration"
         env:
-          SESSION_SECRET: ci-session-secret
-          ADMIN_BOOTSTRAP_PASSWORD: ci-admin
+          SESSION_SECRET: test-session-secret-not-for-prod
+          ADMIN_BOOTSTRAP_USER: admin
+          ADMIN_BOOTSTRAP_PASSWORD: test-admin-pass
           DOMAIN: example.test
           TEMP_GUARD_DISABLED: "true"

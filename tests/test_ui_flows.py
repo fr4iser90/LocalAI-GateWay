@@ -5,12 +5,15 @@ from starlette.testclient import TestClient
 from app.data.backends import upsert_source
 from app.data.db import hash_api_key, hash_password
 from app.data.models import WebUser, ApiKey, AuthSettings, UsageEvent
-
-
-ADMIN_PASS = "test-admin-pass"
-USER_PASS = "user-pass-123A!"
-FORCED_OLD_PASS = "Temp-pass-123A!"
-FORCED_NEW_PASS = "New-pass-123A!"
+from tests.constants import (
+    BOOTSTRAP_PASSWORD,
+    BOOTSTRAP_USER,
+    FORCED_NEW_PASSWORD,
+    FORCED_OLD_PASSWORD,
+    FORCED_USER_NAME,
+    USER1_NAME,
+    USER1_PASSWORD,
+)
 
 
 def _login(client: TestClient, username: str, password: str):
@@ -26,7 +29,7 @@ def _seed_ui_world():
 
     assert dbmod.SessionLocal is not None
     with dbmod.SessionLocal() as db:
-        admin = db.query(WebUser).filter(WebUser.username == "admin").first()
+        admin = db.query(WebUser).filter(WebUser.username == BOOTSTRAP_USER).first()
         assert admin is not None
 
         upsert_source(db, name="chat", kind="chat", address="127.0.0.1:1", is_default=True)
@@ -49,11 +52,11 @@ def _seed_ui_world():
                 )
             )
 
-        user = db.query(WebUser).filter(WebUser.username == "user1").first()
+        user = db.query(WebUser).filter(WebUser.username == USER1_NAME).first()
         if user is None:
             user = WebUser(
-                username="user1",
-                password_hash=hash_password(USER_PASS),
+                username=USER1_NAME,
+                password_hash=hash_password(USER1_PASSWORD),
                 is_platform_admin=False,
                 is_active=True,
             )
@@ -69,11 +72,11 @@ def _seed_ui_world():
                 )
             )
 
-        forced = db.query(WebUser).filter(WebUser.username == "forced").first()
+        forced = db.query(WebUser).filter(WebUser.username == FORCED_USER_NAME).first()
         if forced is None:
             forced = WebUser(
-                username="forced",
-                password_hash=hash_password(FORCED_OLD_PASS),
+                username=FORCED_USER_NAME,
+                password_hash=hash_password(FORCED_OLD_PASSWORD),
                 is_platform_admin=False,
                 is_active=True,
                 must_change_password=True,
@@ -98,7 +101,7 @@ def test_admin_can_view_ops_pages_with_demo_usage(data_dir):
             seed_demo_usage(db, count=120)
             db.commit()
 
-        login = _login(gateway_client, "admin", ADMIN_PASS)
+        login = _login(gateway_client, BOOTSTRAP_USER, BOOTSTRAP_PASSWORD)
         assert login.status_code == 303
 
         overview = gateway_client.get("/", follow_redirects=False)
@@ -118,7 +121,7 @@ def test_admin_can_view_ops_pages_with_demo_usage(data_dir):
 def test_user_overview_shows_pulse(gateway_client):
     _seed_ui_world()
 
-    login = _login(gateway_client, "user1", USER_PASS)
+    login = _login(gateway_client, USER1_NAME, USER1_PASSWORD)
     assert login.status_code == 303
     assert login.headers["location"] == "/me"
 
@@ -132,7 +135,7 @@ def test_user_overview_shows_pulse(gateway_client):
 def test_first_login_password_change_flow(gateway_client):
     _seed_ui_world()
 
-    login = _login(gateway_client, "forced", FORCED_OLD_PASS)
+    login = _login(gateway_client, FORCED_USER_NAME, FORCED_OLD_PASSWORD)
     assert login.status_code == 303
     assert login.headers["location"] == "/account"
 
@@ -147,8 +150,8 @@ def test_first_login_password_change_flow(gateway_client):
     update = gateway_client.post(
         "/account/update",
         data={
-            "password": FORCED_NEW_PASS,
-            "password2": FORCED_NEW_PASS,
+            "password": FORCED_NEW_PASSWORD,
+            "password2": FORCED_NEW_PASSWORD,
         },
         follow_redirects=False,
     )
@@ -167,7 +170,7 @@ def test_first_login_password_change_flow(gateway_client):
 def test_account_email_unchanged_skips_password(gateway_client):
     _seed_ui_world()
 
-    login = _login(gateway_client, "user1", USER_PASS)
+    login = _login(gateway_client, USER1_NAME, USER1_PASSWORD)
     assert login.status_code == 303
 
     resp = gateway_client.post(

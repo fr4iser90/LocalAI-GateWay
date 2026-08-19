@@ -320,13 +320,28 @@ def _enabled_catalog_models_for_services(
 
 def display_default_models(db: Session) -> set[str]:
     """Model keys (source:model) checked in default-access UI."""
-    configured = configured_default_models(db)
-    if configured:
-        return {f"{s}:{m}" for s, m in configured}
-    services = set(display_default_sources(db))
+    services = list(display_default_sources(db))
     if not services:
         return set()
-    return display_enabled_models_for_services(db, list(services))
+    all_enabled = display_enabled_models_for_services(db, services)
+    if not all_enabled:
+        return set()
+
+    if not default_grant_was_saved(db):
+        return all_enabled
+
+    auth = _auth_row(db)
+    raw = (getattr(auth, "default_grant_models", None) or "").strip() if auth else ""
+    if not raw:
+        return all_enabled
+
+    configured = configured_default_models(db)
+    if not configured:
+        return all_enabled
+
+    selected = {f"{s}:{m}" for s, m in configured}
+    live = selected & all_enabled
+    return live if live else all_enabled
 
 
 def display_enabled_models_for_services(db: Session, services: list[str]) -> set[str]:

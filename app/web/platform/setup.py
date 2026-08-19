@@ -57,6 +57,15 @@ def _wizard_sync_catalog(db: Session, request: Request, user: WebUser) -> None:
         request.session["flash_ok"] = f"Synced {seen} models ({created} new)."
 
 
+def _ensure_catalog_synced(db: Session, request: Request, user: WebUser) -> None:
+    """Backends seeded from .env skip Step 1 Save — sync before access/key pickers."""
+    from ..setup import wizard_progress
+
+    wiz = wizard_progress(db)
+    if wiz["has_sources"] and not wiz["has_models"]:
+        _wizard_sync_catalog(db, request, user)
+
+
 @router.get("/setup", response_class=HTMLResponse)
 def setup_root(
     request: Request,
@@ -241,13 +250,21 @@ def setup_access_page(
         catalog_groups_for_ceiling,
         display_default_models,
         display_default_sources,
+        display_enabled_models_for_services,
     )
     from ..setup import wizard_progress
 
     wiz = wizard_progress(db)
     if not wiz["has_sources"]:
         return RedirectResponse("/setup/sources", status_code=303)
+    _ensure_catalog_synced(db, request, user)
+    wiz = wizard_progress(db)
     ceil = AccessCeiling(unrestricted=True, label="setup")
+    selected_services = display_default_sources(db)
+    catalog_groups = catalog_groups_for_ceiling(db, ceil)
+    selected_models = display_default_models(db)
+    if catalog_groups and selected_services and not selected_models:
+        selected_models = display_enabled_models_for_services(db, selected_services)
     return templates.TemplateResponse(
         request,
         "setup_access.html",
@@ -259,9 +276,9 @@ def setup_access_page(
             "step_title": "Step 2 · Default access",
             "step_lede": "What new (non-admin) users get automatically. Everything starts checked — uncheck what they should not get.",
             "source_chips": source_chip_rows(db),
-            "selected_services": display_default_sources(db),
-            "catalog_groups": catalog_groups_for_ceiling(db, ceil),
-            "selected_models": display_default_models(db),
+            "selected_services": selected_services,
+            "catalog_groups": catalog_groups,
+            "selected_models": selected_models,
             "flash_ok": request.session.pop("flash_ok", None),
             "flash_err": request.session.pop("flash_err", None),
             "is_admin": True,
@@ -322,6 +339,8 @@ def setup_key_page(
     wiz = wizard_progress(db)
     if not wiz["has_sources"]:
         return RedirectResponse("/setup/sources", status_code=303)
+    _ensure_catalog_synced(db, request, user)
+    wiz = wizard_progress(db)
     created = request.session.pop("flash_key", None)
     created_summary = request.session.pop("flash_key_services", None)
     created_models_n = request.session.pop("flash_key_models_n", None)

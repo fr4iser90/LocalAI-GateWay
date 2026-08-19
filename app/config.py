@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     admin_bootstrap_user: str = "admin"
     admin_bootstrap_password: str = "changeme"
     session_max_age: int = 60 * 60 * 12
+    # None = auto: Secure cookie when PUBLIC_HOST is set (Traefik/TLS), else off for local HTTP.
+    session_cookie_secure: bool | None = None
 
     llm_api_key: str | None = None
     ollama_api_key: str | None = None
@@ -144,6 +146,22 @@ MODEL_CHECK_SERVICES = MODEL_CHECK_KINDS
 SESSION_COOKIE_NAME = "onprem_session"
 DB_FILENAME = "onprem.db"
 DEFAULT_API_PORT = "9081"
+
+
+def session_cookie_https_only(settings: Settings | None = None) -> bool:
+    """Secure (HTTPS-only) session cookie — auto off for local HTTP, on for PUBLIC_HOST/TLS."""
+    import os
+
+    settings = settings or get_settings()
+    if settings.session_cookie_secure is not None:
+        return bool(settings.session_cookie_secure)
+    raw = (os.getenv("SESSION_COOKIE_SECURE") or "").strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    host = (settings.public_host or os.getenv("PUBLIC_HOST") or "").strip()
+    return bool(host and host != "_")
 
 
 def onprem_api_port(explicit: str | None = None) -> str:

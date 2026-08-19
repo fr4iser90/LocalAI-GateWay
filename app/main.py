@@ -25,6 +25,7 @@ from .routing import resolve_routed_source
 from .config import (
     MODEL_ROUTE_KINDS,
     SESSION_COOKIE_NAME,
+    session_cookie_https_only,
     get_settings,
     kind_from_upstream_path,
     map_upstream_path,
@@ -176,7 +177,7 @@ def create_app() -> FastAPI:
         session_cookie=SESSION_COOKIE_NAME,
         max_age=settings.session_max_age,
         same_site="lax",
-        https_only=True,
+        https_only=session_cookie_https_only(settings),
     )
 
     @app.exception_handler(RedirectToLogin)

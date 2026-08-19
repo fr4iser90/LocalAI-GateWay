@@ -72,7 +72,7 @@
 
       <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-system">
         <p class="nav-group-label" id="nav-system">System</p>
-        <a href="/settings" class="{{ 'active' if nav in ['settings', 'smtp', 'alerts', 'audit'] else '' }}" {% if nav in ['settings', 'smtp', 'alerts', 'audit'] %}aria-current="page"{% endif %}>OnPrem AI Gateway settings</a>
+        <a href="/settings" class="{{ 'active' if nav in ['settings', 'smtp', 'alerts', 'audit'] else '' }}" {% if nav in ['settings', 'smtp', 'alerts', 'audit'] %}aria-current="page"{% endif %}>Settings</a>
       </div>
       {% elif teams_enabled %}
       <div class="nav-group nav-group--ops" role="group" aria-labelledby="nav-team">

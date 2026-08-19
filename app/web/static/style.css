@@ -1831,6 +1831,7 @@ textarea { min-height: 110px; font-family: var(--mono); font-size: 0.85rem; }
 }
 .model-picker-item:hover { filter: brightness(1.08); }
 .model-picker-item:has(input:checked) {
+  border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 .model-picker-item input { flex-shrink: 0; margin: 0.15rem 0 0; }
