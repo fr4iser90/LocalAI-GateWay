@@ -85,7 +85,7 @@
     </nav>
     <div class="sidebar-foot">
       <button type="button" class="btn btn-sm theme-toggle" data-theme-toggle aria-label="Toggle color theme">Light</button>
-      <div>{{ user.username }}{% if user.is_platform_admin %} · admin{% endif %}</div>
+      <div>{{ display_name }}{% if user.is_platform_admin %} · admin{% endif %}</div>
       <form method="post" action="/logout" class="logout-form">
         <button class="btn-sm" type="submit">Logout</button>
       </form>

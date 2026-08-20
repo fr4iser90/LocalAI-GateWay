@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import secrets
 from datetime import timedelta
 from typing import Annotated
@@ -47,6 +48,48 @@ def create_reset_token(
         )
     )
     return raw
+
+
+PENDING_USERNAME_PREFIX = "pending-"
+
+
+def is_pending_username(username: str | None) -> bool:
+    return bool((username or "").startswith(PENDING_USERNAME_PREFIX))
+
+
+def user_needs_username(user: WebUser) -> bool:
+    return is_pending_username(user.username) or not (user.username or "").strip()
+
+
+def user_needs_onboarding(user: WebUser) -> bool:
+    """First-login gate: only forced password change (email is enough to identify)."""
+    return bool(user.must_change_password)
+
+
+def user_display_name(user: WebUser) -> str:
+    if user_needs_username(user):
+        return (user.email or user.username or f"user-{user.id}").strip()
+    return (user.username or "").strip()
+
+
+def pending_username_for_id(user_id: int) -> str:
+    return f"{PENDING_USERNAME_PREFIX}{int(user_id)}"
+
+
+def validate_username(username: str) -> str | None:
+    """Return error message or None if OK."""
+    name = (username or "").strip()
+    if len(name) < 3:
+        return "Username must be at least 3 characters."
+    if len(name) > 64:
+        return "Username must be at most 64 characters."
+    if is_pending_username(name):
+        return "That username is reserved."
+    if "@" in name:
+        return "Username cannot be an email address."
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
+        return "Username may use letters, digits, '.', '_' and '-'."
+    return None
 
 
 def find_user_by_login(db: Session, login: str) -> WebUser | None:
@@ -553,6 +596,7 @@ def account_page(
 ):
     flash = request.session.pop("flash_ok", None)
     err = request.session.pop("flash_err", None)
+    force_pw = bool(user.must_change_password)
     return templates.TemplateResponse(
         request,
         "account.html",
@@ -562,7 +606,9 @@ def account_page(
             "flash_ok": flash,
             "flash_err": err,
             "is_admin": user.is_platform_admin,
-            "force_pw": user.must_change_password,
+            "force_pw": force_pw,
+            "username_optional": user_needs_username(user),
+            "display_name": user_display_name(user),
             "pw_policy": policy_for_template(),
         },
     )
@@ -619,11 +665,37 @@ def _apply_account_update(
     current_password: str,
     password: str,
     password2: str,
+    username: str = "",
 ) -> RedirectResponse:
     forced = bool(user.must_change_password)
+    pending_name = user_needs_username(user)
+    claimed = (username or "").strip()
     new_email = email.strip().lower() or None
     email_changed = not forced and new_email != (user.email or None)
     password_requested = bool(password or password2)
+    username_requested = pending_name and bool(claimed)
+
+    def _claim_username(name: str) -> str | None:
+        err = validate_username(name)
+        if err:
+            return err
+        taken = (
+            db.query(WebUser)
+            .filter(WebUser.username == name, WebUser.id != user.id)
+            .first()
+        )
+        if taken:
+            return "Username already taken."
+        user.username = name
+        write_audit(
+            db,
+            actor=user,
+            action="auth.username_claim",
+            entity_type="user",
+            entity_id=user.id,
+            detail=name,
+        )
+        return None
 
     if forced:
         if not password and not password2:
@@ -633,16 +705,25 @@ def _apply_account_update(
         if err:
             request.session["flash_err"] = err
             return RedirectResponse("/account", status_code=303)
+        if username_requested:
+            err = _claim_username(claimed)
+            if err:
+                request.session["flash_err"] = err
+                return RedirectResponse("/account", status_code=303)
         user.password_hash = hash_password(password)
         user.must_change_password = False
         write_audit(
-            db, actor=user, action="auth.password_change", entity_type="user", entity_id=user.id
+            db,
+            actor=user,
+            action="auth.password_change",
+            entity_type="user",
+            entity_id=user.id,
         )
         db.commit()
         request.session["flash_ok"] = "Password updated — you can use OnPrem AI Gateway now."
         return RedirectResponse("/me", status_code=303)
 
-    if not email_changed and not password_requested:
+    if not email_changed and not password_requested and not username_requested:
         request.session["flash_ok"] = "No changes to save."
         return RedirectResponse("/account", status_code=303)
 
@@ -651,6 +732,13 @@ def _apply_account_update(
         return RedirectResponse("/account", status_code=303)
 
     changed: list[str] = []
+
+    if username_requested:
+        err = _claim_username(claimed)
+        if err:
+            request.session["flash_err"] = err
+            return RedirectResponse("/account", status_code=303)
+        changed.append("username")
 
     if email_changed:
         if new_email:
@@ -688,12 +776,10 @@ def _apply_account_update(
         changed.append("password")
 
     db.commit()
-    if len(changed) == 2:
-        request.session["flash_ok"] = "Email and password updated."
-    elif "email" in changed:
-        request.session["flash_ok"] = "Email updated."
+    if len(changed) == 1:
+        request.session["flash_ok"] = f"{changed[0].capitalize()} updated."
     else:
-        request.session["flash_ok"] = "Password updated."
+        request.session["flash_ok"] = "Profile updated."
     return RedirectResponse("/account", status_code=303)
 
 
@@ -706,6 +792,7 @@ def account_update(
     current_password: str = Form(""),
     password: str = Form(""),
     password2: str = Form(""),
+    username: str = Form(""),
 ):
     return _apply_account_update(
         request=request,
@@ -715,6 +802,7 @@ def account_update(
         current_password=current_password,
         password=password,
         password2=password2,
+        username=username,
     )
 
 

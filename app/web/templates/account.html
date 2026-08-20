@@ -15,7 +15,7 @@
       <div class="profile-meta">
         <div class="profile-meta-item">
           <span class="label">Login</span>
-          <span class="value mono">{{ user.username }}</span>
+          <span class="value mono">{{ display_name }}</span>
         </div>
         <div class="profile-meta-item">
           <span class="label">Role</span>
@@ -27,12 +27,23 @@
         </div>
       </div>
       <p class="muted profile-hint">
-        Login name is fixed — it appears in audit logs and API ownership.
-        {% if is_admin %}Admins can update other accounts under <a href="/users">Users &amp; Access</a>.{% else %}Ask an admin if you need a different login name.{% endif %}
+        Email is your main login. Username is optional
+        {% if username_optional %}— you can set one below once{% else %}and cannot be changed later{% endif %}.
+        {% if is_admin %}Admins can update other accounts under <a href="/users">Users &amp; Access</a>.{% endif %}
       </p>
     </div>
 
     <div class="profile-fields">
+      {% if username_optional %}
+      <div class="field field-gap">
+        <label for="account-username">Username <span class="muted label-normal">(optional)</span></label>
+        <input id="account-username" type="text" name="username" minlength="3" maxlength="64"
+               autocomplete="username" pattern="[A-Za-z0-9][A-Za-z0-9._-]*"
+               placeholder="Leave empty to keep using email">
+        <p class="hint-below">Optional handle for the UI. Login still works with email.</p>
+      </div>
+      {% endif %}
+
       {% if not force_pw %}
       <div class="field field-gap">
         <label for="account-email">Email</label>
@@ -42,7 +53,7 @@
       <div class="field field-gap">
         <label for="account-cur-pw">Current password</label>
         <input id="account-cur-pw" type="password" name="current_password" autocomplete="current-password">
-        <p class="hint-below">Required when you change email or password.</p>
+        <p class="hint-below">Required when you change email, password, or set a username.</p>
       </div>
       {% endif %}
 

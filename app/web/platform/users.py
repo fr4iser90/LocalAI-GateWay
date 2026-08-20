@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import secrets
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -40,7 +41,13 @@ def users_list(
         grant_summary,
     )
     from ...data.usage_weights import catalog_weight_suggestions
-    from ..accounts import active_key_count, assert_can_create_key, get_auth_settings
+    from ..accounts import (
+        active_key_count,
+        assert_can_create_key,
+        get_auth_settings,
+        user_display_name,
+        user_needs_username,
+    )
     from ..invites import pending_invites
     from ...mailer import get_smtp, smtp_ready
     from ..user_limits import user_limits_summary
@@ -117,6 +124,8 @@ def users_list(
             },
             "active_key_counts": {u.id: active_key_count(db, u.id) for u in users},
             "key_create_blocked": key_create_blocked,
+            "display_names": {u.id: user_display_name(u) for u in users},
+            "needs_username": {u.id: user_needs_username(u) for u in users},
         },
     )
 
@@ -408,32 +417,133 @@ async def users_grant_source_save(
     return RedirectResponse("/users", status_code=303)
 
 
+def _welcome_mail_body(
+    *,
+    target: WebUser,
+    email: str,
+    password: str,
+    login_url: str,
+    keys_url: str,
+    api_base: str,
+    must_change_password: bool,
+    personal_note: str = "",
+) -> str:
+    """Industry-style welcome: login + docs, no API key secret."""
+    from ..accounts import user_needs_username
+
+    greeting = (
+        "Hi,\n\n"
+        if user_needs_username(target)
+        else f"Hi {target.username},\n\n"
+    )
+    if must_change_password:
+        setup = (
+            "On first login you must set a new password.\n"
+            "Username is optional — you can set one later in Profile (email stays your login).\n\n"
+        )
+    elif user_needs_username(target):
+        setup = (
+            "Username is optional — you can set one later in Profile (email stays your login).\n\n"
+        )
+    else:
+        setup = ""
+
+    if target.is_platform_admin:
+        access = "Access: platform admin (full access).\n"
+    else:
+        sources = sorted({g.service for g in target.service_grants})
+        if sources:
+            access = "Enabled sources: " + ", ".join(sources) + ".\n"
+            models = sorted(
+                {f"{m.service}/{m.model_name}" for m in target.model_allowlists}
+            )
+            if models:
+                shown = models[:20]
+                access += "Model allowlist: " + ", ".join(shown)
+                if len(models) > 20:
+                    access += f" (+{len(models) - 20} more)"
+                access += ".\n"
+            else:
+                access += "Models: all enabled models for those sources (see GET /v1/models).\n"
+        else:
+            access = "Access: no sources granted yet — ask an admin if calls fail.\n"
+
+    note = (personal_note or "").strip()
+    note_block = f"Message from your admin:\n{note}\n\n" if note else ""
+
+    return (
+        f"{greeting}"
+        f"{note_block}"
+        "An account was created for you on OnPrem AI Gateway.\n\n"
+        f"Login:\n{login_url}\n\n"
+        f"Email: {email}\n"
+        f"Temporary password: {password}\n\n"
+        f"{setup}"
+        "API (OpenAI-compatible) — all sources are merged under one base URL:\n"
+        f"  Base URL: {api_base}\n"
+        "  Auth header: Authorization: Bearer YOUR_API_KEY\n"
+        "  (or: X-Api-Key: YOUR_API_KEY)\n\n"
+        f"{access}\n"
+        "API key:\n"
+        "  After login, open API Keys and create a key (shown once), or your admin will send one separately.\n"
+        f"  Keys page: {keys_url}\n"
+        "  Never share your key; rotate it if it leaks.\n"
+    )
+
+
 @router.post("/users/new")
 async def users_create(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[WebUser, Depends(require_platform_admin)],
 ):
+    from ...config import public_api_base
     from ...data.grants import sync_user_grants, sync_user_models
+    from ...mailer import MailError, get_smtp, send_mail, smtp_ready
+    from ..accounts import (
+        pending_username_for_id,
+        user_display_name,
+        validate_username,
+    )
 
     form = await request.form()
-    username = str(form.get("username") or "").strip()
+    username_raw = str(form.get("username") or "").strip()
     password = str(form.get("password") or "")
     email_n = str(form.get("email") or "").strip().lower() or None
     is_platform_admin = form.get("is_platform_admin") == "on"
     must_change_password = form.get("must_change_password") == "on"
-    if not username or not password:
-        request.session["flash_err"] = "Username and password are required."
+    send_welcome = form.get("send_welcome_email") == "on"
+    welcome_note = str(form.get("welcome_note") or "").strip()[:2000]
+    if not email_n:
+        request.session["flash_err"] = "Email is required (login + password reset)."
         return RedirectResponse("/users", status_code=303)
-    if db.query(WebUser).filter(WebUser.username == username).first():
-        request.session["flash_err"] = "Username already exists."
+    if not password:
+        request.session["flash_err"] = "Password is required."
         return RedirectResponse("/users", status_code=303)
-    if email_n and db.query(WebUser).filter(WebUser.email == email_n).first():
+    if len(password) < 8:
+        request.session["flash_err"] = "Password min 8 characters."
+        return RedirectResponse("/users", status_code=303)
+    if db.query(WebUser).filter(WebUser.email == email_n).first():
         request.session["flash_err"] = "Email already exists."
         return RedirectResponse("/users", status_code=303)
 
+    claim_later = not username_raw
+    if username_raw:
+        err = validate_username(username_raw)
+        if err:
+            request.session["flash_err"] = err
+            return RedirectResponse("/users", status_code=303)
+        if db.query(WebUser).filter(WebUser.username == username_raw).first():
+            request.session["flash_err"] = "Username already exists."
+            return RedirectResponse("/users", status_code=303)
+    else:
+        # Temporary unique handle until first login (email is the login).
+        must_change_password = True
+
+    # Placeholder until flush assigns id (replaced immediately below when claim_later).
+    bootstrap_username = username_raw or f"pending-tmp-{secrets.token_hex(8)}"
     target = WebUser(
-        username=username,
+        username=bootstrap_username,
         email=email_n,
         password_hash=hash_password(password),
         is_active=True,
@@ -442,6 +552,8 @@ async def users_create(
     )
     db.add(target)
     db.flush()
+    if claim_later:
+        target.username = pending_username_for_id(target.id)
     if not target.is_platform_admin and not _teams_on(db):
         names = source_names(db)
         services = _parse_services(form.getlist("services"), names)
@@ -452,17 +564,73 @@ async def users_create(
         if models:
             sync_user_models(db, target, models)
     write_audit(
-        db, actor=user, action="user.create", entity_type="user", detail=username
+        db,
+        actor=user,
+        action="user.create",
+        entity_type="user",
+        detail=user_display_name(target),
     )
+
+    mailed = False
+    mail_err: str | None = None
+    if send_welcome:
+        cfg = get_smtp(db)
+        if not smtp_ready(cfg):
+            mail_err = "SMTP is not ready — account created, welcome mail skipped."
+        else:
+            assert cfg is not None
+            base = (cfg.public_base_url or str(request.base_url)).rstrip("/")
+            api_base = public_api_base()
+            if api_base.startswith("http://localhost") and base.startswith("https://"):
+                api_base = f"{base}/v1"
+            try:
+                send_mail(
+                    db,
+                    to_email=email_n,
+                    subject="Your OnPrem AI Gateway account",
+                    body_text=_welcome_mail_body(
+                        target=target,
+                        email=email_n,
+                        password=password,
+                        login_url=f"{base}/login",
+                        keys_url=f"{base}/keys",
+                        api_base=api_base,
+                        must_change_password=must_change_password,
+                        personal_note=welcome_note,
+                    ),
+                )
+                mailed = True
+                write_audit(
+                    db,
+                    actor=user,
+                    action="user.welcome_mail",
+                    entity_type="user",
+                    entity_id=target.id,
+                    detail=email_n,
+                )
+            except MailError as exc:
+                mail_err = str(exc)
+
     db.commit()
+
     if target.is_platform_admin:
-        request.session["flash_ok"] = f"Admin {username} created (full access)."
+        msg = f"Admin {user_display_name(target)} created (full access)."
+    elif claim_later:
+        msg = (
+            f"Created {email_n} — they log in with email"
+            + (" and must set a new password." if must_change_password else ".")
+        )
     else:
         n = len(target.service_grants)
-        request.session["flash_ok"] = (
-            f"User {username} created with {n} source(s). "
+        msg = (
+            f"User {target.username} created with {n} source(s). "
             f"Fine-tune models under Edit grant if needed."
         )
+    if mailed:
+        msg += f" Welcome email sent to {email_n}."
+    elif mail_err:
+        request.session["flash_err"] = mail_err
+    request.session["flash_ok"] = msg
     return RedirectResponse("/users", status_code=303)
 
 

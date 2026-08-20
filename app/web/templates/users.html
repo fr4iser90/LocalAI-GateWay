@@ -81,29 +81,41 @@
     <div class="panel-head">
       <div class="panel-head-text">
         <h2>Create user</h2>
-        <p class="panel-sub">Set the account ceiling. Pre-checked sources come from default access.
+        <p class="panel-sub">Email + initial password required. Username optional (email is the login).
           Use <strong>Create key</strong> in the table below right after adding the user.</p>
       </div>
     </div>
     <form method="post" action="/users/new" class="users-create-form">
       <div class="row">
         <div class="field">
-          <label for="new-username">Username</label>
-          <input id="new-username" type="text" name="username" required autocomplete="off">
-        </div>
-        <div class="field">
           <label for="new-email">Email</label>
-          <input id="new-email" type="email" name="email" placeholder="Needed for password reset" autocomplete="off">
+          <input id="new-email" type="email" name="email" required placeholder="Login + password reset" autocomplete="off">
         </div>
         <div class="field">
-          <label for="new-password">Password</label>
+          <label for="new-username">Username <span class="muted label-normal">(optional)</span></label>
+          <input id="new-username" type="text" name="username" autocomplete="off" placeholder="Leave empty → they choose">
+        </div>
+        <div class="field">
+          <label for="new-password">Initial password</label>
           <input id="new-password" type="password" name="password" required minlength="8" autocomplete="new-password">
         </div>
       </div>
       <div class="checkboxes checkboxes-block">
         <label><input type="checkbox" name="is_platform_admin" id="new-is-admin"> Platform admin (full access)</label>
         <label><input type="checkbox" name="must_change_password" checked> Must change password on first login</label>
+        <label>
+          <input type="checkbox" name="send_welcome_email" id="new-send-welcome" {% if smtp_ok %}checked{% else %}disabled{% endif %}>
+          Send welcome email{% if not smtp_ok %} <span class="muted">(configure <a href="/smtp">SMTP</a> first)</span>{% endif %}
+        </label>
       </div>
+      <div class="field field-gap" id="new-welcome-note-wrap">
+        <label for="new-welcome-note">Personal note for welcome email <span class="muted label-normal">(optional)</span></label>
+        <textarea id="new-welcome-note" name="welcome_note" rows="3" maxlength="2000"
+                  placeholder="e.g. Hey Kerstin — here is access for TTS Thomas + the chat models we discussed."
+                  {% if not smtp_ok %}disabled{% endif %}></textarea>
+        <p class="hint-below">Appended to the standard welcome mail. No API key in email — they create one under API Keys after login (or you send a key separately).</p>
+      </div>
+      <p class="muted hint-below">If username is empty, email is the login. First login still requires a new password when “Must change password” is on. Welcome mail includes login, temp password, API base URL, and access summary — not the API key.</p>
       <div class="field field-gap-lg" id="new-user-grants">
         <label>Sources for this user</label>
         {% with source_chips=source_chips, selected_services=selected_services, hint_below='Uncheck sources this person should not use.' %}
@@ -153,8 +165,9 @@
       {% for u in users %}
         <tr id="user-row-{{ u.id }}" class="{% if not u.is_active %}row-muted{% endif %}">
           <td class="user-cell-name">
-            <strong>{{ u.username }}</strong>
+            <strong>{{ display_names.get(u.id, u.username) }}</strong>
             <div class="user-meta-badges">
+              {% if needs_username.get(u.id) %}<span class="badge badge-muted">email login</span>{% endif %}
               {% if u.is_platform_admin %}<span class="badge">admin</span>{% else %}<span class="badge badge-muted">user</span>{% endif %}
               {% if u.is_active %}<span class="badge ok">active</span>{% else %}<span class="badge off">disabled</span>{% endif %}
               {% if u.must_change_password %}<span class="badge rate">must change pw</span>{% endif %}
@@ -259,13 +272,24 @@
 (function () {
   var admin = document.getElementById('new-is-admin');
   var grants = document.getElementById('new-user-grants');
-  if (!admin || !grants) return;
-  function sync() {
-    grants.style.opacity = admin.checked ? '0.45' : '1';
-    grants.querySelectorAll('input').forEach(function (el) { el.disabled = admin.checked; });
+  if (admin && grants) {
+    function syncAdmin() {
+      grants.style.opacity = admin.checked ? '0.45' : '1';
+      grants.querySelectorAll('input').forEach(function (el) { el.disabled = admin.checked; });
+    }
+    admin.addEventListener('change', syncAdmin);
+    syncAdmin();
   }
-  admin.addEventListener('change', sync);
-  sync();
+  var welcome = document.getElementById('new-send-welcome');
+  var note = document.getElementById('new-welcome-note');
+  if (welcome && note && !welcome.disabled) {
+    function syncWelcome() {
+      note.disabled = !welcome.checked;
+      note.style.opacity = welcome.checked ? '1' : '0.45';
+    }
+    welcome.addEventListener('change', syncWelcome);
+    syncWelcome();
+  }
 })();
 </script>
 <script src="/static/users_grant.js"></script>

@@ -54,8 +54,10 @@ def login_submit(
             },
             status_code=401,
         )
+    from ..accounts import user_needs_onboarding
+
     request.session["user_id"] = user.id
-    if user.must_change_password:
+    if user_needs_onboarding(user):
         return RedirectResponse("/account", status_code=303)
     if user.is_platform_admin:
         from ..setup import needs_setup_wizard, wizard_progress

@@ -64,6 +64,12 @@ def require_user(
     if user is None:
         raise RedirectToLogin()
 
+    # First-login onboarding: password change and/or username claim.
+    from .accounts import user_needs_onboarding
+
+    if user_needs_onboarding(user) and not _setup_path_allowed(request.url.path):
+        raise SetupWizardRequired("/account")
+
     # First-run: lock platform ops UI until sources → models → key are done.
     if user.is_platform_admin:
         from .setup import needs_setup_wizard, wizard_progress

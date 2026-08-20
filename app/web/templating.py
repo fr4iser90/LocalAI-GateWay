@@ -48,6 +48,13 @@ def make_templates() -> Jinja2Templates:
                 )
             except Exception:
                 context["display_tz"] = "UTC"
+        if context.get("user") is not None and "display_name" not in context:
+            try:
+                from .accounts import user_display_name
+
+                context["display_name"] = user_display_name(context["user"])
+            except Exception:
+                context["display_name"] = getattr(context["user"], "username", "") or ""
         if "setup_incomplete" not in context:
             context["setup_incomplete"] = bool(
                 getattr(request.state, "setup_incomplete", False)
