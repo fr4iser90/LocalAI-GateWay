@@ -72,7 +72,7 @@
           {% if read_only %}
           <ul>
             {% for u in users %}
-            <li>{{ u.username }}{% if u.id in owner_ids %} · owner{% endif %}</li>
+            <li>{{ u|display_name }}{% if u.id in owner_ids %} · owner{% endif %}</li>
             {% else %}
             <li class="muted">No members listed.</li>
             {% endfor %}
@@ -83,7 +83,7 @@
             {% for u in users %}
             <label>
               <input type="checkbox" name="members" value="{{ u.id }}" {% if u.id in member_ids %}checked{% endif %}>
-              {{ u.username }}
+              {{ u|display_name }}
             </label>
             <label class="muted">
               <input type="checkbox" name="owners" value="{{ u.id }}" {% if u.id in owner_ids %}checked{% endif %}>

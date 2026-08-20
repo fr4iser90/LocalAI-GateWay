@@ -86,6 +86,7 @@
     <div class="sidebar-foot">
       <button type="button" class="btn btn-sm theme-toggle" data-theme-toggle aria-label="Toggle color theme">Light</button>
       <div>{{ display_name }}{% if user.is_platform_admin %} · admin{% endif %}</div>
+      {% if app_version %}<div class="muted text-xs mono">v{{ app_version }}</div>{% endif %}
       <form method="post" action="/logout" class="logout-form">
         <button class="btn-sm" type="submit">Logout</button>
       </form>

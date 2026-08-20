@@ -8,6 +8,17 @@ from pathlib import Path
 
 def make_templates() -> Jinja2Templates:
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+    def _display_name(user) -> str:
+        try:
+            from .accounts import user_display_name
+
+            return user_display_name(user)
+        except Exception:
+            return getattr(user, "username", "") or getattr(user, "email", "") or ""
+
+    templates.env.filters["display_name"] = _display_name
+
     original = templates.TemplateResponse
 
     def TemplateResponse(request, name, context=None, status_code=200, **kwargs):
@@ -66,6 +77,13 @@ def make_templates() -> Jinja2Templates:
                 context["pw_policy"] = policy_for_template()
             except Exception:
                 context["pw_policy"] = {"min_len": 8, "max_len": 72}
+        if "app_version" not in context:
+            try:
+                from .. import __version__
+
+                context["app_version"] = __version__
+            except Exception:
+                context["app_version"] = ""
         return original(
             request, name, context, status_code=status_code, **kwargs
         )

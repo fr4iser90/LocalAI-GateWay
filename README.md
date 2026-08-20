@@ -1,5 +1,7 @@
 # OnPrem AI Gateway
 
+**Version:** [0.1.0](CHANGELOG.md) · early production (`0.x` — APIs/UX may still change)
+
 Auth + web UI in front of local AI backends (llama.cpp / Ollama / Whisper / Piper / …).
 
 **One API base URL + API key.** The path selects the service. No per-service subdomains.  

@@ -32,7 +32,7 @@
             <label for="key-owner-{{ key.id }}">Owner</label>
             <select id="key-owner-{{ key.id }}" name="owner_user_id">
               {% for u in owners %}
-              <option value="{{ u.id }}" {% if key.owner_user_id == u.id %}selected{% endif %}>{{ u.username }}</option>
+              <option value="{{ u.id }}" {% if key.owner_user_id == u.id %}selected{% endif %}>{{ u|display_name }}</option>
               {% endfor %}
             </select>
           </div>

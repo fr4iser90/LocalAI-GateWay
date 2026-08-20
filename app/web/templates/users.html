@@ -186,7 +186,7 @@
                 <span class="grant-source-chip">
                   <a class="badge badge-link" href="#" aria-label="Edit models for {{ s }}" data-grant-user="{{ u.id }}" data-grant-source="{{ s }}">{{ s }}</a>
                   <form method="post" action="/users/{{ u.id }}/grant/source/remove" class="grant-source-revoke-form"
-                        onsubmit="return confirm('Remove source {{ s }} from {{ u.username }}?');">
+                        onsubmit="return confirm('Remove source {{ s }} from {{ display_names.get(u.id, u.username) }}?');">
                     <input type="hidden" name="source" value="{{ s }}">
                     <button type="submit" class="grant-source-revoke" title="Remove {{ s }}">×</button>
                   </form>

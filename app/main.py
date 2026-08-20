@@ -214,7 +214,9 @@ def create_app() -> FastAPI:
 
     @app.get("/healthz")
     def healthz():
-        return {"status": "ok"}
+        from . import __version__
+
+        return {"status": "ok", "version": __version__}
 
     @app.get("/v1/models")
     @app.get("/v1/onprem/models")
