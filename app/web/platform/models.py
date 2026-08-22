@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -27,6 +27,7 @@ def models_page(
         format_bytes,
         format_param_count,
         list_catalog,
+        split_sync_stale_pairs,
         suggest_docs_url,
     )
     from ...data.usage_weights import catalog_weight_suggestions
@@ -48,7 +49,11 @@ def models_page(
             kind_rows,
             pair=auto_vl and kind == "chat",
         )
-        groups.append((kind, pairs, len(kind_rows)))
+        active, stale = split_sync_stale_pairs(pairs)
+        groups.append((kind, active, stale, len(kind_rows)))
+    from ...data.backends import list_sources
+    from ...model_aliases import list_aliases
+
     return templates.TemplateResponse(
         request,
         "models.html",
@@ -65,6 +70,8 @@ def models_page(
             "format_param_count": format_param_count,
             "format_bytes": format_bytes,
             "tag_suggestions": TAG_SUGGESTIONS,
+            "aliases": list_aliases(db),
+            "source_names": [s.name for s in list_sources(db)],
             "flash_ok": flash_ok,
             "flash_err": flash_err,
             "gpu_power_enabled": _gpu_power_enabled(request, db),
@@ -89,11 +96,16 @@ def models_sync(
         detail=str(stats),
     )
     db.commit()
-    request.session["flash_ok"] = (
+    pruned = int(stats.get("pruned") or 0)
+    msg = (
         f"Synced: {stats['seen']} models from {stats['sources']} sources "
         f"({stats['created']} new, {stats.get('tagged', 0)} auto-tagged, "
-        f"{stats.get('meta', 0)} with meta)."
+        f"{stats.get('meta', 0)} with meta"
     )
+    if pruned:
+        msg += f", {pruned} disabled (not on upstream)"
+    msg += ")."
+    request.session["flash_ok"] = msg
     return RedirectResponse("/models", status_code=303)
 
 
@@ -158,6 +170,7 @@ async def models_save(
         want = row.id in enabled_ids
         if row.enabled != want:
             row.enabled = want
+            row.disabled_by = "" if want else "admin"
             changed += 1
         meta_kw: dict = {
             "tags": str(form.get(f"tags_{row.id}") or ""),
@@ -176,4 +189,109 @@ async def models_save(
     )
     db.commit()
     request.session["flash_ok"] = f"Saved ({changed} enable toggles; metadata updated)."
+    return RedirectResponse("/models", status_code=303)
+
+
+@router.post("/models/aliases/add")
+def models_alias_add(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[WebUser, Depends(require_platform_admin)],
+    alias_id: str = Form(""),
+    target_model_id: str = Form(""),
+    preferred_source: str = Form(""),
+    description: str = Form(""),
+    show_backend: str | None = Form(None),
+):
+    from ...model_aliases import upsert_alias, validate_alias_id
+
+    if validate_alias_id(alias_id) is None:
+        request.session["flash_err"] = (
+            "Invalid alias id (lowercase a-z0-9._-, not auto/auto-quality/auto-long)."
+        )
+        return RedirectResponse("/models", status_code=303)
+    row = upsert_alias(
+        db,
+        alias_id=alias_id,
+        target_model_id=target_model_id,
+        preferred_source=preferred_source,
+        description=description,
+        show_backend=show_backend is not None,
+        enabled=True,
+    )
+    if row is None:
+        request.session["flash_err"] = "Alias needs a target model id."
+        return RedirectResponse("/models", status_code=303)
+    write_audit(
+        db,
+        actor=user,
+        action="alias.create",
+        entity_type="model_alias",
+        entity_id=row.id,
+        detail=f"{row.alias_id}→{row.target_model_id}",
+    )
+    db.commit()
+    request.session["flash_ok"] = f"Alias '{row.alias_id}' added."
+    return RedirectResponse("/models", status_code=303)
+
+
+@router.post("/models/aliases/save")
+async def models_alias_save(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[WebUser, Depends(require_platform_admin)],
+):
+    from ...model_aliases import list_aliases
+
+    form = await request.form()
+    for row in list_aliases(db):
+        target = str(form.get(f"target_{row.id}") or "").strip()
+        if not target:
+            continue
+        row.target_model_id = target[:256]
+        row.preferred_source = str(form.get(f"source_{row.id}") or "").strip().lower()[:64]
+        row.description = str(form.get(f"desc_{row.id}") or "").strip()[:512]
+        row.show_backend = f"show_{row.id}" in form
+        row.enabled = f"enabled_{row.id}" in form
+    write_audit(
+        db,
+        actor=user,
+        action="alias.update",
+        entity_type="model_alias",
+        detail="bulk",
+    )
+    db.commit()
+    request.session["flash_ok"] = "Aliases saved."
+    return RedirectResponse("/models", status_code=303)
+
+
+@router.post("/models/aliases/delete")
+def models_alias_delete(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[WebUser, Depends(require_platform_admin)],
+    delete_id: str = Form(""),
+):
+    from ...data.models import ModelAlias
+
+    try:
+        aid = int(delete_id)
+    except (TypeError, ValueError):
+        request.session["flash_err"] = "Bad alias id."
+        return RedirectResponse("/models", status_code=303)
+    row = db.get(ModelAlias, aid)
+    if row is None:
+        request.session["flash_err"] = "Alias not found."
+        return RedirectResponse("/models", status_code=303)
+    alias = row.alias_id
+    db.delete(row)
+    write_audit(
+        db,
+        actor=user,
+        action="alias.delete",
+        entity_type="model_alias",
+        detail=alias,
+    )
+    db.commit()
+    request.session["flash_ok"] = f"Alias '{alias}' deleted."
     return RedirectResponse("/models", status_code=303)

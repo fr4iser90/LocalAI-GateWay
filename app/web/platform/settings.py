@@ -286,6 +286,7 @@ def settings_routing_save(
     preflight_upstream: str = Form(""),
     routing_strategy: str = Form("load_aware"),
     source_admission_enabled: str = Form(""),
+    catalog_prune_on_sync: str = Form(""),
     source_queue_timeout_sec: str = Form("30"),
     auto_model_default: str = Form(""),
     auto_model_quality: str = Form(""),
@@ -302,6 +303,7 @@ def settings_routing_save(
     auth.routing_strategy = strategy
     auth.load_aware_routing = strategy == "load_aware"
     auth.source_admission_enabled = source_admission_enabled == "on"
+    auth.catalog_prune_on_sync = catalog_prune_on_sync == "on"
     try:
         auth.source_queue_timeout_sec = max(
             1, min(600, int(source_queue_timeout_sec or "30"))
@@ -320,6 +322,7 @@ def settings_routing_save(
         detail=(
             f"auto_vl={auth.auto_vl_routing} preflight={auth.preflight_upstream} "
             f"routing={auth.routing_strategy} admission={auth.source_admission_enabled} "
+            f"catalog_prune={auth.catalog_prune_on_sync} "
             f"queue_s={auth.source_queue_timeout_sec}"
         ),
     )

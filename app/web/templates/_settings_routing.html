@@ -6,6 +6,7 @@
       <label><input type="checkbox" name="auto_vl_routing" {% if auth.auto_vl_routing %}checked{% endif %}> Auto-route image chat → VL model</label>
       <label><input type="checkbox" name="preflight_upstream" {% if auth.preflight_upstream %}checked{% endif %}> Strict preflight (503 when busy / loading / probe failed)</label>
       <label><input type="checkbox" name="source_admission_enabled" {% if auth.source_admission_enabled %}checked{% endif %}> Per-source admission queue (after preflight)</label>
+      <label><input type="checkbox" name="catalog_prune_on_sync" {% if auth.catalog_prune_on_sync %}checked{% endif %}> Auto-disable catalog rows missing from upstream after sync</label>
     </div>
     <div class="field field-gap-sm">
       <label for="routing-strategy">Tie-break strategy (same model on multiple sources)</label>

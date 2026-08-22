@@ -14,7 +14,8 @@ from .web.session import Forbidden, RedirectToLogin, SetupWizardRequired, curren
 from .web.accounts import get_auth_settings, router as accounts_router
 from .web.routes import router as web_router
 from .web.ops import router as ops_router
-from .auto_route import auto_alias_list_entries, rewrite_auto_model
+from .auto_route import auto_alias_list_entries
+from .model_aliases import alias_list_entries, apply_client_model_rewrites
 from .auth.check import authorize, extract_model, extract_request_model
 from .auth.concurrency import ConcurrencyLease, release_concurrency_lease
 from .data.backends import (
@@ -312,7 +313,7 @@ def create_app() -> FastAPI:
             return JSONResponse({"error": "expired_api_key"}, status_code=401)
         rows = models_visible_for_key(db, api_key)
         payload = openai_models_payload(rows)
-        aliases = auto_alias_list_entries(get_auth_settings(db))
+        aliases = auto_alias_list_entries(get_auth_settings(db)) + alias_list_entries(db)
         if aliases:
             seen = {x.get("id") for x in payload.get("data") or []}
             extra = [a for a in aliases if a["id"] not in seen]
@@ -351,11 +352,11 @@ def create_app() -> FastAPI:
                 body = await request.body()
             if kind == "chat" and body:
                 asked = extract_model(body, content_type)
-                body, auto_to = rewrite_auto_model(
-                    body, asked=asked, auth=get_auth_settings(db)
+                body, rewritten, _pref = apply_client_model_rewrites(
+                    db, body, asked=asked, auth=get_auth_settings(db)
                 )
-                if auto_to:
-                    vl_rewrite = auto_to
+                if rewritten:
+                    vl_rewrite = rewritten
         else:
             upstream_uri = upstream_path_for_proxy(uri)
             kind = kind_from_upstream_path(upstream_uri)
@@ -367,13 +368,14 @@ def create_app() -> FastAPI:
             # Read body early so model routing can pick the source
             if kind in MODEL_ROUTE_KINDS and method_u in {"POST", "PUT", "PATCH"}:
                 body = await request.body()
+            alias_pref: str | None = None
             if kind == "chat" and body:
                 asked = extract_model(body, content_type)
-                body, auto_to = rewrite_auto_model(
-                    body, asked=asked, auth=get_auth_settings(db)
+                body, rewritten, alias_pref = apply_client_model_rewrites(
+                    db, body, asked=asked, auth=get_auth_settings(db)
                 )
-                if auto_to:
-                    vl_rewrite = auto_to
+                if rewritten:
+                    vl_rewrite = rewritten
             model = extract_request_model(kind, body, content_type) if body else None
             auth_cfg = get_auth_settings(db)
             src = resolve_routed_source(
@@ -382,6 +384,7 @@ def create_app() -> FastAPI:
                 model=model,
                 raw_key=raw_key,
                 auth=auth_cfg,
+                preferred_source=alias_pref,
             )
             if src is None:
                 return _unresolved_model_response(kind, model)
@@ -660,6 +663,7 @@ def create_app() -> FastAPI:
         named, upstream_uri = split_source_path(uri)
         auth_cfg = get_auth_settings(db)
         auto_rewrite: str | None = None
+        alias_pref: str | None = None
         if named is not None:
             src = get_source_by_name(db, named)
             if src is None:
@@ -672,8 +676,8 @@ def create_app() -> FastAPI:
             upstream_uri = upstream_uri or "/"
             if kind == "chat" and body:
                 asked = extract_model(body, content_type)
-                body, auto_rewrite = rewrite_auto_model(
-                    body, asked=asked, auth=auth_cfg
+                body, auto_rewrite, _pref = apply_client_model_rewrites(
+                    db, body, asked=asked, auth=auth_cfg
                 )
         else:
             upstream_uri = upstream_path_for_proxy(uri)
@@ -682,8 +686,8 @@ def create_app() -> FastAPI:
                 return JSONResponse({"error": "unknown_route", "path": uri}, status_code=403)
             if kind == "chat" and body:
                 asked = extract_model(body, content_type)
-                body, auto_rewrite = rewrite_auto_model(
-                    body, asked=asked, auth=auth_cfg
+                body, auto_rewrite, alias_pref = apply_client_model_rewrites(
+                    db, body, asked=asked, auth=auth_cfg
                 )
             model = extract_request_model(kind, body, content_type)
             src = resolve_routed_source(
@@ -692,6 +696,7 @@ def create_app() -> FastAPI:
                 model=model,
                 raw_key=raw_key,
                 auth=auth_cfg,
+                preferred_source=alias_pref,
             )
             if src is None:
                 return _unresolved_model_response(kind, model)

@@ -2287,6 +2287,25 @@ textarea { min-height: 110px; font-family: var(--mono); font-size: 0.85rem; }
 .catalog-row--pair td {
   vertical-align: top;
 }
+.catalog-stale {
+  margin: 0.75rem 0 0;
+  padding-top: 0.35rem;
+  border-top: 1px dashed var(--border, #333);
+}
+.catalog-stale > summary {
+  font-size: 0.9rem;
+  padding: 0.35rem 0;
+}
+.catalog-table--stale {
+  opacity: 0.85;
+}
+.catalog-row--stale td {
+  color: var(--muted, #888);
+}
+.catalog-row--empty td {
+  padding: 0.85rem 0.75rem;
+  text-align: center;
+}
 .catalog-on-stack,
 .catalog-field-stack {
   display: flex;

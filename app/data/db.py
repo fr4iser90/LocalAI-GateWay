@@ -126,6 +126,7 @@ def _ensure_columns(eng) -> None:
             ("routing_strategy", "VARCHAR(32) DEFAULT 'load_aware'"),
             ("source_admission_enabled", "BOOLEAN DEFAULT 1"),
             ("source_queue_timeout_sec", "INTEGER DEFAULT 30"),
+            ("catalog_prune_on_sync", "BOOLEAN DEFAULT 1"),
             ("default_grant_sources", "TEXT DEFAULT ''"),
             ("default_grant_models", "TEXT DEFAULT ''"),
             ("show_global_stats", "BOOLEAN DEFAULT 0"),
@@ -174,6 +175,7 @@ def _ensure_columns(eng) -> None:
             ("modalities_out", "VARCHAR(128) DEFAULT ''"),
             ("upstream_meta_at", "DATETIME"),
             ("usage_weight", "FLOAT DEFAULT 1.0"),
+            ("disabled_by", "VARCHAR(16) DEFAULT ''"),
         ],
     }
     insp = inspect(eng)
@@ -428,6 +430,7 @@ def init_db(settings: Settings) -> None:
                     routing_strategy="load_aware",
                     source_admission_enabled=True,
                     source_queue_timeout_sec=30,
+                    catalog_prune_on_sync=True,
                 )
             )
         from .backends import seed_backends_from_env

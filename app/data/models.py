@@ -377,6 +377,24 @@ class BackendSource(Base):
     queue_timeout_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
+class ModelAlias(Base):
+    """Public model id → real catalog id (+ optional source pin)."""
+
+    __tablename__ = "model_aliases"
+    __table_args__ = (UniqueConstraint("alias_id", name="uq_model_alias_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    alias_id: Mapped[str] = mapped_column(String(128), index=True)
+    target_model_id: Mapped[str] = mapped_column(String(256), default="")
+    preferred_source: Mapped[str] = mapped_column(String(64), default="")
+    description: Mapped[str] = mapped_column(String(512), default="")
+    show_backend: Mapped[bool] = mapped_column(Boolean, default=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    kind: Mapped[str] = mapped_column(String(16), default="chat")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class CatalogModel(Base):
     """Discovered upstream model; admin can disable globally for listing + inference."""
 
@@ -412,6 +430,8 @@ class CatalogModel(Base):
         DateTime(timezone=True), nullable=True
     )
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Why disabled: "" | admin (manual) | sync (missing on upstream after sync).
+    disabled_by: Mapped[str] = mapped_column(String(16), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -458,6 +478,8 @@ class AuthSettings(Base):
     # Per-source admission queue (after strict preflight, before proxy).
     source_admission_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     source_queue_timeout_sec: Mapped[int] = mapped_column(Integer, default=30)
+    # After sync: disable catalog rows no longer listed upstream (per source).
+    catalog_prune_on_sync: Mapped[bool] = mapped_column(Boolean, default=True)
     # New users (and self-register): comma source names; empty = sources marked default.
     default_grant_sources: Mapped[str] = mapped_column(Text, default="")
     # Newline "source:model"; empty = all ON models for those sources.

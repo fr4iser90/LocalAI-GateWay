@@ -1,0 +1,103 @@
+# Sticky VL always (:11535). Lab swap pool (:11537):
+#   docker compose --profile lab up -d
+# Distinct image name so `compose.rocm.yaml build` cannot overwrite this.
+name: llama-cpp-vulkan
+
+# Ubuntu 24.04 Mesa has no gfx1151 RADV. On NixOS use host Mesa via /run/opengl-driver.
+x-vol-dri: &vol-dri /dev/dri:/dev/dri
+x-vol-ogl: &vol-ogl /run/opengl-driver:/run/opengl-driver:ro
+x-vol-nix: &vol-nix /nix/store:/nix/store:ro
+
+x-vol-wrap: &vol-wrap ./vulkan-host-env.sh:/usr/local/bin/vulkan-host-env.sh:ro
+
+x-llama-gpu: &llama-gpu
+  image: llama-cpp-vulkan
+  build: .
+  entrypoint: ["/usr/local/bin/vulkan-host-env.sh"]
+  devices:
+    - /dev/dri
+  device_cgroup_rules:
+    - "c 226:* rmw"
+  group_add:
+    - video
+  cap_add:
+    - SYS_PTRACE
+  security_opt:
+    - seccomp=unconfined
+  ipc: host
+  shm_size: "16gb"
+  environment:
+    LD_LIBRARY_PATH: /run/opengl-driver/lib
+    XDG_DATA_DIRS: /run/opengl-driver/share:/usr/local/share:/usr/share
+    LIBGL_DRIVERS_PATH: /run/opengl-driver/lib/dri
+    VK_ICD_FILENAMES: /run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json
+    VK_DRIVER_FILES: /run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json
+  restart: unless-stopped
+
+services:
+  # Sticky: only Q4_K_XL-VL in models.ini, load-on-startup. Never swap this box.
+  llama:
+    <<: *llama-gpu
+    container_name: llama-router
+    volumes:
+      - ./models:/models
+      - ./models.ini:/etc/llama-cpp/models.ini:ro
+      - *vol-dri
+      - *vol-ogl
+      - *vol-nix
+      - *vol-wrap
+    ports:
+      - "11535:8080"
+    command:
+      [
+        "/workspace/llama.cpp/build/bin/llama-server",
+        "--host", "0.0.0.0",
+        "--port", "8080",
+        "--models-preset", "/etc/llama-cpp/models.ini",
+        "--models-max", "1",
+      ]
+
+  # Lab: all other GGUFs, on-demand swap. Shares GPU/RAM with sticky —
+  # only start when you need smart/experiments; stop when done to free GTT.
+  llama-lab:
+    <<: *llama-gpu
+    profiles: ["lab"]
+    container_name: llama-router-lab
+    volumes:
+      - ./models:/models
+      - ./models-lab.ini:/etc/llama-cpp/models.ini:ro
+      - *vol-dri
+      - *vol-ogl
+      - *vol-nix
+      - *vol-wrap
+    ports:
+      - "11537:8080"
+    command:
+      [
+        "/workspace/llama.cpp/build/bin/llama-server",
+        "--host", "0.0.0.0",
+        "--port", "8080",
+        "--models-preset", "/etc/llama-cpp/models.ini",
+        "--models-max", "1",
+      ]
+
+  llama-embeddings:
+    <<: *llama-gpu
+    container_name: llama-embeddings
+    volumes:
+      - ./models:/models
+      - ./models-embeddings.ini:/etc/llama-cpp/models-embeddings.ini:ro
+      - *vol-dri
+      - *vol-ogl
+      - *vol-nix
+      - *vol-wrap
+    ports:
+      - "11536:8080"
+    command:
+      [
+        "/workspace/llama.cpp/build/bin/llama-server",
+        "--host", "0.0.0.0",
+        "--port", "8080",
+        "--models-preset", "/etc/llama-cpp/models-embeddings.ini",
+        "--models-max", "1",
+      ]

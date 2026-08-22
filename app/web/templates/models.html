@@ -69,20 +69,94 @@
   </span>
 </div>
 
+<section class="panel">
+  <h2>Public aliases</h2>
+  <p class="muted mt-0 text-sm">
+    Stable client ids (e.g. <span class="mono">qwen3.6</span>) rewrite to a real catalog model.
+    Optional <strong>preferred source</strong> picks which upstream address (your Services entry) to use.
+    Shown first in <span class="mono">GET /v1/models</span>.
+  </p>
+  {% if aliases %}
+  <form method="post" action="/models/aliases/save">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Alias</th>
+          <th>Target model</th>
+          <th>Preferred source</th>
+          <th>Note</th>
+          <th>Show backend</th>
+          <th>On</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in aliases %}
+        <tr>
+          <td class="mono">{{ a.alias_id }}</td>
+          <td>
+            <input class="mono" type="text" name="target_{{ a.id }}" value="{{ a.target_model_id }}" required>
+          </td>
+          <td>
+            <select name="source_{{ a.id }}">
+              <option value="" {% if not a.preferred_source %}selected{% endif %}>—</option>
+              {% for chip in source_names %}
+              <option value="{{ chip }}" {% if a.preferred_source == chip %}selected{% endif %}>{{ chip }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td><input type="text" name="desc_{{ a.id }}" value="{{ a.description }}" placeholder="Daily VL"></td>
+          <td><input type="checkbox" name="show_{{ a.id }}" {% if a.show_backend %}checked{% endif %}></td>
+          <td><input type="checkbox" name="enabled_{{ a.id }}" {% if a.enabled %}checked{% endif %}></td>
+          <td>
+            <button class="btn-sm" type="submit" name="delete_id" value="{{ a.id }}"
+                    formaction="/models/aliases/delete"
+                    formmethod="post"
+                    onclick="return confirm('Delete alias {{ a.alias_id }}?');">Delete</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <button class="primary field-gap-sm" type="submit">Save aliases</button>
+  </form>
+  {% else %}
+  <p class="muted">No aliases yet — add one below.</p>
+  {% endif %}
+  <form method="post" action="/models/aliases/add" class="field-gap-md">
+    <div class="svc-editor">
+      <input class="mono" type="text" name="alias_id" required placeholder="qwen3.6" pattern="[a-z0-9][a-z0-9._-]{0,126}">
+      <input class="mono" type="text" name="target_model_id" required placeholder="Qwen3.6-…-Q4_K_XL-VL">
+      <select name="preferred_source">
+        <option value="">source —</option>
+        {% for chip in source_names %}
+        <option value="{{ chip }}">{{ chip }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" name="description" placeholder="Daily default (VL)">
+      <label><input type="checkbox" name="show_backend" checked> show backend in /v1/models</label>
+      <button class="primary" type="submit">Add alias</button>
+    </div>
+  </form>
+</section>
+
 {% if groups %}
 <form method="post" action="/models/save">
-  {% for kind, kind_pairs, kind_count in groups %}
+  {% for kind, active_pairs, stale_pairs, kind_count in groups %}
+  {% set kind_pairs = active_pairs + stale_pairs %}
   <div class="panel">
     <div class="panel-head">
       <div class="panel-head-text">
         <h2 class="kind-title">{{ kind }}</h2>
         <p class="panel-sub panel-sub--tight">
           {% if auto_vl_routing and kind == 'chat' and kind_pairs|length != kind_count %}
-            {{ kind_pairs|length }} row{{ 's' if kind_pairs|length != 1 else '' }}
+            {{ active_pairs|length }} row{{ 's' if active_pairs|length != 1 else '' }}
             · {{ kind_count }} model{{ 's' if kind_count != 1 else '' }}
             (text+VL paired)
+            {% if stale_pairs %} · {{ stale_pairs|length }} not on upstream{% endif %}
           {% else %}
-            {{ kind_count }} model{{ 's' if kind_count != 1 else '' }}
+            {{ active_pairs|length }} model{{ 's' if active_pairs|length != 1 else '' }}
+            {% if stale_pairs %} · {{ stale_pairs|length }} not on upstream{% endif %}
           {% endif %}
         </p>
       </div>
@@ -104,136 +178,48 @@
         </tr>
       </thead>
       <tbody>
-      {% for m, vl in kind_pairs %}
-        <tr class="{% if vl %}catalog-row--pair{% endif %}">
-          <td>
-            <div class="catalog-on-stack">
-              <label class="catalog-on-item" for="en-{{ m.id }}">
-                <input id="en-{{ m.id }}" type="checkbox" name="enabled" value="{{ m.id }}" {% if m.enabled %}checked{% endif %}>
-                <span class="sr-only">Enable {{ m.model_id }}</span>
-                {% if vl %}<span class="muted catalog-on-hint" aria-hidden="true">text</span>{% endif %}
-              </label>
-              {% if vl %}
-              <label class="catalog-on-item" for="en-{{ vl.id }}">
-                <input id="en-{{ vl.id }}" type="checkbox" name="enabled" value="{{ vl.id }}" {% if vl.enabled %}checked{% endif %}>
-                <span class="sr-only">Enable {{ vl.model_id }}</span>
-                <span class="model-picker-vl-badge" aria-hidden="true">VL</span>
-              </label>
-              {% endif %}
-            </div>
-          </td>
-          <td>
-            <div class="mono">{{ m.model_id }}</div>
-            {% if vl %}
-            <div class="catalog-vl-line">
-              <span class="model-picker-vl-badge">+ VL</span>
-              <span class="mono">{{ vl.model_id }}</span>
-            </div>
-            <div class="muted hint-micro">Image chat → VL sibling</div>
-            {% endif %}
-            <div class="muted hint-micro">
-              <span class="badge">{{ m.source_name }}</span>
-              {% if m.upstream_status %}
-                · {% if m.upstream_status == 'loaded' %}<span class="badge ok">loaded</span>
-                {% elif m.upstream_status == 'unloaded' %}<span class="badge off">unloaded</span>
-                {% else %}<span class="badge">{{ m.upstream_status }}</span>{% endif %}
-              {% endif %}
-              {% if vl and vl.upstream_status %}
-                · VL
-                {% if vl.upstream_status == 'loaded' %}<span class="badge ok">loaded</span>
-                {% elif vl.upstream_status == 'unloaded' %}<span class="badge off">unloaded</span>
-                {% else %}<span class="badge">{{ vl.upstream_status }}</span>{% endif %}
-              {% endif %}
-              · {{ m.last_seen_at or 'never seen' }}
-            </div>
-          </td>
-          <td class="muted meta-cell">
-            {% if m.ctx_size or m.n_ctx or m.n_ctx_train or m.n_embd or m.n_params or m.model_size or m.modalities_in or (vl and (vl.modalities_in or vl.modalities_out)) %}
-              {% if m.ctx_size %}<div><span class="mono">ctx_size</span> {{ m.ctx_size }}</div>{% endif %}
-              {% if m.n_ctx %}<div><span class="mono">n_ctx</span> {{ m.n_ctx }}{% if m.upstream_meta_at %} <span title="last known from meta">(last)</span>{% endif %}</div>{% endif %}
-              {% if m.n_ctx_train %}<div><span class="mono">n_ctx_train</span> {{ m.n_ctx_train }}</div>{% endif %}
-              {% if m.n_embd %}<div><span class="mono">n_embd</span> {{ m.n_embd }}</div>{% endif %}
-              {% if m.n_params %}<div><span class="mono">n_params</span> {{ format_param_count(m.n_params) }}</div>{% endif %}
-              {% if m.model_size %}<div><span class="mono">size</span> {{ format_bytes(m.model_size) }}</div>{% endif %}
-              {% if m.modalities_in or m.modalities_out %}
-              <div>{{ m.modalities_in or '?' }} → {{ m.modalities_out or '?' }}</div>
-              {% endif %}
-              {% if vl and (vl.modalities_in or vl.modalities_out) %}
-              <div class="catalog-vl-meta">VL {{ vl.modalities_in or '?' }} → {{ vl.modalities_out or '?' }}</div>
-              {% endif %}
-            {% else %}
-              <span class="muted">—</span>
-            {% endif %}
-          </td>
-          <td class="muted meta-cell">
-            {% set obs = observed.get(m.model_id) %}
-            {% set obs_vl = observed.get(vl.model_id) if vl else none %}
-            {% if obs or obs_vl %}
-              {% if obs %}
-              <div><span class="mono">n</span> {{ obs.n }}</div>
-              {% if obs.pp_tok_s_avg %}<div><span class="mono">PP</span> {{ '%.1f'|format(obs.pp_tok_s_avg) }} t/s</div>{% endif %}
-              {% if obs.tg_tok_s_avg %}<div><span class="mono">TG</span> {{ '%.1f'|format(obs.tg_tok_s_avg) }} t/s</div>{% endif %}
-              {% if gpu_power_enabled and obs.watts_avg %}<div><span class="mono">W</span> {{ '%.0f'|format(obs.watts_avg) }}</div>{% endif %}
-              {% endif %}
-              {% if obs_vl %}
-              <div class="catalog-vl-meta">
-                VL n={{ obs_vl.n }}
-                {% if obs_vl.pp_tok_s_avg %} · PP {{ '%.1f'|format(obs_vl.pp_tok_s_avg) }}{% endif %}
-                {% if obs_vl.tg_tok_s_avg %} · TG {{ '%.1f'|format(obs_vl.tg_tok_s_avg) }}{% endif %}
-                {% if gpu_power_enabled and obs_vl.watts_avg %} · {{ '%.0f'|format(obs_vl.watts_avg) }} W{% endif %}
-              </div>
-              {% endif %}
-            {% else %}
-              <span class="muted">—</span>
-            {% endif %}
-          </td>
-          <td>
-            <div class="catalog-field-stack">
-              <label class="sr-only" for="tags-{{ m.id }}">Tags for {{ m.model_id }}</label>
-              <input id="tags-{{ m.id }}" class="input-tags" type="text" name="tags_{{ m.id }}" value="{{ m.tags }}" placeholder="tools,code,fast">
-              {% if vl %}
-              <label class="sr-only" for="tags-{{ vl.id }}">Tags for {{ vl.model_id }}</label>
-              <input id="tags-{{ vl.id }}" class="input-tags" type="text" name="tags_{{ vl.id }}" value="{{ vl.tags }}" placeholder="vision,tools" title="VL tags">
-              {% endif %}
-            </div>
-          </td>
-          {% if pool_model_weights_enabled %}
-          <td>
-            <div class="catalog-field-stack">
-              <label class="sr-only" for="weight-{{ m.id }}">Budget factor for {{ m.model_id }}</label>
-              <input id="weight-{{ m.id }}" class="input-weight" type="number" name="weight_{{ m.id }}" value="{{ m.usage_weight if m.usage_weight is not none else 1 }}" min="0.01" step="0.1" title="budget_charge = tokens × factor (1 = no scaling)">
-              {% if vl %}
-              <label class="sr-only" for="weight-{{ vl.id }}">Budget factor for {{ vl.model_id }}</label>
-              <input id="weight-{{ vl.id }}" class="input-weight" type="number" name="weight_{{ vl.id }}" value="{{ vl.usage_weight if vl.usage_weight is not none else 1 }}" min="0.01" step="0.1" title="VL budget factor">
-              {% endif %}
-            </div>
-          </td>
-          {% endif %}
-          <td>
-            <div class="catalog-field-stack">
-              <label class="sr-only" for="note-{{ m.id }}">Note for {{ m.model_id }}</label>
-              <input id="note-{{ m.id }}" class="input-note" type="text" name="note_{{ m.id }}" value="{{ m.short_note }}" placeholder="Good for coding">
-              {% if vl %}
-              <label class="sr-only" for="note-{{ vl.id }}">Note for {{ vl.model_id }}</label>
-              <input id="note-{{ vl.id }}" class="input-note" type="text" name="note_{{ vl.id }}" value="{{ vl.short_note }}" placeholder="Vision">
-              {% endif %}
-            </div>
-          </td>
-          <td>
-            <div class="catalog-field-stack">
-              <label class="sr-only" for="docs-{{ m.id }}">Docs URL for {{ m.model_id }}</label>
-              <input id="docs-{{ m.id }}" class="input-docs" type="url" name="docs_{{ m.id }}" value="{{ m.docs_url }}" placeholder="{{ suggest_docs_url(m.model_id) or 'https://huggingface.co/…' }}">
-              {% if vl %}
-              <label class="sr-only" for="docs-{{ vl.id }}">Docs URL for {{ vl.model_id }}</label>
-              <input id="docs-{{ vl.id }}" class="input-docs" type="url" name="docs_{{ vl.id }}" value="{{ vl.docs_url }}" placeholder="{{ suggest_docs_url(vl.model_id) or 'https://huggingface.co/…' }}">
-              {% endif %}
-            </div>
+      {% for m, vl in active_pairs %}
+        {% include "_catalog_model_row.html" %}
+      {% else %}
+        <tr class="catalog-row--empty">
+          <td colspan="{% if pool_model_weights_enabled %}8{% else %}7{% endif %}" class="muted">
+            No active models — expand “not on upstream” below, or sync from sources.
           </td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
     </div>
+    {% if stale_pairs %}
+    <details class="catalog-stale panel-details">
+      <summary class="muted">
+        {{ stale_pairs|length }} not on upstream (sync-disabled) — expand to review or re-enable
+      </summary>
+      <div class="table-wrap">
+      <table class="catalog-table catalog-table--stale">
+        <thead class="sr-only">
+          <tr>
+            <th>On</th>
+            <th>Model</th>
+            <th>Source meta</th>
+            <th>Observed · 7d</th>
+            <th>Tags</th>
+            {% if pool_model_weights_enabled %}
+            <th>Budget factor</th>
+            {% endif %}
+            <th>Note</th>
+            <th>Docs URL</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for m, vl in stale_pairs %}
+          {% include "_catalog_model_row.html" %}
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </details>
+    {% endif %}
   </div>
   {% endfor %}
   <button class="primary" type="submit">Save</button>
@@ -257,9 +243,22 @@
   input.addEventListener('input', function () {
     var q = (input.value || '').trim().toLowerCase();
     document.querySelectorAll('.catalog-table tbody tr').forEach(function (tr) {
+      if (tr.classList.contains('catalog-row--empty')) {
+        tr.hidden = !!q;
+        return;
+      }
       var text = (tr.textContent || '').toLowerCase();
       tr.hidden = !(!q || text.indexOf(q) !== -1);
     });
+    if (q) {
+      document.querySelectorAll('.catalog-stale').forEach(function (d) {
+        var any = false;
+        d.querySelectorAll('tbody tr').forEach(function (tr) {
+          if (!tr.hidden) any = true;
+        });
+        if (any) d.open = true;
+      });
+    }
   });
 })();
 </script>

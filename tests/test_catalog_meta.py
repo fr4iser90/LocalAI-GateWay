@@ -267,5 +267,6 @@ def test_fetch_piper_voices_returns_discovered():
     }
     with patch("app.data.catalog.httpx.Client") as client_cls:
         client_cls.return_value.__enter__.return_value.get.return_value = mock_resp
-        got = _fetch_piper_voices("http://tts:9001")
+        got, ok = _fetch_piper_voices("http://tts:9001")
+        assert ok is True
         assert [d.model_id for d in got] == ["de_DE-thorsten-high"]

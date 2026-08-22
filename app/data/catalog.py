@@ -45,6 +45,17 @@ class DiscoveredModel:
     has_meta: bool = False
 
 
+@dataclass
+class SourceDiscovery:
+    """Result of listing models from one upstream address."""
+
+    models: list[DiscoveredModel]
+    ok: bool
+
+
+DISABLED_BY_ADMIN = "admin"
+DISABLED_BY_SYNC = "sync"
+
 def parse_tags(raw: str | None) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
@@ -218,7 +229,35 @@ def set_model_enabled(db: Session, catalog_id: int, enabled: bool) -> CatalogMod
     if row is None:
         return None
     row.enabled = enabled
+    row.disabled_by = "" if enabled else DISABLED_BY_ADMIN
     return row
+
+
+def is_sync_stale_pair(
+    m: CatalogModel, vl: CatalogModel | None
+) -> bool:
+    """True when every model in the UI row was auto-disabled by catalog prune."""
+    rows = [m] + ([vl] if vl is not None else [])
+    return all(
+        (not r.enabled) and (r.disabled_by or "") == DISABLED_BY_SYNC for r in rows
+    )
+
+
+def split_sync_stale_pairs(
+    pairs: list[tuple[CatalogModel, CatalogModel | None]],
+) -> tuple[
+    list[tuple[CatalogModel, CatalogModel | None]],
+    list[tuple[CatalogModel, CatalogModel | None]],
+]:
+    """Split catalog UI pairs into active (main table) vs sync-stale (collapsed)."""
+    active: list[tuple[CatalogModel, CatalogModel | None]] = []
+    stale: list[tuple[CatalogModel, CatalogModel | None]] = []
+    for m, vl in pairs:
+        if is_sync_stale_pair(m, vl):
+            stale.append((m, vl))
+        else:
+            active.append((m, vl))
+    return active, stale
 
 
 def _as_int(value) -> int | None:
@@ -352,75 +391,127 @@ def format_bytes(n: int | None) -> str:
     return f"{n} B"
 
 
-def _fetch_openai_models(base: str) -> list[DiscoveredModel]:
-    with httpx.Client(timeout=8.0, follow_redirects=True) as client:
-        resp = client.get(f"{base}/v1/models")
-        if resp.status_code != 200:
-            return []
-        data = resp.json()
-        out: list[DiscoveredModel] = []
-        for item in data.get("data") or []:
-            disc = parse_openai_model_item(item) if isinstance(item, dict) else None
-            if disc:
-                out.append(disc)
-        return out
-
-
-def _fetch_ollama_tags(base: str) -> list[DiscoveredModel]:
-    with httpx.Client(timeout=8.0, follow_redirects=True) as client:
-        resp = client.get(f"{base}/api/tags")
-        if resp.status_code != 200:
-            return []
-        data = resp.json()
-        out: list[DiscoveredModel] = []
-        for item in data.get("models") or []:
-            name = item.get("name") or item.get("model")
-            if name:
-                out.append(DiscoveredModel(model_id=str(name)))
-        return out
-
-
-def _fetch_piper_voices(base: str) -> list[DiscoveredModel]:
-    """Piper-style root JSON: {\"ok\": true, \"voices\": [\"de_DE-…\"]}."""
-    with httpx.Client(timeout=8.0, follow_redirects=True) as client:
-        resp = client.get(f"{base}/")
-        if resp.status_code != 200:
-            return []
-        try:
+def _fetch_openai_models(base: str) -> tuple[list[DiscoveredModel], bool]:
+    try:
+        with httpx.Client(timeout=8.0, follow_redirects=True) as client:
+            resp = client.get(f"{base}/v1/models")
+            if resp.status_code != 200:
+                return [], False
             data = resp.json()
-        except Exception:
-            return []
-        if not isinstance(data, dict):
-            return []
-        voices = data.get("voices") or []
-        out: list[DiscoveredModel] = []
-        for v in voices:
-            if isinstance(v, str) and v.strip():
-                out.append(DiscoveredModel(model_id=v.strip()))
-            elif isinstance(v, dict) and v.get("id"):
-                out.append(DiscoveredModel(model_id=str(v["id"])))
-            elif isinstance(v, dict) and v.get("name"):
-                out.append(DiscoveredModel(model_id=str(v["name"])))
-        return out
+    except Exception:
+        return [], False
+    out: list[DiscoveredModel] = []
+    for item in data.get("data") or []:
+        disc = parse_openai_model_item(item) if isinstance(item, dict) else None
+        if disc:
+            out.append(disc)
+    return out, True
 
 
-def discover_models_for_source(address: str, kind: str) -> list[DiscoveredModel]:
+def _fetch_ollama_tags(base: str) -> tuple[list[DiscoveredModel], bool]:
+    try:
+        with httpx.Client(timeout=8.0, follow_redirects=True) as client:
+            resp = client.get(f"{base}/api/tags")
+            if resp.status_code != 200:
+                return [], False
+            data = resp.json()
+    except Exception:
+        return [], False
+    out: list[DiscoveredModel] = []
+    for item in data.get("models") or []:
+        name = item.get("name") or item.get("model")
+        if name:
+            out.append(DiscoveredModel(model_id=str(name)))
+    return out, True
+
+
+def _fetch_piper_voices(base: str) -> tuple[list[DiscoveredModel], bool]:
+    """Piper-style root JSON: {\"ok\": true, \"voices\": [\"de_DE-…\"]}."""
+    try:
+        with httpx.Client(timeout=8.0, follow_redirects=True) as client:
+            resp = client.get(f"{base}/")
+            if resp.status_code != 200:
+                return [], False
+            data = resp.json()
+    except Exception:
+        return [], False
+    if not isinstance(data, dict):
+        return [], False
+    voices = data.get("voices") or []
+    out: list[DiscoveredModel] = []
+    for v in voices:
+        if isinstance(v, str) and v.strip():
+            out.append(DiscoveredModel(model_id=v.strip()))
+        elif isinstance(v, dict) and v.get("id"):
+            out.append(DiscoveredModel(model_id=str(v["id"])))
+        elif isinstance(v, dict) and v.get("name"):
+            out.append(DiscoveredModel(model_id=str(v["name"])))
+    return out, True
+
+
+def discover_models_for_source(address: str, kind: str) -> SourceDiscovery:
     if not address:
-        return []
+        return SourceDiscovery([], ok=False)
     base = f"http://{address}"
-    models = _fetch_openai_models(base)
-    if models:
-        return models
+    models, ok = _fetch_openai_models(base)
+    if ok:
+        return SourceDiscovery(models, ok=True)
     if kind == "chat":
-        return _fetch_ollama_tags(base)
+        models, ok = _fetch_ollama_tags(base)
+        if ok:
+            return SourceDiscovery(models, ok=True)
     if kind == "tts":
-        return _fetch_piper_voices(base)
-    # stt / whisper.cpp: usually one model at process start, no list API
-    return []
+        models, ok = _fetch_piper_voices(base)
+        if ok:
+            return SourceDiscovery(models, ok=True)
+        return SourceDiscovery([], ok=False)
+    if kind == "stt":
+        return SourceDiscovery([], ok=True)
+    return SourceDiscovery([], ok=False)
 
+
+def _catalog_prune_enabled(db: Session) -> bool:
+    from .models import AuthSettings
+
+    auth = db.query(AuthSettings).first()
+    if auth is None:
+        return True
+    return bool(auth.catalog_prune_on_sync)
+
+
+def _prune_source_catalog(
+    db: Session,
+    *,
+    source_name: str,
+    discovered_ids: set[str],
+) -> int:
+    """Disable rows missing from upstream. Returns count newly disabled."""
+    pruned = 0
+    rows = (
+        db.query(CatalogModel)
+        .filter(CatalogModel.source_name == source_name)
+        .all()
+    )
+    for row in rows:
+        if row.model_id in discovered_ids:
+            continue
+        if (row.disabled_by or "") == DISABLED_BY_ADMIN:
+            continue
+        if not row.enabled and (row.disabled_by or "") == DISABLED_BY_SYNC:
+            continue
+        row.enabled = False
+        row.disabled_by = DISABLED_BY_SYNC
+        pruned += 1
+    return pruned
+
+
+def _clear_sync_disabled(row: CatalogModel) -> None:
+    if (row.disabled_by or "") == DISABLED_BY_SYNC:
+        row.enabled = True
+        row.disabled_by = ""
 
 def sync_catalog_from_sources(db: Session) -> dict[str, int]:
-    """Upsert models from sources. Keeps enabled + admin metadata; fills empty tags.
+    """Upsert models from sources. Keeps admin metadata; optional prune of stale rows.
 
     Upstream numeric meta is last-known: updated when the source sends ``meta``,
     retained when the model is listed unloaded without ``meta``.
@@ -429,6 +520,8 @@ def sync_catalog_from_sources(db: Session) -> dict[str, int]:
     created = 0
     tagged = 0
     meta_updates = 0
+    pruned = 0
+    prune_on_sync = _catalog_prune_enabled(db)
     now = utcnow()
     for src in list_sources(db):
         if not (src.address or "").strip():
@@ -436,12 +529,14 @@ def sync_catalog_from_sources(db: Session) -> dict[str, int]:
         if src.kind not in ("chat", "embed", "stt", "tts"):
             continue
         try:
-            discovered = discover_models_for_source(src.address.strip(), src.kind)
+            discovery = discover_models_for_source(src.address.strip(), src.kind)
         except Exception:
-            discovered = []
+            discovery = SourceDiscovery([], ok=False)
+        discovered = list(discovery.models)
         if not discovered and src.kind in ("stt", "tts"):
             # Placeholder so the source appears in catalog (whisper: no model list)
             discovered = [DiscoveredModel(model_id=src.name)]
+        discovered_ids = {d.model_id for d in discovered}
         for disc in discovered:
             seen += 1
             row = get_catalog_entry(db, src.name, disc.model_id)
@@ -451,6 +546,7 @@ def sync_catalog_from_sources(db: Session) -> dict[str, int]:
                     kind=src.kind,
                     model_id=disc.model_id,
                     enabled=True,
+                    disabled_by="",
                     last_seen_at=now,
                 )
                 if (
@@ -473,12 +569,19 @@ def sync_catalog_from_sources(db: Session) -> dict[str, int]:
                 row.kind = src.kind
                 row.last_seen_at = now
                 apply_discovered_fields(row, disc, now=now)
+                _clear_sync_disabled(row)
                 if disc.has_meta:
                     meta_updates += 1
                 before = row.tags or ""
                 apply_inferred_tags(row, only_if_empty=True)
                 if (row.tags or "") != before and row.tags:
                     tagged += 1
+        if prune_on_sync and discovery.ok:
+            pruned += _prune_source_catalog(
+                db,
+                source_name=src.name,
+                discovered_ids=discovered_ids,
+            )
     db.flush()
     sources_n = len(
         [
@@ -493,6 +596,7 @@ def sync_catalog_from_sources(db: Session) -> dict[str, int]:
         "created": created,
         "tagged": tagged,
         "meta": meta_updates,
+        "pruned": pruned,
     }
 
 
