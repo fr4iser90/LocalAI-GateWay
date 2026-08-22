@@ -70,6 +70,10 @@ class Team(Base):
     daily_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
     monthly_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
     priority: Mapped[int] = mapped_column(Integer, default=0)
+    # Empty = inherit platform routing_strategy from auth_settings.
+    routing_strategy: Mapped[str] = mapped_column(String(32), default="")
+    # Pin tied-route picks to this source name when the model exists there.
+    preferred_source: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     members: Mapped[list[TeamMember]] = relationship(
@@ -119,6 +123,8 @@ class ApiKey(Base):
     concurrency_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
     daily_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
     priority: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    routing_strategy: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    preferred_source: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -360,6 +366,15 @@ class BackendSource(Base):
     temp_guard_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # Optional operator label: "Strix Halo", "Jetson Orin Super" — display only.
     hardware: Mapped[str] = mapped_column(String(64), default="")
+    # Last probe fingerprint (llama.cpp, ollama, vllm, …). Empty until probed.
+    detected_engine: Mapped[str] = mapped_column(String(64), default="")
+    # Admin override; empty = auto (use detected_engine or live discover).
+    engine_override: Mapped[str] = mapped_column(String(64), default="")
+    # Gateway admission slots for this source. NULL = auto from engine /slots or /props.
+    # 0 = admission gate off for this source.
+    max_concurrency: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Per-source queue wait (sec). NULL = platform default in auth_settings.
+    queue_timeout_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class CatalogModel(Base):
@@ -434,10 +449,15 @@ class AuthSettings(Base):
     pool_tokens_per_sec: Mapped[float] = mapped_column(Float, default=50.0)
     # Off by default: budget charge = tokens. On: Models → factor may scale charge only.
     pool_model_weights_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    # Before proxy: quick upstream check → 503 model_initializing / backend_busy (fail-open).
+    # Before proxy: capability-driven upstream check → 503 (strict, no fail-open).
     preflight_upstream: Mapped[bool] = mapped_column(Boolean, default=True)
     # Among tied catalog matches: pick source with most idle capacity (cached probe).
     load_aware_routing: Mapped[bool] = mapped_column(Boolean, default=True)
+    # load_aware | round_robin | name — tie-break when same model on multiple sources.
+    routing_strategy: Mapped[str] = mapped_column(String(32), default="load_aware")
+    # Per-source admission queue (after strict preflight, before proxy).
+    source_admission_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    source_queue_timeout_sec: Mapped[int] = mapped_column(Integer, default=30)
     # New users (and self-register): comma source names; empty = sources marked default.
     default_grant_sources: Mapped[str] = mapped_column(Text, default="")
     # Newline "source:model"; empty = all ON models for those sources.

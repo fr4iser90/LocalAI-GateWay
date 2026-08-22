@@ -237,6 +237,36 @@ def _join_modalities(raw) -> str:
     return ",".join(parts)[:128]
 
 
+def split_modalities(raw: str | None) -> list[str]:
+    """Comma-separated catalog modalities → OpenAI-style modality list."""
+    if not (raw or "").strip():
+        return []
+    return [p.strip() for p in raw.split(",") if p.strip()]
+
+
+def tags_for_openai_payload(row: CatalogModel) -> list[str]:
+    """Tags for /v1/models: admin catalog tags plus vision when upstream synced image input."""
+    tags = parse_tags(row.tags)
+    mods = {m.lower() for m in split_modalities(row.modalities_in)}
+    if ("image" in mods or "vision" in mods) and "vision" not in tags:
+        tags.append("vision")
+    return tags
+
+
+def architecture_for_openai_payload(row: CatalogModel) -> dict | None:
+    """OpenAI/llama.cpp-style architecture block from synced upstream modalities."""
+    mod_in = split_modalities(row.modalities_in)
+    mod_out = split_modalities(row.modalities_out)
+    if not mod_in and not mod_out:
+        return None
+    arch: dict = {}
+    if mod_in:
+        arch["input_modalities"] = mod_in
+    if mod_out:
+        arch["output_modalities"] = mod_out
+    return arch
+
+
 def ctx_size_from_args(args) -> int | None:
     """Extract --ctx-size / -c from llama.cpp status.args when present."""
     if not isinstance(args, list):
@@ -537,6 +567,12 @@ def openai_models_payload(rows: list[CatalogModel]) -> dict:
             entry["size"] = row.model_size
         if row.upstream_status:
             entry["status"] = row.upstream_status
+        tags = tags_for_openai_payload(row)
+        if tags:
+            entry["tags"] = tags
+        arch = architecture_for_openai_payload(row)
+        if arch:
+            entry["architecture"] = arch
         data.append(entry)
     return {"object": "list", "data": data}
 

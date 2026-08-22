@@ -129,6 +129,45 @@ def test_grant_aware_limits_candidates(tmp_path: Path):
     assert picked.name == "nano"
 
 
+def test_preferred_source_pins_tied_pick(tmp_path: Path):
+    db = _session(tmp_path)
+    upsert_source(db, name="gpu-a", kind="chat", address="h1:1")
+    upsert_source(db, name="gpu-b", kind="chat", address="h2:1")
+    _cat(db, "gpu-a", "jarvis")
+    _cat(db, "gpu-b", "jarvis")
+    db.commit()
+
+    picked = resolve_source_for_kind(
+        db,
+        "chat",
+        model="jarvis",
+        routing_strategy="round_robin",
+        preferred_source="gpu-b",
+    )
+    assert picked is not None
+    assert picked.name == "gpu-b"
+
+
+def test_round_robin_rotates(tmp_path: Path):
+    from app.data.routing_strategy import round_robin_state
+
+    db = _session(tmp_path)
+    upsert_source(db, name="alpha", kind="chat", address="h1:1")
+    upsert_source(db, name="beta", kind="chat", address="h2:1")
+    _cat(db, "alpha", "jarvis")
+    _cat(db, "beta", "jarvis")
+    db.commit()
+
+    round_robin_state._cursor.clear()
+    picks = [
+        resolve_source_for_kind(
+            db, "chat", model="jarvis", routing_strategy="round_robin"
+        ).name
+        for _ in range(4)
+    ]
+    assert picks == ["alpha", "beta", "alpha", "beta"]
+
+
 def test_load_aware_off_ties_break_by_name(tmp_path: Path):
     db = _session(tmp_path)
     upsert_source(db, name="chat", kind="chat", address="h1:1")
@@ -138,7 +177,7 @@ def test_load_aware_off_ties_break_by_name(tmp_path: Path):
     db.commit()
 
     picked = resolve_source_for_kind(
-        db, "chat", model="jarvis", load_aware=False
+        db, "chat", model="jarvis", routing_strategy="name"
     )
     assert picked is not None
     assert picked.name == "chat"

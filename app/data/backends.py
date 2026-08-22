@@ -155,14 +155,21 @@ def resolve_source_for_kind(
     *,
     model: str | None = None,
     allowed_services: set[str] | None = None,
-    load_aware: bool = True,
+    routing_strategy: str = "load_aware",
+    preferred_source: str | None = None,
+    load_aware: bool | None = None,
 ) -> BackendSource | None:
     """Pick upstream for a /v1 request by enabled catalog model.
 
     No kind fallback: unknown, disabled, or missing model → None.
-    When several sources tie on pattern score, optional load-aware pick
-    (idle slots / model loaded) among allowed_services.
+    When several sources tie on pattern score, break ties via routing_strategy.
     """
+    from .routing_strategy import normalize_routing_strategy, round_robin_state
+
+    if load_aware is not None:
+        strategy = "load_aware" if load_aware else "name"
+    else:
+        strategy = normalize_routing_strategy(routing_strategy)
     if not (model or "").strip():
         return None
     sources = (
@@ -197,9 +204,27 @@ def resolve_source_for_kind(
     ranked.sort(key=lambda t: (-t[0], t[1]))
     top_score = ranked[0][0]
     tied = [t for t in ranked if t[0] == top_score]
-    if len(tied) == 1 or not load_aware:
+    if len(tied) == 1:
         return tied[0][2]
 
+    pref = (preferred_source or "").strip().lower()
+    if pref:
+        for _score, name, src in tied:
+            if name == pref:
+                return src
+
+    if strategy == "round_robin":
+        names = [t[1] for t in tied]
+        pick_name = round_robin_state.pick(kind=kind, model=model or "", source_names=names)
+        for _score, name, src in tied:
+            if name == pick_name:
+                return src
+        return tied[0][2]
+
+    if strategy == "name":
+        return tied[0][2]
+
+    # load_aware (default)
     from .source_load import load_cache, load_sort_key
 
     def _pick_key(t: tuple[int, str, BackendSource]) -> tuple:

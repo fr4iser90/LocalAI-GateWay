@@ -92,6 +92,7 @@ def teams_new(
     user: Annotated[WebUser, Depends(require_platform_admin)],
 ):
     from ...data.grants import AccessCeiling, catalog_groups_for_ceiling
+    from ...data.routing_strategy import normalize_routing_strategy, routing_strategy_choices
 
     _require_teams_feature(db)
     names = source_names(db)
@@ -107,6 +108,7 @@ def teams_new(
             "catalog_groups": catalog_groups_for_ceiling(
                 db, AccessCeiling(unrestricted=True)
             ),
+            "routing_strategies": routing_strategy_choices(include_inherit=True),
             "selected_models": set(),
             "model_limits_text": "",
             "users": db.query(WebUser).order_by(WebUser.username).all(),
@@ -117,6 +119,16 @@ def teams_new(
             "read_only": False,
         },
     )
+
+
+def _apply_team_routing_from_form(team: Team, form, db: Session) -> None:
+    from ...data.routing_strategy import normalize_routing_strategy
+
+    names = set(source_names(db))
+    raw_strat = (form.get("routing_strategy") or "").strip()
+    team.routing_strategy = normalize_routing_strategy(raw_strat) if raw_strat else ""
+    pref = str(form.get("preferred_source") or "").strip().lower()
+    team.preferred_source = pref if pref in names else ""
 
 
 @router.post("/teams/new")
@@ -150,6 +162,7 @@ async def teams_create(
     _sync_team_models(db, team, models)
     sync_team_model_limits(db, team, str(form.get("model_limits") or ""))
     _sync_team_members(db, team, form.getlist("members"), form.getlist("owners"))
+    _apply_team_routing_from_form(team, form, db)
     write_audit(
         db, actor=user, action="team.create", entity_type="team", entity_id=team.id, detail=name
     )
@@ -187,6 +200,7 @@ def teams_edit(
     else:
         users = [m.user for m in team.members if m.user]
     from ...data.grants import AccessCeiling, catalog_groups_for_ceiling
+    from ...data.routing_strategy import routing_strategy_choices
 
     return templates.TemplateResponse(
         request,
@@ -200,6 +214,7 @@ def teams_edit(
             "catalog_groups": catalog_groups_for_ceiling(
                 db, AccessCeiling(unrestricted=True)
             ),
+            "routing_strategies": routing_strategy_choices(include_inherit=True),
             "selected_models": selected,
             "model_limits_text": _format_model_limits(team.model_limits),
             "users": users,
@@ -243,6 +258,7 @@ async def teams_update(
     _sync_team_models(db, team, models)
     sync_team_model_limits(db, team, str(form.get("model_limits") or ""))
     _sync_team_members(db, team, form.getlist("members"), form.getlist("owners"))
+    _apply_team_routing_from_form(team, form, db)
     write_audit(
         db, actor=user, action="team.update", entity_type="team", entity_id=team.id, detail=team.name
     )

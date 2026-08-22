@@ -4,12 +4,33 @@
     <h3 class="section-label">OnPrem AI Gateway behavior</h3>
     <div class="checkboxes checkboxes-block">
       <label><input type="checkbox" name="auto_vl_routing" {% if auth.auto_vl_routing %}checked{% endif %}> Auto-route image chat → VL model</label>
-      <label><input type="checkbox" name="preflight_upstream" {% if auth.preflight_upstream %}checked{% endif %}> Preflight upstream (503 when loading / busy)</label>
-      <label><input type="checkbox" name="load_aware_routing" {% if auth.load_aware_routing %}checked{% endif %}> Load-aware routing (spread tied models)</label>
+      <label><input type="checkbox" name="preflight_upstream" {% if auth.preflight_upstream %}checked{% endif %}> Strict preflight (503 when busy / loading / probe failed)</label>
+      <label><input type="checkbox" name="source_admission_enabled" {% if auth.source_admission_enabled %}checked{% endif %}> Per-source admission queue (after preflight)</label>
+    </div>
+    <div class="field field-gap-sm">
+      <label for="routing-strategy">Tie-break strategy (same model on multiple sources)</label>
+      <select id="routing-strategy" name="routing_strategy">
+        {% for rs in routing_strategies %}
+        <option value="{{ rs.id }}" {% if (auth.routing_strategy or 'load_aware') == rs.id %}selected{% endif %}
+                title="{{ rs.summary }}">{{ rs.label }}</option>
+        {% endfor %}
+      </select>
+      <p class="muted mt-0 text-sm">
+        Applies only when the catalog lists the same model on more than one source.
+        <span class="mono">load_aware</span> uses live probes;
+        <span class="mono">round_robin</span> rotates evenly per model;
+        <span class="mono">name</span> is fixed alphabetical.
+      </p>
+    </div>
+    <div class="field field-gap-sm">
+      <label for="source-queue-timeout">Source queue timeout (seconds)</label>
+      <input id="source-queue-timeout" type="number" name="source_queue_timeout_sec" min="1" max="600"
+             value="{{ auth.source_queue_timeout_sec or 30 }}">
     </div>
     <p class="muted field-gap-sm">
-      Preflight: quick check before proxy — <span class="mono">503</span> + <span class="mono">Retry-After</span> instead of long hangs.
-      Load-aware: pick least busy source when the same model exists on multiple boxes (~3s cache).
+      Strict preflight uses engine-specific APIs (<span class="mono">/slots</span>, <span class="mono">/api/ps</span>, <span class="mono">/metrics</span>) — no fail-open.
+      Returns <span class="mono">503</span> + <span class="mono">Retry-After</span> when the backend cannot admit the request.
+      Admission queue: holds a per-source slot (from <span class="mono">max_concurrency</span> or engine <span class="mono">/props</span> slots) with team priority until the stream ends.
     </p>
 
     <h3 class="section-label field-gap-md">Auto model aliases</h3>

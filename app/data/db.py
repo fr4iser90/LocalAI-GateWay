@@ -71,6 +71,8 @@ def _ensure_columns(eng) -> None:
         "teams": [
             ("daily_quota", "INTEGER"),
             ("monthly_quota", "INTEGER"),
+            ("routing_strategy", "VARCHAR(32) DEFAULT ''"),
+            ("preferred_source", "VARCHAR(64) DEFAULT ''"),
         ],
         "usage_events": [
             ("tokens_in", "INTEGER"),
@@ -98,6 +100,8 @@ def _ensure_columns(eng) -> None:
         "api_keys": [
             ("daily_quota", "INTEGER"),
             ("owner_user_id", "INTEGER"),
+            ("routing_strategy", "VARCHAR(32)"),
+            ("preferred_source", "VARCHAR(64)"),
         ],
         "auth_settings": [
             ("teams_enabled", "BOOLEAN DEFAULT 0"),
@@ -119,6 +123,9 @@ def _ensure_columns(eng) -> None:
             ("pool_model_weights_enabled", "BOOLEAN DEFAULT 0"),
             ("preflight_upstream", "BOOLEAN DEFAULT 1"),
             ("load_aware_routing", "BOOLEAN DEFAULT 1"),
+            ("routing_strategy", "VARCHAR(32) DEFAULT 'load_aware'"),
+            ("source_admission_enabled", "BOOLEAN DEFAULT 1"),
+            ("source_queue_timeout_sec", "INTEGER DEFAULT 30"),
             ("default_grant_sources", "TEXT DEFAULT ''"),
             ("default_grant_models", "TEXT DEFAULT ''"),
             ("show_global_stats", "BOOLEAN DEFAULT 0"),
@@ -141,6 +148,10 @@ def _ensure_columns(eng) -> None:
             ("gpu_power_url", "VARCHAR(512) DEFAULT ''"),
             ("temp_guard_enabled", "BOOLEAN DEFAULT 1"),
             ("hardware", "VARCHAR(64) DEFAULT ''"),
+            ("detected_engine", "VARCHAR(64) DEFAULT ''"),
+            ("engine_override", "VARCHAR(64) DEFAULT ''"),
+            ("max_concurrency", "INTEGER"),
+            ("queue_timeout_sec", "INTEGER"),
         ],
         "service_grants": [
             ("user_id", "INTEGER"),
@@ -414,6 +425,9 @@ def init_db(settings: Settings) -> None:
                     pool_model_weights_enabled=False,
                     preflight_upstream=True,
                     load_aware_routing=True,
+                    routing_strategy="load_aware",
+                    source_admission_enabled=True,
+                    source_queue_timeout_sec=30,
                 )
             )
         from .backends import seed_backends_from_env

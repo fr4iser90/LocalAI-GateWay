@@ -288,6 +288,8 @@ def _key_form_context(
         if api_key is not None
         else (owner_user_id or user.id)
     )
+    from ..data.routing_strategy import routing_strategy_choices
+
     return {
         "user": user,
         "key": api_key,
@@ -308,6 +310,7 @@ def _key_form_context(
         "grant_summary": grant_summary(ceil),
         "grant_empty": (not ceil.unrestricted and not ceil.services),
         "default_owner_user_id": resolved_owner,
+        "routing_strategies": routing_strategy_choices(include_inherit=True),
     }
 
 

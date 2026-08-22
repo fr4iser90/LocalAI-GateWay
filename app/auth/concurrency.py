@@ -13,6 +13,7 @@ class ConcurrencyLease:
     key_id: int
     user_id: int | None = None
     model: str | None = None
+    source_key: str | None = None  # upstream host:port — held in source admission gate
 
 
 def release_concurrency_lease(lease: ConcurrencyLease | None) -> None:
@@ -20,3 +21,7 @@ def release_concurrency_lease(lease: ConcurrencyLease | None) -> None:
         return
     rate_limiter.release(lease.key_id, model=lease.model, user_id=lease.user_id)
     priority_gate.release(lease.key_id)
+    if lease.source_key:
+        from .source_admission import source_admission_gate
+
+        source_admission_gate.release(lease.source_key)

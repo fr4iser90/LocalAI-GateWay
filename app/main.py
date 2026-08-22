@@ -67,7 +67,66 @@ def _lease_from_ticket(payload: dict) -> ConcurrencyLease | None:
     except (TypeError, ValueError):
         user_id = None
     mdl = str(payload.get("mdl") or "").strip() or None
-    return ConcurrencyLease(key_id=key_id, user_id=user_id, model=mdl)
+    sk = str(payload.get("sk") or "").strip() or None
+    return ConcurrencyLease(key_id=key_id, user_id=user_id, model=mdl, source_key=sk)
+
+
+def _attach_source_key(
+    lease: ConcurrencyLease | None, backend: str
+) -> ConcurrencyLease | None:
+    if lease is None:
+        return None
+    key = (backend or "").strip() or None
+    return ConcurrencyLease(
+        key_id=lease.key_id,
+        user_id=lease.user_id,
+        model=lease.model,
+        source_key=key,
+    )
+
+
+def _source_admission_block(
+    *,
+    auth_cfg,
+    src,
+    backend: str,
+    kind: str,
+    model: str | None,
+    service: str,
+    lease: ConcurrencyLease | None,
+    priority: int,
+) -> JSONResponse | None:
+    if auth_cfg is None or not getattr(auth_cfg, "source_admission_enabled", True):
+        return None
+    if src is None or lease is None:
+        return None
+    from .auth.source_admission import try_acquire_source_admission
+
+    outcome = try_acquire_source_admission(
+        src=src,
+        backend=backend,
+        kind=kind,
+        model=model,
+        key_id=lease.key_id,
+        priority=priority,
+        platform_queue_timeout_sec=int(
+            getattr(auth_cfg, "source_queue_timeout_sec", 30) or 30
+        ),
+        enabled=True,
+    )
+    if outcome.acquired:
+        return None
+    release_concurrency_lease(lease)
+    return JSONResponse(
+        {
+            "error": outcome.reason,
+            "service": service,
+            "limit": outcome.limit,
+            "retry_after": outcome.retry_after,
+        },
+        status_code=503,
+        headers={"Retry-After": str(outcome.retry_after)},
+    )
 
 
 def _preflight_block(
@@ -78,17 +137,30 @@ def _preflight_block(
     model: str | None,
     service: str,
     lease: ConcurrencyLease | None,
+    src=None,
 ) -> JSONResponse | None:
     if auth_cfg is None or not getattr(auth_cfg, "preflight_upstream", False):
         return None
     from .upstream_preflight import preflight_upstream
 
-    pf = preflight_upstream(backend=backend, kind=kind, model=model)
+    pf = preflight_upstream(
+        backend=backend,
+        kind=kind,
+        model=model,
+        engine_override=getattr(src, "engine_override", None) if src is not None else None,
+        detected_engine=getattr(src, "detected_engine", None) if src is not None else None,
+    )
     if pf.ok:
         return None
     release_concurrency_lease(lease)
     return JSONResponse(
-        {"error": pf.reason, "service": service, "retry_after": pf.retry_after},
+        {
+            "error": pf.reason,
+            "service": service,
+            "engine": pf.engine,
+            "detail": pf.detail,
+            "retry_after": pf.retry_after,
+        },
         status_code=503,
         headers={"Retry-After": str(pf.retry_after)},
     )
@@ -309,7 +381,7 @@ def create_app() -> FastAPI:
                 kind,
                 model=model,
                 raw_key=raw_key,
-                load_aware=bool(getattr(auth_cfg, "load_aware_routing", True)),
+                auth=auth_cfg,
             )
             if src is None:
                 return _unresolved_model_response(kind, model)
@@ -385,9 +457,23 @@ def create_app() -> FastAPI:
                 model=result.model,
                 service=service,
                 lease=result.concurrency_lease,
+                src=src_row,
             )
             if pf_block is not None:
                 return pf_block
+            adm_block = _source_admission_block(
+                auth_cfg=get_auth_settings(db),
+                src=src_row,
+                backend=backend,
+                kind=kind,
+                model=result.model,
+                service=service,
+                lease=result.concurrency_lease,
+                priority=result.priority,
+            )
+            if adm_block is not None:
+                return adm_block
+            vl_lease = _attach_source_key(result.concurrency_lease, backend)
             headers["X-OnPrem-Proxy"] = "1"
             headers["X-OnPrem-Ticket"] = mint_forward_ticket(
                 secret=settings.session_secret,
@@ -396,7 +482,7 @@ def create_app() -> FastAPI:
                 rewrite_uri=rewrite_uri,
                 rewrite_model=vl_rewrite,
                 usage_id=result.usage_event_id,
-                concurrency_lease=result.concurrency_lease,
+                concurrency_lease=vl_lease,
             )
             headers["X-Auth-Reason"] = f"ok;vl={vl_rewrite}"
 
@@ -605,7 +691,7 @@ def create_app() -> FastAPI:
                 kind,
                 model=model,
                 raw_key=raw_key,
-                load_aware=bool(getattr(auth_cfg, "load_aware_routing", True)),
+                auth=auth_cfg,
             )
             if src is None:
                 return _unresolved_model_response(kind, model)
@@ -649,6 +735,7 @@ def create_app() -> FastAPI:
             release_concurrency_lease(result.concurrency_lease)
             return JSONResponse({"error": "backend_not_configured"}, status_code=503)
 
+        src_row = get_source_by_name(db, service)
         pf_block = _preflight_block(
             auth_cfg=auth_cfg,
             backend=backend,
@@ -656,10 +743,23 @@ def create_app() -> FastAPI:
             model=result.model,
             service=service,
             lease=result.concurrency_lease,
+            src=src_row,
         )
         if pf_block is not None:
             return pf_block
-        src_row = get_source_by_name(db, service)
+        adm_block = _source_admission_block(
+            auth_cfg=auth_cfg,
+            src=src_row,
+            backend=backend,
+            kind=kind,
+            model=result.model,
+            service=service,
+            lease=result.concurrency_lease,
+            priority=result.priority,
+        )
+        if adm_block is not None:
+            return adm_block
+        entry_lease = _attach_source_key(result.concurrency_lease, backend)
         api_style = getattr(src_row, "api_style", None) if src_row is not None else None
         rewrite_uri = map_upstream_path(upstream_uri, kind=kind, api_style=api_style)
         final_model = vl_rewrite or auto_rewrite
@@ -693,7 +793,7 @@ def create_app() -> FastAPI:
             body=body,
             usage_id=result.usage_event_id,
             probe_url=probe_url_for_source(src_row),
-            concurrency_lease=result.concurrency_lease,
+            concurrency_lease=entry_lease,
         )
 
     @app.api_route("/v1/onprem/forward", methods=["POST", "PUT", "PATCH"])
@@ -749,6 +849,7 @@ def create_app() -> FastAPI:
         probe = ""
         kind = "chat"
         auth_cfg = None
+        src = None
         service_name = str(payload.get("service") or "")
         if SessionLocal is not None:
             pdb = SessionLocal()
@@ -761,16 +862,18 @@ def create_app() -> FastAPI:
             finally:
                 pdb.close()
 
-        pf_block = _preflight_block(
-            auth_cfg=auth_cfg,
-            backend=backend,
-            kind=kind,
-            model=rewrite_model or str(payload.get("mdl") or "") or None,
-            service=service_name,
-            lease=lease,
-        )
-        if pf_block is not None:
-            return pf_block
+        if lease is None or not lease.source_key:
+            pf_block = _preflight_block(
+                auth_cfg=auth_cfg,
+                backend=backend,
+                kind=kind,
+                model=rewrite_model or str(payload.get("mdl") or "") or None,
+                service=service_name,
+                lease=lease,
+                src=src,
+            )
+            if pf_block is not None:
+                return pf_block
 
         return await _stream_upstream_metered(
             method=request.method,

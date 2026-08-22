@@ -25,6 +25,7 @@ def services_page(
     user: Annotated[WebUser, Depends(require_platform_admin)],
 ):
     from ...data.backends import catalog_route_models, hardware_labels, source_rows
+    from ...data.capabilities import engine_choices
     from ...data.probe import probe_all
 
     settings = _settings(request)
@@ -49,6 +50,7 @@ def services_page(
             "engine_by": engine_by,
             "kinds": KINDS,
             "api_styles": dialect_choices(),
+            "engine_choices": engine_choices(),
             "dialect_blurbs": dialect_blurbs,
             "domain": settings.domain,
             "nav": "services",
@@ -78,6 +80,7 @@ def services_create(
     kind: str = Form("chat"),
     address: str = Form(""),
     api_style: str = Form("auto"),
+    engine_override: str = Form(""),
     hardware: str = Form(""),
     temp_guard_enabled: str | None = Form(None),
 ):
@@ -127,6 +130,9 @@ def services_update(
     user: Annotated[WebUser, Depends(require_platform_admin)],
     address: str = Form(""),
     api_style: str = Form("auto"),
+    engine_override: str = Form(""),
+    max_concurrency: str = Form(""),
+    queue_timeout_sec: str = Form(""),
     name: str = Form(""),
     hardware: str = Form(""),
     temp_guard_enabled: str | None = Form(None),
@@ -137,6 +143,7 @@ def services_update(
         rename_source,
         validate_backend,
     )
+    from ...data.capabilities import ENGINE_PROFILES
     from ...data.models import BackendSource
 
     src = db.get(BackendSource, source_id)
@@ -156,6 +163,22 @@ def services_update(
     src.temp_guard_enabled = temp_guard_enabled is not None
     src.route_models = ""  # merge targets come from catalog sync only
     src.api_style = style
+    override = (engine_override or "").strip()
+    src.engine_override = override if override in ENGINE_PROFILES else ""
+
+    def _opt_int_field(raw: str) -> int | None:
+        s = (raw or "").strip()
+        if not s:
+            return None
+        try:
+            return int(s)
+        except ValueError:
+            return None
+
+    mc = _opt_int_field(max_concurrency)
+    src.max_concurrency = mc if mc is not None else None
+    qt = _opt_int_field(queue_timeout_sec)
+    src.queue_timeout_sec = qt if qt and qt > 0 else None
     src.hardware = normalize_hardware_label(hardware)
     err = rename_source(db, src, name or src.name)
     if err:

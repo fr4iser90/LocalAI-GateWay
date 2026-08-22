@@ -380,8 +380,13 @@ def probe_all(db: Session) -> list[ServiceStatus]:
         return []
     results: dict[str, ServiceStatus] = {}
     with ThreadPoolExecutor(max_workers=max(4, len(sources))) as pool:
-        futs = {pool.submit(probe_source, s): s.name for s in sources}
+        futs = {pool.submit(probe_source, s): s for s in sources}
         for fut in as_completed(futs):
+            src = futs[fut]
             st = fut.result()
             results[st.service] = st
+            engine = (st.engine or "").strip()
+            if engine and engine != (src.detected_engine or ""):
+                src.detected_engine = engine
+    db.commit()
     return [results[s.name] for s in sources if s.name in results]

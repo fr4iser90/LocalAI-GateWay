@@ -22,11 +22,33 @@
           <label for="team-priority">Priority</label>
           <input id="team-priority" type="number" name="priority" value="{{ team.priority if team else 0 }}">
         </div>
+        <div class="field">
+          <label for="team-routing">Routing tie-break</label>
+          <select id="team-routing" name="routing_strategy">
+            {% for rs in routing_strategies %}
+            <option value="{{ rs.id }}" {% if (team.routing_strategy if team else '') == rs.id %}selected{% endif %}
+                    title="{{ rs.summary }}">{{ rs.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="team-preferred">Preferred source</label>
+          <select id="team-preferred" name="preferred_source">
+            <option value="" {% if not team or not team.preferred_source %}selected{% endif %}>— none —</option>
+            {% for chip in source_chips %}
+            <option value="{{ chip.name }}" {% if team and team.preferred_source == chip.name %}selected{% endif %}>{{ chip.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
       </div>
       <div class="field field-gap">
         <label for="team-desc">Description</label>
         <input id="team-desc" type="text" name="description" value="{{ team.description if team else '' }}" placeholder="All chat models">
       </div>
+      <p class="muted text-sm mt-0">
+        Routing override applies when the same model exists on multiple sources.
+        <span class="mono">Preferred source</span> pins picks to one box when that model is listed there.
+      </p>
 
       <div class="field field-gap">
         <label>Grant · sources</label>

@@ -49,6 +49,7 @@ def _settings_page_context(
         display_default_models,
         display_default_sources,
     )
+    from ...data.routing_strategy import routing_strategy_choices
     from ...data.usage_weights import catalog_weight_suggestions
     from ..accounts import get_auth_settings
 
@@ -104,6 +105,7 @@ def _settings_page_context(
         "gpu_power_enabled": _gpu_power_enabled(request, db),
         "observed_tok_s": observed_tok_s,
         "weight_status": weight_status,
+        "routing_strategies": routing_strategy_choices(),
         **grant_ctx,
     }
 
@@ -282,17 +284,30 @@ def settings_routing_save(
     user: Annotated[WebUser, Depends(require_platform_admin)],
     auto_vl_routing: str = Form(""),
     preflight_upstream: str = Form(""),
-    load_aware_routing: str = Form(""),
+    routing_strategy: str = Form("load_aware"),
+    source_admission_enabled: str = Form(""),
+    source_queue_timeout_sec: str = Form("30"),
     auto_model_default: str = Form(""),
     auto_model_quality: str = Form(""),
     auto_model_long: str = Form(""),
 ):
     from ..accounts import get_auth_settings
 
+    from ...data.routing_strategy import normalize_routing_strategy
+
     auth = get_auth_settings(db)
     auth.auto_vl_routing = auto_vl_routing == "on"
     auth.preflight_upstream = preflight_upstream == "on"
-    auth.load_aware_routing = load_aware_routing == "on"
+    strategy = normalize_routing_strategy(routing_strategy)
+    auth.routing_strategy = strategy
+    auth.load_aware_routing = strategy == "load_aware"
+    auth.source_admission_enabled = source_admission_enabled == "on"
+    try:
+        auth.source_queue_timeout_sec = max(
+            1, min(600, int(source_queue_timeout_sec or "30"))
+        )
+    except ValueError:
+        auth.source_queue_timeout_sec = 30
     auth.auto_model_default = (auto_model_default or "").strip()[:256]
     auth.auto_model_quality = (auto_model_quality or "").strip()[:256]
     auth.auto_model_long = (auto_model_long or "").strip()[:256]
@@ -304,7 +319,8 @@ def settings_routing_save(
         entity_id=auth.id,
         detail=(
             f"auto_vl={auth.auto_vl_routing} preflight={auth.preflight_upstream} "
-            f"load_aware={auth.load_aware_routing}"
+            f"routing={auth.routing_strategy} admission={auth.source_admission_enabled} "
+            f"queue_s={auth.source_queue_timeout_sec}"
         ),
     )
     db.commit()

@@ -68,7 +68,29 @@
           </div>
           <div class="field">
             <label for="key-priority-{{ key.id }}">Priority</label>
-            <input id="key-priority-{{ key.id }}" type="number" name="priority" value="{{ key.priority if key.priority is not none else '' }}" placeholder="0">
+            <input id="key-priority-{{ key.id }}" type="number" name="priority" value="{{ key.priority if key.priority is not none else '' }}" placeholder="inherit">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="key-routing-{{ key.id }}">Routing tie-break</label>
+            <select id="key-routing-{{ key.id }}" name="routing_strategy">
+              {% for rs in routing_strategies %}
+              <option value="{{ rs.id }}"
+                {% if (key.routing_strategy or '') == rs.id %}selected{% elif not key.routing_strategy and not rs.id %}selected{% endif %}
+                title="{{ rs.summary }}">{{ rs.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="key-preferred-{{ key.id }}">Preferred source</label>
+            <select id="key-preferred-{{ key.id }}" name="preferred_source">
+              <option value="" {% if not key.preferred_source %}selected{% endif %}>Inherit (team)</option>
+              {% for chip in source_chips %}
+              <option value="{{ chip.name }}" {% if key.preferred_source == chip.name %}selected{% endif %}>{{ chip.name }}</option>
+              {% endfor %}
+            </select>
           </div>
         </div>
 

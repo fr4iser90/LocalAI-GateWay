@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from app.auth.concurrency import ConcurrencyLease
 from app.data.models import Base, CatalogModel, make_engine, make_session_factory
 from app.vision_route import (
     mint_forward_ticket,
@@ -199,6 +200,20 @@ def test_forward_ticket_roundtrip():
     assert p["model"] == "x-VL"
     assert p["uid"] == 42
     assert parse_forward_ticket(t, "wrong") is None
+
+
+def test_forward_ticket_carries_source_key():
+    lease = ConcurrencyLease(key_id=3, user_id=9, model="m", source_key="10.0.0.2:8080")
+    t = mint_forward_ticket(
+        secret="s",
+        service="chat",
+        backend="10.0.0.2:8080",
+        rewrite_uri="/v1/chat/completions",
+        concurrency_lease=lease,
+    )
+    p = parse_forward_ticket(t, "s")
+    assert p is not None
+    assert p["sk"] == "10.0.0.2:8080"
 
 
 def test_forward_ticket_passthrough_no_model():

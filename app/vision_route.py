@@ -296,6 +296,8 @@ def mint_forward_ticket(
             payload["owner"] = int(concurrency_lease.user_id)
         if concurrency_lease.model:
             payload["mdl"] = concurrency_lease.model
+        if concurrency_lease.source_key:
+            payload["sk"] = concurrency_lease.source_key
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     sig = hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
     return base64.urlsafe_b64encode(raw).decode("ascii") + "." + sig

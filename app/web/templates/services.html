@@ -134,6 +134,27 @@
                   {% endfor %}
                 </select>
               </label>
+              <label class="svc-dialect" title="Force engine for strict preflight — Auto uses live probe">
+                Engine
+                <select name="engine_override">
+                  {% for eng in engine_choices %}
+                  <option value="{{ eng.id }}" {% if (src.engine_override or '') == eng.id %}selected{% endif %}
+                          title="{{ eng.summary }}">{{ eng.label }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label class="svc-dialect" title="Gateway slots for this source. Empty = auto from engine /props or /slots. 0 = off.">
+                Max conc
+                <input class="mono svc-conc" type="number" name="max_concurrency" min="0"
+                       value="{{ src.max_concurrency if src.max_concurrency is not none else '' }}"
+                       placeholder="auto">
+              </label>
+              <label class="svc-dialect" title="Queue wait before 503. Empty = platform default.">
+                Queue s
+                <input class="mono svc-conc" type="number" name="queue_timeout_sec" min="1"
+                       value="{{ src.queue_timeout_sec if src.queue_timeout_sec is not none else '' }}"
+                       placeholder="30">
+              </label>
               <label class="svc-dialect" title="Enable per-source temperature guard via the co-located source-sidecar">
                 <input type="checkbox" name="temp_guard_enabled" {% if src.temp_guard_enabled %}checked{% endif %}>
                 Thermal guard

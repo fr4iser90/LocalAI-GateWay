@@ -199,6 +199,45 @@ def test_context_length_from_ctx_size_only(tmp_path: Path):
     assert payload["data"][0]["context_length"] == 131072
 
 
+def test_openai_payload_includes_tags_and_architecture(tmp_path: Path):
+    db = _session(tmp_path)
+    row = CatalogModel(
+        source_name="chat",
+        kind="chat",
+        model_id="Qwen3.6-35B-A3B-MTP-UD-Q4_K_XL-VL",
+        enabled=True,
+        tags="tools,medium",
+        modalities_in="text,image",
+        modalities_out="text",
+    )
+    db.add(row)
+    db.commit()
+    payload = openai_models_payload([row])
+    item = payload["data"][0]
+    assert item["tags"] == ["tools", "medium", "vision"]
+    assert item["architecture"] == {
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+    }
+
+
+def test_openai_payload_vision_tag_from_modalities_only(tmp_path: Path):
+    db = _session(tmp_path)
+    row = CatalogModel(
+        source_name="chat",
+        kind="chat",
+        model_id="custom-vl",
+        enabled=True,
+        modalities_in="text,image",
+        modalities_out="text",
+    )
+    db.add(row)
+    db.commit()
+    item = openai_models_payload([row])["data"][0]
+    assert item["tags"] == ["vision"]
+    assert item["architecture"]["input_modalities"] == ["text", "image"]
+
+
 def test_context_length_falls_back_to_n_ctx_train(tmp_path: Path):
     db = _session(tmp_path)
     row = CatalogModel(

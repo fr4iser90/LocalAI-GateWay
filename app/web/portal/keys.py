@@ -54,6 +54,18 @@ from ..shared import (
 router = APIRouter()
 
 
+def _apply_key_routing_from_form(api_key: ApiKey, form, db: Session) -> None:
+    from ...data.routing_strategy import normalize_routing_strategy
+
+    names = set(source_names(db))
+    raw_strat = (form.get("routing_strategy") or "").strip()
+    api_key.routing_strategy = (
+        normalize_routing_strategy(raw_strat) if raw_strat else None
+    )
+    pref = str(form.get("preferred_source") or "").strip().lower()
+    api_key.preferred_source = pref if pref in names else None
+
+
 @router.get("/keys", response_class=HTMLResponse)
 def keys_list(
     request: Request,
@@ -270,6 +282,7 @@ async def keys_create(
     )
     db.add(api_key)
     db.flush()
+    _apply_key_routing_from_form(api_key, form, db)
     _sync_key_grants(db, api_key, services)
     _sync_key_models(db, api_key, models)
     sync_key_model_limits(db, api_key, str(form.get("model_limits") or ""))
@@ -368,6 +381,7 @@ async def keys_update(
     api_key.concurrency_limit = int(concurrency) if concurrency else None
     api_key.priority = int(priority) if priority not in (None, "") else None
     api_key.daily_quota = int(daily) if daily else None
+    _apply_key_routing_from_form(api_key, form, db)
 
     ceil = _resolve_ceiling(
         db,
